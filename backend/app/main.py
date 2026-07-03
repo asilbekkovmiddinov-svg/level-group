@@ -8,6 +8,7 @@ from app.routers.user import router as user_router
 from app.routers.wallet import router as wallet_router
 from app.routers.transaction import router as transaction_router
 from app.routers.deposit import router as deposit_router
+from app.routers.withdraw import router as withdraw_router
 
 app = FastAPI(
     title="LEVEL_GROUP API",
@@ -21,6 +22,7 @@ app.include_router(user_router)
 app.include_router(wallet_router)
 app.include_router(transaction_router)
 app.include_router(deposit_router)
+app.include_router(withdraw_router)
 
 
 @app.get("/")
