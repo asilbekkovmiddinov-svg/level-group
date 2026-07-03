@@ -9,5 +9,6 @@ router = APIRouter(
 @router.get("/ping")
 def ping():
     return {
-        "message": "Authentication router is working!"
+        "status": "ok",
+        "message": "LEVEL_GROUP Backend is running!"
     }
