@@ -41,24 +41,4 @@ def add_efc_balance(
     result = add_efc(db, data.telegram_id, data.amount)
 
     if not result:
-        return {
-            "message": "Wallet not found"
-        }
-
-    before, after = result
-
-    create_transaction(
-        db=db,
-        telegram_id=data.telegram_id,
-        currency="EFC",
-        amount=data.amount,
-        balance_before=before,
-        balance_after=after,
-        type="ADMIN_ADD_EFC",
-        description="EFC added manually"
-    )
-
-    return {
-        "message": "EFC added successfully",
-        "telegram_id": data.telegram_id,
-        "balance_before": float(before
+       
