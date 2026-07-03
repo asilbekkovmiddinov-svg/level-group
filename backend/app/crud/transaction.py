@@ -11,7 +11,7 @@ def create_transaction(
     balance_before: float,
     balance_after: float,
     type: str,
-    description: str = None,
+    description: str = None
 ):
     transaction = Transaction(
         telegram_id=telegram_id,
@@ -20,8 +20,7 @@ def create_transaction(
         balance_before=balance_before,
         balance_after=balance_after,
         type=type,
-        status="SUCCESS",
-        description=description,
+        description=description
     )
 
     db.add(transaction)
