@@ -23,6 +23,7 @@ def create_wallet(db: Session, telegram_id: int):
     db.refresh(wallet)
 
     return wallet
+    
 def add_efc(db: Session, telegram_id: int, amount: float):
     wallet = get_wallet(db, telegram_id)
 
