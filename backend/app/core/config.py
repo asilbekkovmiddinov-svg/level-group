@@ -1,9 +1,7 @@
+from dotenv import load_dotenv
 import os
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-
-ADMIN_ID = int(os.getenv("ADMIN_ID", "1678146043"))
+load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL")
-
-DOMAIN = os.getenv("DOMAIN")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
