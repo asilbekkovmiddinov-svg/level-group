@@ -5,8 +5,11 @@ app = FastAPI(
     version="1.0.0"
 )
 
+
 @app.get("/")
-def home():
+def root():
     return {
-        "message": "LEVEL_GROUP Backend is running"
+        "status": "online",
+        "project": "LEVEL_GROUP",
+        "version": "1.0.0"
     }
