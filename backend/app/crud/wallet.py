@@ -40,7 +40,8 @@ def add_efc(db: Session, telegram_id: int, amount: float):
     db.commit()
     db.refresh(wallet)
 
-    return before, wallet.efc_balance
+    return before, wallet.efc_balan
+    
 def add_uzs(db: Session, telegram_id: int, amount: float):
     wallet = get_wallet(db, telegram_id)
 
