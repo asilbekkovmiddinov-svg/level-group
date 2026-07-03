@@ -1,5 +1,7 @@
 meta:
-  toolchain: python
+  toolchain:
+    name: python
+    version: "3.11"
 
 run:
   script: |
