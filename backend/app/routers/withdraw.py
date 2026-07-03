@@ -60,14 +60,19 @@ def approve_withdraw_request(
         admin_id
     )
 
-    if not withdraw:
+    if withdraw == "locked":
         return {
-            "message": "Withdraw not found"
+            "message": "Locked balance is insufficient"
         }
 
     if withdraw == "approved":
         return {
             "message": "Withdraw already approved"
+        }
+
+    if not withdraw:
+        return {
+            "message": "Withdraw not found"
         }
 
     return {
