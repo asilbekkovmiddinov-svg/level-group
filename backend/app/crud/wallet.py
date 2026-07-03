@@ -57,3 +57,45 @@ def add_uzs(db: Session, telegram_id: int, amount: float):
     db.refresh(wallet)
 
     return before, wallet.uzs_balance
+    
+def lock_uzs(db: Session, telegram_id: int, amount: float):
+    wallet = get_wallet(db, telegram_id)
+
+    if not wallet:
+        return None
+
+    amount_decimal = Decimal(str(amount))
+
+    if wallet.uzs_balance < amount_decimal:
+        return "insufficient"
+
+    before = wallet.uzs_balance
+
+    wallet.uzs_balance = wallet.uzs_balance - amount_decimal
+    wallet.locked_uzs = wallet.locked_uzs + amount_decimal
+
+    db.commit()
+    db.refresh(wallet)
+
+    return before, wallet.uzs_balance
+
+
+def unlock_uzs_after_withdraw(db: Session, telegram_id: int, amount: float):
+    wallet = get_wallet(db, telegram_id)
+
+    if not wallet:
+        return None
+
+    amount_decimal = Decimal(str(amount))
+
+    if wallet.locked_uzs < amount_decimal:
+        return "insufficient_locked"
+
+    before = wallet.locked_uzs
+
+    wallet.locked_uzs = wallet.locked_uzs - amount_decimal
+
+    db.commit()
+    db.refresh(wallet)
+
+    return before, wallet.locked_uzs
