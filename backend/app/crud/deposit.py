@@ -4,6 +4,8 @@ from sqlalchemy.orm import Session
 
 from app.models.deposit import Deposit
 from app.schemas.deposit import DepositCreate
+from app.crud.wallet import add_uzs
+from app.crud.transaction import create_transaction
 
 
 def create_deposit(db: Session, data: DepositCreate):
@@ -37,6 +39,31 @@ def approve_deposit(
 
     if not deposit:
         return None
+
+    if deposit.status == "APPROVED":
+        return "approved"
+
+    result = add_uzs(
+        db,
+        deposit.telegram_id,
+        float(deposit.amount)
+    )
+
+    if not result:
+        return None
+
+    before, after = result
+
+    create_transaction(
+        db=db,
+        telegram_id=deposit.telegram_id,
+        currency="UZS",
+        amount=float(deposit.amount),
+        balance_before=before,
+        balance_after=after,
+        type="DEPOSIT",
+        description="Deposit approved by admin"
+    )
 
     deposit.status = "APPROVED"
     deposit.approved_by = admin_id
