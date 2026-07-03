@@ -2,7 +2,11 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.crud.withdraw import create_withdraw, get_withdraws, approve_withdraw
+from app.crud.withdraw import (
+    create_withdraw,
+    get_withdraws,
+    approve_withdraw
+)
 from app.schemas.withdraw import WithdrawCreate
 
 router = APIRouter(
@@ -18,6 +22,16 @@ def create_withdraw_request(
 ):
     withdraw = create_withdraw(db, data)
 
+    if withdraw == "insufficient":
+        return {
+            "message": "Insufficient balance"
+        }
+
+    if not withdraw:
+        return {
+            "message": "Wallet not found"
+        }
+
     return {
         "message": "Withdraw request created",
         "withdraw_id": withdraw.id,
@@ -28,7 +42,9 @@ def create_withdraw_request(
 
 
 @router.get("/all")
-def all_withdraws(db: Session = Depends(get_db)):
+def all_withdraws(
+    db: Session = Depends(get_db)
+):
     return get_withdraws(db)
 
 
@@ -38,11 +54,20 @@ def approve_withdraw_request(
     admin_id: int,
     db: Session = Depends(get_db)
 ):
-    withdraw = approve_withdraw(db, withdraw_id, admin_id)
+    withdraw = approve_withdraw(
+        db,
+        withdraw_id,
+        admin_id
+    )
 
     if not withdraw:
         return {
             "message": "Withdraw not found"
+        }
+
+    if withdraw == "approved":
+        return {
+            "message": "Withdraw already approved"
         }
 
     return {
