@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from sqlalchemy.orm import Session
 
 from app.models.wallet import Wallet
@@ -30,9 +32,10 @@ def add_efc(db: Session, telegram_id: int, amount: float):
     if not wallet:
         return None
 
-    before = wallet.efc_balance
+    amount_decimal = Decimal(str(amount))
 
-    wallet.efc_balance += amount
+    before = wallet.efc_balance
+    wallet.efc_balance = wallet.efc_balance + amount_decimal
 
     db.commit()
     db.refresh(wallet)
