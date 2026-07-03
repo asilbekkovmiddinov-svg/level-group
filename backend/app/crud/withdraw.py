@@ -53,6 +53,9 @@ def approve_withdraw(db: Session, withdraw_id: int, admin_id: int):
         float(withdraw.amount)
     )
 
+    if result == "insufficient_locked":
+        return "locked"
+
     if not result:
         return None
 
