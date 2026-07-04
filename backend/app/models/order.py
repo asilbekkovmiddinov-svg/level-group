@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Numeric, DateTime
+from sqlalchemy import Column, Integer, String, Numeric, DateTime, BigInteger
 from sqlalchemy.sql import func
 
 from app.core.database import Base
@@ -9,7 +9,7 @@ class Order(Base):
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
 
-    telegram_id = Column(Integer, nullable=False, index=True)
+    telegram_id = Column(BigInteger, nullable=False, index=True)
 
     product_id = Column(Integer, nullable=False)
 
@@ -19,14 +19,21 @@ class Order(Base):
 
     price_uzs = Column(Numeric(18, 2), nullable=False)
 
-    status = Column(
-        String(30),
-        default="PENDING"
-    )
-    # PENDING
-    # PROCESSING
-    # COMPLETED
-    # CANCELLED
+    status = Column(String(30), default="PENDING")
+    # PENDING, CLAIMED, COMPLETED, REJECTED, CANCELLED
+
+    claimed_by = Column(BigInteger, nullable=True)
+    claimed_at = Column(DateTime(timezone=True), nullable=True)
+
+    completed_by = Column(BigInteger, nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
+    rejected_by = Column(BigInteger, nullable=True)
+    rejected_at = Column(DateTime(timezone=True), nullable=True)
+
+    reject_reason = Column(String(255), nullable=True)
+
+    processing_seconds = Column(Integer, nullable=True)
 
     created_at = Column(
         DateTime(timezone=True),
