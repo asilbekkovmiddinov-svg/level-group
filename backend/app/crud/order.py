@@ -85,3 +85,44 @@ def update_order_status(db: Session, order_id: int, status: str):
     db.refresh(order)
 
     return order
+    
+from app.crud.wallet import add_uzs
+
+
+def cancel_order(db: Session, order_id: int):
+    order = db.query(Order).filter(
+        Order.id == order_id
+    ).first()
+
+    if not order:
+        return None
+
+    if order.status == "CANCELLED":
+        return "already_cancelled"
+
+    if order.status == "COMPLETED":
+        return "already_completed"
+
+    before, after = add_uzs(
+        db=db,
+        telegram_id=order.telegram_id,
+        amount=float(order.price_uzs)
+    )
+
+    create_transaction(
+        db=db,
+        telegram_id=order.telegram_id,
+        currency="UZS",
+        amount=float(order.price_uzs),
+        balance_before=before,
+        balance_after=after,
+        type="ORDER_REFUND",
+        description=f"Refund for Order #{order.id}"
+    )
+
+    order.status = "CANCELLED"
+
+    db.commit()
+    db.refresh(order)
+
+    return order
