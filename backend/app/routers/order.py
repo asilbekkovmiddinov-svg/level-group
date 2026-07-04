@@ -73,6 +73,8 @@ def change_order_status(
         "order_id": order.id,
         "status": order.status
     }
+
+
 @router.post("/cancel/{order_id}")
 def cancel_existing_order(
     order_id: int,
