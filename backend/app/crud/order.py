@@ -85,6 +85,7 @@ def update_order_status(db: Session, order_id: int, status: str):
     db.refresh(order)
 
     return order
+    
 
 def cancel_order(db: Session, order_id: int):
     order = db.query(Order).filter(
