@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
@@ -28,11 +28,19 @@ def get_deposits(db: Session):
     ).all()
 
 
-def approve_deposit(
-    db: Session,
-    deposit_id: int,
-    admin_id: int
-):
+def get_pending_deposits(db: Session):
+    return db.query(Deposit).filter(
+        Deposit.status == "PENDING"
+    ).order_by(Deposit.id.asc()).all()
+
+
+def get_claimed_deposits(db: Session):
+    return db.query(Deposit).filter(
+        Deposit.status == "CLAIMED"
+    ).order_by(Deposit.claimed_at.asc()).all()
+
+
+def claim_deposit(db: Session, deposit_id: int, admin_id: int):
     deposit = db.query(Deposit).filter(
         Deposit.id == deposit_id
     ).first()
@@ -40,34 +48,12 @@ def approve_deposit(
     if not deposit:
         return None
 
-    if deposit.status == "APPROVED":
-        return "approved"
+    if deposit.status != "PENDING":
+        return "already_claimed"
 
-    result = add_uzs(
-        db,
-        deposit.telegram_id,
-        float(deposit.amount)
-    )
-
-    if not result:
-        return None
-
-    before, after = result
-
-    create_transaction(
-        db=db,
-        telegram_id=deposit.telegram_id,
-        currency="UZS",
-        amount=float(deposit.amount),
-        balance_before=before,
-        balance_after=after,
-        type="DEPOSIT",
-        description="Deposit approved by admin"
-    )
-
-    deposit.status = "APPROVED"
-    deposit.approved_by = admin_id
-    deposit.approved_at = datetime.utcnow()
+    deposit.status = "CLAIMED"
+    deposit.claimed_by = admin_id
+    deposit.claimed_at = datetime.now(timezone.utc)
 
     db.commit()
     db.refresh(deposit)
