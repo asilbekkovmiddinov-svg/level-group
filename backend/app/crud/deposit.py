@@ -69,10 +69,7 @@ def approve_deposit(db: Session, deposit_id: int, admin_id: int):
     if not deposit:
         return None
 
-    if deposit.status == "COMPLETED":
-        return "already_completed"
-
-    if deposit.status not in ["CLAIMED", "PENDING"]:
+    if deposit.status != "CLAIMED":
         return "invalid_status"
 
     result = add_uzs(
@@ -122,7 +119,7 @@ def reject_deposit(db: Session, deposit_id: int, admin_id: int, reason: str):
     if not deposit:
         return None
 
-    if deposit.status in ["COMPLETED", "REJECTED"]:
+    if deposit.status != "CLAIMED":
         return "invalid_status"
 
     now = datetime.utcnow()
