@@ -7,7 +7,7 @@ from app.models.product import Product
 from app.crud.wallet import get_wallet
 from app.crud.transaction import create_transaction
 from app.schemas.order import OrderCreate
-
+from app.crud.wallet import add_uzs
 
 def create_order(db: Session, data: OrderCreate):
     product = db.query(Product).filter(
@@ -85,9 +85,6 @@ def update_order_status(db: Session, order_id: int, status: str):
     db.refresh(order)
 
     return order
-    
-from app.crud.wallet import add_uzs
-
 
 def cancel_order(db: Session, order_id: int):
     order = db.query(Order).filter(
