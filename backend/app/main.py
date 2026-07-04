@@ -10,6 +10,7 @@ from app.routers.transaction import router as transaction_router
 from app.routers.deposit import router as deposit_router
 from app.routers.withdraw import router as withdraw_router
 from app.routers.product import router as product_router
+from app.routers.order import router as order_router
 
 app = FastAPI(
     title="LEVEL_GROUP API",
@@ -25,6 +26,7 @@ app.include_router(transaction_router)
 app.include_router(deposit_router)
 app.include_router(withdraw_router)
 app.include_router(product_router)
+app.include_router(order_router)
 
 
 @app.get("/")
