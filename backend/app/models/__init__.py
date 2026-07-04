@@ -4,3 +4,4 @@ from .transaction import Transaction
 from .deposit import Deposit
 from .withdraw import Withdraw
 from .product import Product
+from .order import Order
