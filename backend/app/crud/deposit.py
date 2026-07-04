@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy.orm import Session
 
@@ -53,7 +53,7 @@ def claim_deposit(db: Session, deposit_id: int, admin_id: int):
 
     deposit.status = "CLAIMED"
     deposit.claimed_by = admin_id
-    deposit.claimed_at = datetime.now(timezone.utc)
+    deposit.claimed_at = datetime.now = datetime.utcnow()
 
     db.commit()
     db.refresh(deposit)
@@ -99,7 +99,7 @@ def approve_deposit(
         description=f"Deposit #{deposit.id} approved"
     )
 
-    now = datetime.now(timezone.utc)
+    now = datetime.nownow = datetime.utcnow()
 
     deposit.status = "COMPLETED"
     deposit.completed_by = admin_id
