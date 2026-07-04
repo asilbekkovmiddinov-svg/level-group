@@ -1,4 +1,5 @@
 from pydantic import BaseModel
+from typing import Optional
 
 
 class OrderCreate(BaseModel):
@@ -8,3 +9,12 @@ class OrderCreate(BaseModel):
 
 class OrderStatusUpdate(BaseModel):
     status: str
+
+
+class OrderReject(BaseModel):
+    admin_id: int
+    reason: Optional[str] = "Sabab ko‘rsatilmagan"
+
+
+class OrderAdminAction(BaseModel):
+    admin_id: int
