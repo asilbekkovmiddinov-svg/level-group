@@ -1,1 +1,2 @@
 -r backend/requirements.txt
+alembic==1.16.4
