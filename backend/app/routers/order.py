@@ -12,6 +12,7 @@ from app.crud.order import (
 from app.schemas.order import OrderCreate, OrderStatusUpdate
 
 router = APIRouter(
+    
     prefix="/orders",
     tags=["Orders"]
 )
@@ -57,6 +58,7 @@ def user_orders(
 
 @router.put("/status/{order_id}")
 def change_order_status(
+    
     order_id: int,
     data: OrderStatusUpdate,
     db: Session = Depends(get_db)
