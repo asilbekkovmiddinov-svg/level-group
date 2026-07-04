@@ -59,3 +59,92 @@ def claim_deposit(db: Session, deposit_id: int, admin_id: int):
     db.refresh(deposit)
 
     return deposit
+def approve_deposit(
+    db: Session,
+    deposit_id: int,
+    admin_id: int
+):
+    deposit = db.query(Deposit).filter(
+        Deposit.id == deposit_id
+    ).first()
+
+    if not deposit:
+        return None
+
+    if deposit.status == "COMPLETED":
+        return "already_completed"
+
+    if deposit.status not in ["CLAIMED", "PENDING"]:
+        return "invalid_status"
+
+    result = add_uzs(
+        db=db,
+        telegram_id=deposit.telegram_id,
+        amount=float(deposit.amount)
+    )
+
+    if not result:
+        return "wallet_not_found"
+
+    before, after = result
+
+    create_transaction(
+        db=db,
+        telegram_id=deposit.telegram_id,
+        currency="UZS",
+        amount=float(deposit.amount),
+        balance_before=before,
+        balance_after=after,
+        type="DEPOSIT",
+        description=f"Deposit #{deposit.id} approved"
+    )
+
+    now = datetime.now(timezone.utc)
+
+    deposit.status = "COMPLETED"
+    deposit.completed_by = admin_id
+    deposit.completed_at = now
+
+    if deposit.claimed_at:
+        deposit.processing_seconds = int(
+            (now - deposit.claimed_at).total_seconds()
+        )
+
+    db.commit()
+    db.refresh(deposit)
+
+    return deposit
+
+
+def reject_deposit(
+    db: Session,
+    deposit_id: int,
+    admin_id: int,
+    reason: str
+):
+    deposit = db.query(Deposit).filter(
+        Deposit.id == deposit_id
+    ).first()
+
+    if not deposit:
+        return None
+
+    if deposit.status in ["COMPLETED", "REJECTED"]:
+        return "invalid_status"
+
+    now = datetime.now(timezone.utc)
+
+    deposit.status = "REJECTED"
+    deposit.rejected_by = admin_id
+    deposit.rejected_at = now
+    deposit.reject_reason = reason
+
+    if deposit.claimed_at:
+        deposit.processing_seconds = int(
+            (now - deposit.claimed_at).total_seconds()
+        )
+
+    db.commit()
+    db.refresh(deposit)
+
+    return deposit
