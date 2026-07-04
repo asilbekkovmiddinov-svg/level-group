@@ -6,7 +6,8 @@ from app.crud.order import (
     create_order,
     get_orders,
     get_user_orders,
-    update_order_status
+    update_order_status,
+    cancel_order
 )
 from app.schemas.order import OrderCreate, OrderStatusUpdate
 
@@ -14,8 +15,6 @@ router = APIRouter(
     prefix="/orders",
     tags=["Orders"]
 )
-
-
 @router.post("/create")
 def create_new_order(
     data: OrderCreate,
@@ -69,6 +68,33 @@ def change_order_status(
 
     return {
         "message": "Order status updated",
+        "order_id": order.id,
+        "status": order.status
+    }
+@router.post("/cancel/{order_id}")
+def cancel_existing_order(
+    order_id: int,
+    db: Session = Depends(get_db)
+):
+    order = cancel_order(db, order_id)
+
+    if order is None:
+        return {
+            "message": "Order not found"
+        }
+
+    if order == "already_cancelled":
+        return {
+            "message": "Order already cancelled"
+        }
+
+    if order == "already_completed":
+        return {
+            "message": "Completed order cannot be cancelled"
+        }
+
+    return {
+        "message": "Order cancelled",
         "order_id": order.id,
         "status": order.status
     }
