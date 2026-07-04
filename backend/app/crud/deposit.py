@@ -53,17 +53,15 @@ def claim_deposit(db: Session, deposit_id: int, admin_id: int):
 
     deposit.status = "CLAIMED"
     deposit.claimed_by = admin_id
-    deposit.claimed_at = datetime.now = datetime.utcnow()
+    deposit.claimed_at = datetime.utcnow()
 
     db.commit()
     db.refresh(deposit)
 
     return deposit
-def approve_deposit(
-    db: Session,
-    deposit_id: int,
-    admin_id: int
-):
+
+
+def approve_deposit(db: Session, deposit_id: int, admin_id: int):
     deposit = db.query(Deposit).filter(
         Deposit.id == deposit_id
     ).first()
@@ -99,7 +97,7 @@ def approve_deposit(
         description=f"Deposit #{deposit.id} approved"
     )
 
-    now = datetime.nownow = datetime.utcnow()
+    now = datetime.utcnow()
 
     deposit.status = "COMPLETED"
     deposit.completed_by = admin_id
@@ -116,12 +114,7 @@ def approve_deposit(
     return deposit
 
 
-def reject_deposit(
-    db: Session,
-    deposit_id: int,
-    admin_id: int,
-    reason: str
-):
+def reject_deposit(db: Session, deposit_id: int, admin_id: int, reason: str):
     deposit = db.query(Deposit).filter(
         Deposit.id == deposit_id
     ).first()
@@ -132,7 +125,7 @@ def reject_deposit(
     if deposit.status in ["COMPLETED", "REJECTED"]:
         return "invalid_status"
 
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()
 
     deposit.status = "REJECTED"
     deposit.rejected_by = admin_id
