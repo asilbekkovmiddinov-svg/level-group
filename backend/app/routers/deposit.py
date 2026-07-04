@@ -2,8 +2,20 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.crud.deposit import create_deposit, get_deposits, approve_deposit
-from app.schemas.deposit import DepositCreate
+from app.crud.deposit import (
+    create_deposit,
+    get_deposits,
+    get_pending_deposits,
+    get_claimed_deposits,
+    claim_deposit,
+    approve_deposit,
+    reject_deposit
+)
+from app.schemas.deposit import (
+    DepositCreate,
+    DepositAdminAction,
+    DepositReject
+)
 
 router = APIRouter(
     prefix="/deposit",
@@ -32,22 +44,91 @@ def all_deposits(db: Session = Depends(get_db)):
     return get_deposits(db)
 
 
-@router.post("/approve/{deposit_id}")
-def approve_deposit_request(
+@router.get("/pending")
+def pending_deposits(db: Session = Depends(get_db)):
+    return get_pending_deposits(db)
+
+
+@router.get("/claimed")
+def claimed_deposits(db: Session = Depends(get_db)):
+    return get_claimed_deposits(db)
+
+
+@router.post("/{deposit_id}/claim")
+def claim_deposit_request(
     deposit_id: int,
-    admin_id: int,
+    data: DepositAdminAction,
     db: Session = Depends(get_db)
 ):
-    deposit = approve_deposit(db, deposit_id, admin_id)
+    deposit = claim_deposit(db, deposit_id, data.admin_id)
 
     if not deposit:
-        return {
-            "message": "Deposit not found"
-        }
+        return {"message": "Deposit not found"}
+
+    if deposit == "already_claimed":
+        return {"message": "Deposit already claimed"}
+
+    return {
+        "message": "Deposit claimed",
+        "deposit_id": deposit.id,
+        "status": deposit.status,
+        "claimed_by": deposit.claimed_by
+    }
+
+
+@router.post("/{deposit_id}/approve")
+def approve_deposit_request(
+    deposit_id: int,
+    data: DepositAdminAction,
+    db: Session = Depends(get_db)
+):
+    deposit = approve_deposit(db, deposit_id, data.admin_id)
+
+    if not deposit:
+        return {"message": "Deposit not found"}
+
+    if deposit == "already_completed":
+        return {"message": "Deposit already completed"}
+
+    if deposit == "invalid_status":
+        return {"message": "Invalid deposit status"}
+
+    if deposit == "wallet_not_found":
+        return {"message": "Wallet not found"}
 
     return {
         "message": "Deposit approved",
         "deposit_id": deposit.id,
         "status": deposit.status,
-        "approved_by": deposit.approved_by
+        "completed_by": deposit.completed_by,
+        "processing_seconds": deposit.processing_seconds
+    }
+
+
+@router.post("/{deposit_id}/reject")
+def reject_deposit_request(
+    deposit_id: int,
+    data: DepositReject,
+    db: Session = Depends(get_db)
+):
+    deposit = reject_deposit(
+        db=db,
+        deposit_id=deposit_id,
+        admin_id=data.admin_id,
+        reason=data.reason
+    )
+
+    if not deposit:
+        return {"message": "Deposit not found"}
+
+    if deposit == "invalid_status":
+        return {"message": "Invalid deposit status"}
+
+    return {
+        "message": "Deposit rejected",
+        "deposit_id": deposit.id,
+        "status": deposit.status,
+        "rejected_by": deposit.rejected_by,
+        "reason": deposit.reject_reason,
+        "processing_seconds": deposit.processing_seconds
     }
