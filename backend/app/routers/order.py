@@ -12,7 +12,6 @@ from app.crud.order import (
 from app.schemas.order import OrderCreate, OrderStatusUpdate
 
 router = APIRouter(
-    
     prefix="/orders",
     tags=["Orders"]
 )
