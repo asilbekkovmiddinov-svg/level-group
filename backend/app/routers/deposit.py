@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.models.user import User
 from app.crud.deposit import (
     create_deposit,
     get_deposits,
@@ -17,17 +18,26 @@ from app.schemas.deposit import (
     DepositReject
 )
 
-router = APIRouter(
-    prefix="/deposit",
-    tags=["Deposit"]
-)
+router = APIRouter(prefix="/deposit", tags=["Deposit"])
+
+
+def get_user_display(db: Session, telegram_id: int):
+    user = db.query(User).filter(User.telegram_id == telegram_id).first()
+
+    if not user:
+        return "Noma'lum"
+
+    if user.username:
+        return f"@{user.username}"
+
+    if user.first_name:
+        return user.first_name
+
+    return "Noma'lum"
 
 
 @router.post("/create")
-def create_deposit_request(
-    data: DepositCreate,
-    db: Session = Depends(get_db)
-):
+def create_deposit_request(data: DepositCreate, db: Session = Depends(get_db)):
     deposit = create_deposit(db, data)
 
     return {
@@ -87,18 +97,20 @@ def approve_deposit_request(
     if not deposit:
         return {"message": "Deposit not found"}
 
-    if deposit == "already_completed":
-        return {"message": "Deposit already completed"}
-
     if deposit == "invalid_status":
         return {"message": "Invalid deposit status"}
 
     if deposit == "wallet_not_found":
         return {"message": "Wallet not found"}
 
+    username = get_user_display(db, deposit.telegram_id)
+
     return {
         "message": "Deposit approved",
         "deposit_id": deposit.id,
+        "telegram_id": deposit.telegram_id,
+        "username": username,
+        "amount": float(deposit.amount),
         "status": deposit.status,
         "completed_by": deposit.completed_by,
         "processing_seconds": deposit.processing_seconds
