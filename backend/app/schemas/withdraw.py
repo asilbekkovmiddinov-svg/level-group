@@ -4,6 +4,9 @@ from pydantic import BaseModel
 class WithdrawCreate(BaseModel):
     telegram_id: int
     amount: float
+    card_number: str
+    card_holder: str
+    bank_name: str
 
 
 class WithdrawAdminAction(BaseModel):
@@ -12,4 +15,4 @@ class WithdrawAdminAction(BaseModel):
 
 class WithdrawReject(BaseModel):
     admin_id: int
-    reason: str
+    reason: str = "Admin rad etdi"
