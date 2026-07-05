@@ -68,12 +68,33 @@ def create_withdraw(db: Session, data: WithdrawCreate):
     return withdraw
 
 
+def claim_withdraw(db: Session, withdraw_id: int, admin_id: int):
+    withdraw = db.query(Withdraw).filter(
+        Withdraw.id == withdraw_id
+    ).first()
+
+    if not withdraw:
+        return None
+
+    if withdraw.status != "PENDING":
+        return "not_pending"
+
+    if withdraw.claimed_by and withdraw.claimed_by != admin_id:
+        return "already_claimed"
+
+    withdraw.claimed_by = admin_id
+    withdraw.claimed_at = datetime.utcnow()
+
+    db.commit()
+    db.refresh(withdraw)
+
+    return withdraw
+
+
 def get_withdraws(db: Session):
     return db.query(Withdraw).order_by(
         Withdraw.id.desc()
     ).all()
-
-
 def get_pending_withdraws(db: Session):
     return db.query(Withdraw).filter(
         Withdraw.status == "PENDING"
@@ -88,6 +109,8 @@ def get_completed_withdraws(db: Session):
     ).order_by(
         Withdraw.id.desc()
     ).all()
+
+
 def approve_withdraw(db: Session, withdraw_id: int, admin_id: int):
     withdraw = db.query(Withdraw).filter(
         Withdraw.id == withdraw_id
@@ -101,6 +124,9 @@ def approve_withdraw(db: Session, withdraw_id: int, admin_id: int):
 
     if withdraw.status == "REJECTED":
         return "rejected"
+
+    if withdraw.claimed_by and withdraw.claimed_by != admin_id:
+        return "not_owner"
 
     amount = to_decimal(withdraw.amount)
 
@@ -156,6 +182,9 @@ def reject_withdraw(
     if withdraw.status == "REJECTED":
         return "rejected"
 
+    if withdraw.claimed_by and withdraw.claimed_by != admin_id:
+        return "not_owner"
+
     amount = to_decimal(withdraw.amount)
 
     result = unlock_uzs_after_withdraw(
@@ -175,18 +204,4 @@ def reject_withdraw(
         withdraw.created_at
     )
 
-    db.commit()
-    db.refresh(withdraw)
-
-    create_transaction(
-        db=db,
-        telegram_id=withdraw.telegram_id,
-        currency="UZS",
-        amount=amount,
-        balance_before=result.uzs_balance - amount,
-        balance_after=result.uzs_balance,
-        type="WITHDRAW_REJECTED",
-        description="Pul yechish rad etildi. Mablag‘ balansga qaytarildi.",
-    )
-
-    return withdraw
+    db
