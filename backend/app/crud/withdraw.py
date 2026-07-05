@@ -47,7 +47,6 @@ def create_withdraw(db: Session, data: WithdrawCreate):
         balance_before=result.uzs_balance + amount,
         balance_after=result.uzs_balance,
         type="WITHDRAW_REQUEST",
-        status="PENDING",
         description="Pul yechish so‘rovi yaratildi. Muddat: 24 soatgacha.",
     )
 
@@ -114,7 +113,6 @@ def approve_withdraw(db: Session, withdraw_id: int, admin_id: int):
         balance_before=result.uzs_balance,
         balance_after=result.uzs_balance,
         type="WITHDRAW_APPROVED",
-        status="SUCCESS",
         description="Pul yechish admin tomonidan tasdiqlandi.",
     )
 
@@ -162,7 +160,6 @@ def reject_withdraw(db: Session, withdraw_id: int, admin_id: int):
         balance_before=result.uzs_balance - amount,
         balance_after=result.uzs_balance,
         type="WITHDRAW_REJECTED",
-        status="CANCELLED",
         description="Pul yechish rad etildi. Mablag‘ balansga qaytarildi.",
     )
 
