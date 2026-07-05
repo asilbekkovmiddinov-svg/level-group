@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.crud.withdraw import (
     create_withdraw,
+    claim_withdraw,
     get_withdraws,
     get_pending_withdraws,
     get_completed_withdraws,
@@ -27,6 +28,7 @@ def withdraw_response(withdraw):
         "card_holder": withdraw.card_holder,
         "bank_name": withdraw.bank_name,
         "status": withdraw.status,
+        "claimed_by": withdraw.claimed_by,
         "approved_by": withdraw.approved_by,
         "rejected_by": withdraw.rejected_by,
         "reject_reason": withdraw.reject_reason,
@@ -35,10 +37,7 @@ def withdraw_response(withdraw):
 
 
 @router.post("/create")
-def create_withdraw_request(
-    data: WithdrawCreate,
-    db: Session = Depends(get_db),
-):
+def create_withdraw_request(data: WithdrawCreate, db: Session = Depends(get_db)):
     withdraw = create_withdraw(db, data)
 
     if withdraw == "insufficient":
@@ -48,11 +47,25 @@ def create_withdraw_request(
         return {"message": "Wallet topilmadi"}
 
     response = withdraw_response(withdraw)
-    response["message"] = (
-        "Pul yechish so‘rovi qabul qilindi. "
-        "To‘lov 24 soat ichida yuboriladi."
-    )
+    response["message"] = "Pul yechish so‘rovi qabul qilindi. To‘lov 24 soat ichida yuboriladi."
+    return response
 
+
+@router.post("/{withdraw_id}/claim")
+def claim_withdraw_request(withdraw_id: int, admin_id: int, db: Session = Depends(get_db)):
+    withdraw = claim_withdraw(db, withdraw_id, admin_id)
+
+    if withdraw == "already_claimed":
+        return {"message": "Withdraw already claimed"}
+
+    if withdraw == "not_pending":
+        return {"message": "Withdraw is not pending"}
+
+    if not withdraw:
+        return {"message": "Withdraw topilmadi"}
+
+    response = withdraw_response(withdraw)
+    response["message"] = "Withdraw claimed"
     return response
 
 
@@ -72,12 +85,11 @@ def completed_withdraws(db: Session = Depends(get_db)):
 
 
 @router.post("/approve/{withdraw_id}")
-def approve_withdraw_request(
-    withdraw_id: int,
-    admin_id: int,
-    db: Session = Depends(get_db),
-):
+def approve_withdraw_request(withdraw_id: int, admin_id: int, db: Session = Depends(get_db)):
     withdraw = approve_withdraw(db, withdraw_id, admin_id)
+
+    if withdraw == "not_owner":
+        return {"message": "Withdraw boshqa admin tomonidan qabul qilingan"}
 
     if withdraw == "locked":
         return {"message": "Locked balans yetarli emas"}
@@ -93,17 +105,15 @@ def approve_withdraw_request(
 
     response = withdraw_response(withdraw)
     response["message"] = "Withdraw tasdiqlandi"
-
     return response
 
 
 @router.post("/reject/{withdraw_id}")
-def reject_withdraw_request(
-    withdraw_id: int,
-    admin_id: int,
-    db: Session = Depends(get_db),
-):
+def reject_withdraw_request(withdraw_id: int, admin_id: int, db: Session = Depends(get_db)):
     withdraw = reject_withdraw(db, withdraw_id, admin_id)
+
+    if withdraw == "not_owner":
+        return {"message": "Withdraw boshqa admin tomonidan qabul qilingan"}
 
     if withdraw == "locked":
         return {"message": "Locked balans yetarli emas"}
@@ -119,5 +129,4 @@ def reject_withdraw_request(
 
     response = withdraw_response(withdraw)
     response["message"] = "Withdraw rad etildi, pul balansga qaytarildi"
-
     return response
