@@ -218,3 +218,20 @@ def confirm_locked_efc(
     db.refresh(wallet)
 
     return wallet
+# Compatibility aliases
+# Eski importlar xato bermasligi uchun
+
+def add_efc(db: Session, telegram_id: int, amount: Decimal):
+    return add_efc_balance(db, telegram_id, amount)
+
+
+def subtract_efc(db: Session, telegram_id: int, amount: Decimal):
+    return subtract_efc_balance(db, telegram_id, amount)
+
+
+def add_uzs(db: Session, telegram_id: int, amount: Decimal):
+    return add_uzs_balance(db, telegram_id, amount)
+
+
+def subtract_uzs(db: Session, telegram_id: int, amount: Decimal):
+    return subtract_uzs_balance(db, telegram_id, amount)
