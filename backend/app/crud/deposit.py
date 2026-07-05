@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.models.deposit import Deposit
 from app.schemas.deposit import DepositCreate
-from app.crud.wallet import add_uzs
+from app.crud.wallet import get_or_create_wallet, add_uzs
 from app.crud.transaction import create_transaction
 
 
@@ -12,7 +12,7 @@ def create_deposit(db: Session, data: DepositCreate):
     deposit = Deposit(
         telegram_id=data.telegram_id,
         amount=data.amount,
-        status="PENDING"
+        status="PENDING",
     )
 
     db.add(deposit)
@@ -31,13 +31,17 @@ def get_deposits(db: Session):
 def get_pending_deposits(db: Session):
     return db.query(Deposit).filter(
         Deposit.status == "PENDING"
-    ).order_by(Deposit.id.asc()).all()
+    ).order_by(
+        Deposit.id.asc()
+    ).all()
 
 
 def get_claimed_deposits(db: Session):
     return db.query(Deposit).filter(
         Deposit.status == "CLAIMED"
-    ).order_by(Deposit.claimed_at.asc()).all()
+    ).order_by(
+        Deposit.claimed_at.asc()
+    ).all()
 
 
 def claim_deposit(db: Session, deposit_id: int, admin_id: int):
@@ -72,26 +76,29 @@ def approve_deposit(db: Session, deposit_id: int, admin_id: int):
     if deposit.status != "CLAIMED":
         return "invalid_status"
 
-    result = add_uzs(
+    wallet = get_or_create_wallet(db, deposit.telegram_id)
+    balance_before = wallet.uzs_balance
+
+    updated_wallet = add_uzs(
         db=db,
         telegram_id=deposit.telegram_id,
-        amount=float(deposit.amount)
+        amount=deposit.amount,
     )
 
-    if not result:
+    if not updated_wallet:
         return "wallet_not_found"
 
-    before, after = result
+    balance_after = updated_wallet.uzs_balance
 
     create_transaction(
         db=db,
         telegram_id=deposit.telegram_id,
         currency="UZS",
-        amount=float(deposit.amount),
-        balance_before=before,
-        balance_after=after,
+        amount=deposit.amount,
+        balance_before=balance_before,
+        balance_after=balance_after,
         type="DEPOSIT",
-        description=f"Deposit #{deposit.id} approved"
+        description=f"Deposit #{deposit.id} approved",
     )
 
     now = datetime.utcnow()
