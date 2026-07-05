@@ -60,3 +60,24 @@ def run_migrations():
             ADD COLUMN IF NOT EXISTS processing_seconds INTEGER;
             """)
         )
+
+        connection.execute(
+            text("""
+            ALTER TABLE withdraws
+            ADD COLUMN IF NOT EXISTS card_number VARCHAR(32);
+            """)
+        )
+
+        connection.execute(
+            text("""
+            ALTER TABLE withdraws
+            ADD COLUMN IF NOT EXISTS card_holder VARCHAR(120);
+            """)
+        )
+
+        connection.execute(
+            text("""
+            ALTER TABLE withdraws
+            ADD COLUMN IF NOT EXISTS bank_name VARCHAR(120);
+            """)
+        )
