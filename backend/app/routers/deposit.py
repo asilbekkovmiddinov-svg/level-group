@@ -10,12 +10,12 @@ from app.crud.deposit import (
     get_claimed_deposits,
     claim_deposit,
     approve_deposit,
-    reject_deposit
+    reject_deposit,
 )
 from app.schemas.deposit import (
     DepositCreate,
     DepositAdminAction,
-    DepositReject
+    DepositReject,
 )
 
 router = APIRouter(prefix="/deposit", tags=["Deposit"])
@@ -25,7 +25,7 @@ def get_user_display(db: Session, telegram_id: int):
     user = db.query(User).filter(User.telegram_id == telegram_id).first()
 
     if not user:
-        return "Noma'lum"
+        return "Nomaʼlum"
 
     if user.username:
         return f"@{user.username}"
@@ -33,7 +33,7 @@ def get_user_display(db: Session, telegram_id: int):
     if user.first_name:
         return user.first_name
 
-    return "Noma'lum"
+    return "Nomaʼlum"
 
 
 @router.post("/create")
@@ -45,7 +45,7 @@ def create_deposit_request(data: DepositCreate, db: Session = Depends(get_db)):
         "deposit_id": deposit.id,
         "telegram_id": deposit.telegram_id,
         "amount": float(deposit.amount),
-        "status": deposit.status
+        "status": deposit.status,
     }
 
 
@@ -68,7 +68,7 @@ def claimed_deposits(db: Session = Depends(get_db)):
 def claim_deposit_request(
     deposit_id: int,
     data: DepositAdminAction,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     deposit = claim_deposit(db, deposit_id, data.admin_id)
 
@@ -82,7 +82,7 @@ def claim_deposit_request(
         "message": "Deposit claimed",
         "deposit_id": deposit.id,
         "status": deposit.status,
-        "claimed_by": deposit.claimed_by
+        "claimed_by": getattr(deposit, "claimed_by", None),
     }
 
 
@@ -90,7 +90,7 @@ def claim_deposit_request(
 def approve_deposit_request(
     deposit_id: int,
     data: DepositAdminAction,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     deposit = approve_deposit(db, deposit_id, data.admin_id)
 
@@ -112,8 +112,13 @@ def approve_deposit_request(
         "username": username,
         "amount": float(deposit.amount),
         "status": deposit.status,
-        "completed_by": deposit.completed_by,
-        "processing_seconds": deposit.processing_seconds
+        "completed_by": (
+            getattr(deposit, "completed_by", None)
+            or getattr(deposit, "approved_by", None)
+            or getattr(deposit, "claimed_by", None)
+            or data.admin_id
+        ),
+        "processing_seconds": getattr(deposit, "processing_seconds", 0),
     }
 
 
@@ -121,13 +126,13 @@ def approve_deposit_request(
 def reject_deposit_request(
     deposit_id: int,
     data: DepositReject,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     deposit = reject_deposit(
         db=db,
         deposit_id=deposit_id,
         admin_id=data.admin_id,
-        reason=data.reason
+        reason=data.reason,
     )
 
     if not deposit:
@@ -136,11 +141,16 @@ def reject_deposit_request(
     if deposit == "invalid_status":
         return {"message": "Invalid deposit status"}
 
+    username = get_user_display(db, deposit.telegram_id)
+
     return {
         "message": "Deposit rejected",
         "deposit_id": deposit.id,
+        "telegram_id": deposit.telegram_id,
+        "username": username,
+        "amount": float(deposit.amount),
         "status": deposit.status,
-        "rejected_by": deposit.rejected_by,
-        "reason": deposit.reject_reason,
-        "processing_seconds": deposit.processing_seconds
+        "rejected_by": getattr(deposit, "rejected_by", data.admin_id),
+        "reason": getattr(deposit, "reject_reason", data.reason),
+        "processing_seconds": getattr(deposit, "processing_seconds", 0),
     }
