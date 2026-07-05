@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
@@ -12,11 +13,17 @@ from app.crud.wallet import (
 from app.crud.transaction import create_transaction
 
 
+def to_decimal(amount):
+    return Decimal(str(amount))
+
+
 def create_withdraw(db: Session, data: WithdrawCreate):
+    amount = to_decimal(data.amount)
+
     result = lock_uzs(
         db=db,
         telegram_id=data.telegram_id,
-        amount=data.amount,
+        amount=amount,
     )
 
     if not result:
@@ -24,7 +31,7 @@ def create_withdraw(db: Session, data: WithdrawCreate):
 
     withdraw = Withdraw(
         telegram_id=data.telegram_id,
-        amount=data.amount,
+        amount=amount,
         status="PENDING",
     )
 
@@ -36,8 +43,8 @@ def create_withdraw(db: Session, data: WithdrawCreate):
         db=db,
         telegram_id=data.telegram_id,
         currency="UZS",
-        amount=data.amount,
-        balance_before=result.uzs_balance + data.amount,
+        amount=amount,
+        balance_before=result.uzs_balance + amount,
         balance_after=result.uzs_balance,
         type="WITHDRAW_REQUEST",
         status="PENDING",
@@ -59,19 +66,15 @@ def get_pending_withdraws(db: Session):
     ).order_by(
         Withdraw.id.desc()
     ).all()
-
-
 def get_completed_withdraws(db: Session):
     return db.query(Withdraw).filter(
         Withdraw.status.in_(["APPROVED", "REJECTED"])
     ).order_by(
         Withdraw.id.desc()
     ).all()
-def approve_withdraw(
-    db: Session,
-    withdraw_id: int,
-    admin_id: int,
-):
+
+
+def approve_withdraw(db: Session, withdraw_id: int, admin_id: int):
     withdraw = db.query(Withdraw).filter(
         Withdraw.id == withdraw_id
     ).first()
@@ -85,10 +88,12 @@ def approve_withdraw(
     if withdraw.status == "REJECTED":
         return "rejected"
 
+    amount = to_decimal(withdraw.amount)
+
     result = confirm_uzs_withdraw(
         db=db,
         telegram_id=withdraw.telegram_id,
-        amount=withdraw.amount,
+        amount=amount,
     )
 
     if not result:
@@ -105,7 +110,7 @@ def approve_withdraw(
         db=db,
         telegram_id=withdraw.telegram_id,
         currency="UZS",
-        amount=withdraw.amount,
+        amount=amount,
         balance_before=result.uzs_balance,
         balance_after=result.uzs_balance,
         type="WITHDRAW_APPROVED",
@@ -116,11 +121,7 @@ def approve_withdraw(
     return withdraw
 
 
-def reject_withdraw(
-    db: Session,
-    withdraw_id: int,
-    admin_id: int,
-):
+def reject_withdraw(db: Session, withdraw_id: int, admin_id: int):
     withdraw = db.query(Withdraw).filter(
         Withdraw.id == withdraw_id
     ).first()
@@ -134,18 +135,21 @@ def reject_withdraw(
     if withdraw.status == "REJECTED":
         return "rejected"
 
+    amount = to_decimal(withdraw.amount)
+
     result = unlock_uzs_after_withdraw(
         db=db,
         telegram_id=withdraw.telegram_id,
-        amount=withdraw.amount,
+        amount=amount,
     )
 
     if not result:
         return "locked"
 
     withdraw.status = "REJECTED"
-    withdraw.approved_by = admin_id
-    withdraw.approved_at = datetime.utcnow()
+    withdraw.rejected_by = admin_id
+    withdraw.rejected_at = datetime.utcnow()
+    withdraw.reject_reason = "Admin rad etdi"
 
     db.commit()
     db.refresh(withdraw)
@@ -154,8 +158,8 @@ def reject_withdraw(
         db=db,
         telegram_id=withdraw.telegram_id,
         currency="UZS",
-        amount=withdraw.amount,
-        balance_before=result.uzs_balance - withdraw.amount,
+        amount=amount,
+        balance_before=result.uzs_balance - amount,
         balance_after=result.uzs_balance,
         type="WITHDRAW_REJECTED",
         status="CANCELLED",
