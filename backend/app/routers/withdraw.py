@@ -18,6 +18,22 @@ router = APIRouter(
 )
 
 
+def withdraw_response(withdraw):
+    return {
+        "withdraw_id": withdraw.id,
+        "telegram_id": withdraw.telegram_id,
+        "amount": float(withdraw.amount),
+        "card_number": withdraw.card_number,
+        "card_holder": withdraw.card_holder,
+        "bank_name": withdraw.bank_name,
+        "status": withdraw.status,
+        "approved_by": withdraw.approved_by,
+        "rejected_by": withdraw.rejected_by,
+        "reject_reason": withdraw.reject_reason,
+        "processing_seconds": withdraw.processing_seconds,
+    }
+
+
 @router.post("/create")
 def create_withdraw_request(
     data: WithdrawCreate,
@@ -31,13 +47,13 @@ def create_withdraw_request(
     if not withdraw:
         return {"message": "Wallet topilmadi"}
 
-    return {
-        "message": "Pul yechish so‘rovi qabul qilindi. To‘lov 24 soat ichida yuboriladi.",
-        "withdraw_id": withdraw.id,
-        "telegram_id": withdraw.telegram_id,
-        "amount": float(withdraw.amount),
-        "status": withdraw.status,
-    }
+    response = withdraw_response(withdraw)
+    response["message"] = (
+        "Pul yechish so‘rovi qabul qilindi. "
+        "To‘lov 24 soat ichida yuboriladi."
+    )
+
+    return response
 
 
 @router.get("/all")
@@ -75,12 +91,10 @@ def approve_withdraw_request(
     if not withdraw:
         return {"message": "Withdraw topilmadi"}
 
-    return {
-        "message": "Withdraw tasdiqlandi",
-        "withdraw_id": withdraw.id,
-        "status": withdraw.status,
-        "approved_by": withdraw.approved_by,
-    }
+    response = withdraw_response(withdraw)
+    response["message"] = "Withdraw tasdiqlandi"
+
+    return response
 
 
 @router.post("/reject/{withdraw_id}")
@@ -103,9 +117,7 @@ def reject_withdraw_request(
     if not withdraw:
         return {"message": "Withdraw topilmadi"}
 
-    return {
-        "message": "Withdraw rad etildi, pul balansga qaytarildi",
-        "withdraw_id": withdraw.id,
-        "status": withdraw.status,
-        "approved_by": withdraw.approved_by,
-    }
+    response = withdraw_response(withdraw)
+    response["message"] = "Withdraw rad etildi, pul balansga qaytarildi"
+
+    return response
