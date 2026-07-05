@@ -6,7 +6,9 @@ from sqlalchemy.orm import Session
 from app.models.withdraw import Withdraw
 from app.schemas.withdraw import WithdrawCreate
 from app.crud.wallet import (
+    get_wallet,
     lock_uzs,
+    subtract_uzs,
     unlock_uzs_after_withdraw,
     confirm_uzs_withdraw,
 )
@@ -95,14 +97,14 @@ def get_withdraws(db: Session):
     return db.query(Withdraw).order_by(
         Withdraw.id.desc()
     ).all()
+
+
 def get_pending_withdraws(db: Session):
     return db.query(Withdraw).filter(
         Withdraw.status == "PENDING"
     ).order_by(
         Withdraw.id.desc()
     ).all()
-
-
 def get_completed_withdraws(db: Session):
     return db.query(Withdraw).filter(
         Withdraw.status.in_(["APPROVED", "REJECTED"])
@@ -137,7 +139,19 @@ def approve_withdraw(db: Session, withdraw_id: int, admin_id: int):
     )
 
     if not result:
-        return "locked"
+        wallet = get_wallet(db, withdraw.telegram_id)
+
+        if not wallet or wallet.uzs_balance < amount:
+            return "locked"
+
+        result = subtract_uzs(
+            db=db,
+            telegram_id=withdraw.telegram_id,
+            amount=amount,
+        )
+
+        if not result:
+            return "locked"
 
     withdraw.status = "APPROVED"
     withdraw.approved_by = admin_id
@@ -154,7 +168,7 @@ def approve_withdraw(db: Session, withdraw_id: int, admin_id: int):
         telegram_id=withdraw.telegram_id,
         currency="UZS",
         amount=amount,
-        balance_before=result.uzs_balance,
+        balance_before=result.uzs_balance + amount,
         balance_after=result.uzs_balance,
         type="WITHDRAW_APPROVED",
         description="Pul yechish admin tomonidan tasdiqlandi.",
@@ -193,8 +207,7 @@ def reject_withdraw(
         amount=amount,
     )
 
-    if not result:
-        return "locked"
+    wallet = result or get_wallet(db, withdraw.telegram_id)
 
     withdraw.status = "REJECTED"
     withdraw.rejected_by = admin_id
@@ -204,4 +217,19 @@ def reject_withdraw(
         withdraw.created_at
     )
 
-    db
+    db.commit()
+    db.refresh(withdraw)
+
+    if wallet:
+        create_transaction(
+            db=db,
+            telegram_id=withdraw.telegram_id,
+            currency="UZS",
+            amount=amount,
+            balance_before=wallet.uzs_balance - amount if result else wallet.uzs_balance,
+            balance_after=wallet.uzs_balance,
+            type="WITHDRAW_REJECTED",
+            description="Pul yechish rad etildi. Mablag‘ balansga qaytarildi.",
+        )
+
+    return withdraw
