@@ -40,11 +40,7 @@ def get_or_create_wallet(db: Session, telegram_id: int):
     return create_wallet(db, telegram_id)
 
 
-def add_uzs_balance(
-    db: Session,
-    telegram_id: int,
-    amount,
-):
+def add_uzs_balance(db: Session, telegram_id: int, amount):
     wallet = get_or_create_wallet(db, telegram_id)
     amount = to_decimal(amount)
 
@@ -56,11 +52,7 @@ def add_uzs_balance(
     return wallet
 
 
-def subtract_uzs_balance(
-    db: Session,
-    telegram_id: int,
-    amount,
-):
+def subtract_uzs_balance(db: Session, telegram_id: int, amount):
     wallet = get_or_create_wallet(db, telegram_id)
     amount = to_decimal(amount)
 
@@ -75,11 +67,7 @@ def subtract_uzs_balance(
     return wallet
 
 
-def lock_uzs_balance(
-    db: Session,
-    telegram_id: int,
-    amount,
-):
+def lock_uzs_balance(db: Session, telegram_id: int, amount):
     wallet = get_or_create_wallet(db, telegram_id)
     amount = to_decimal(amount)
 
@@ -93,13 +81,7 @@ def lock_uzs_balance(
     db.refresh(wallet)
 
     return wallet
-
-
-def unlock_uzs_balance(
-    db: Session,
-    telegram_id: int,
-    amount,
-):
+def unlock_uzs_balance(db: Session, telegram_id: int, amount):
     wallet = get_or_create_wallet(db, telegram_id)
     amount = to_decimal(amount)
 
@@ -113,11 +95,9 @@ def unlock_uzs_balance(
     db.refresh(wallet)
 
     return wallet
-def confirm_locked_uzs(
-    db: Session,
-    telegram_id: int,
-    amount,
-):
+
+
+def confirm_locked_uzs(db: Session, telegram_id: int, amount):
     wallet = get_or_create_wallet(db, telegram_id)
     amount = to_decimal(amount)
 
@@ -132,11 +112,7 @@ def confirm_locked_uzs(
     return wallet
 
 
-def add_efc_balance(
-    db: Session,
-    telegram_id: int,
-    amount,
-):
+def add_efc_balance(db: Session, telegram_id: int, amount):
     wallet = get_or_create_wallet(db, telegram_id)
     amount = to_decimal(amount)
 
@@ -148,11 +124,7 @@ def add_efc_balance(
     return wallet
 
 
-def subtract_efc_balance(
-    db: Session,
-    telegram_id: int,
-    amount,
-):
+def subtract_efc_balance(db: Session, telegram_id: int, amount):
     wallet = get_or_create_wallet(db, telegram_id)
     amount = to_decimal(amount)
 
@@ -167,11 +139,7 @@ def subtract_efc_balance(
     return wallet
 
 
-def lock_efc_balance(
-    db: Session,
-    telegram_id: int,
-    amount,
-):
+def lock_efc_balance(db: Session, telegram_id: int, amount):
     wallet = get_or_create_wallet(db, telegram_id)
     amount = to_decimal(amount)
 
@@ -187,11 +155,7 @@ def lock_efc_balance(
     return wallet
 
 
-def unlock_efc_balance(
-    db: Session,
-    telegram_id: int,
-    amount,
-):
+def unlock_efc_balance(db: Session, telegram_id: int, amount):
     wallet = get_or_create_wallet(db, telegram_id)
     amount = to_decimal(amount)
 
@@ -207,11 +171,7 @@ def unlock_efc_balance(
     return wallet
 
 
-def confirm_locked_efc(
-    db: Session,
-    telegram_id: int,
-    amount,
-):
+def confirm_locked_efc(db: Session, telegram_id: int, amount):
     wallet = get_or_create_wallet(db, telegram_id)
     amount = to_decimal(amount)
 
@@ -225,8 +185,6 @@ def confirm_locked_efc(
 
     return wallet
 
-
-# Eski fayllardagi importlar uchun aliaslar
 
 def add_efc(db: Session, telegram_id: int, amount):
     return add_efc_balance(db, telegram_id, amount)
@@ -248,17 +206,9 @@ def lock_uzs(db: Session, telegram_id: int, amount):
     return lock_uzs_balance(db, telegram_id, amount)
 
 
-def unlock_uzs_after_withdraw(
-    db: Session,
-    telegram_id: int,
-    amount,
-):
+def unlock_uzs_after_withdraw(db: Session, telegram_id: int, amount):
     return unlock_uzs_balance(db, telegram_id, amount)
 
 
-def confirm_uzs_withdraw(
-    db: Session,
-    telegram_id: int,
-    amount,
-):
+def confirm_uzs_withdraw(db: Session, telegram_id: int, amount):
     return confirm_locked_uzs(db, telegram_id, amount)
