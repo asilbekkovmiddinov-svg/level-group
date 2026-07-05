@@ -5,7 +5,7 @@ from sqlalchemy import (
     Numeric,
     String,
     DateTime,
-    ForeignKey
+    ForeignKey,
 )
 from sqlalchemy.sql import func
 
@@ -20,60 +20,48 @@ class Withdraw(Base):
     telegram_id = Column(
         BigInteger,
         ForeignKey("users.telegram_id"),
-        nullable=False
+        nullable=False,
     )
 
     amount = Column(
         Numeric(18, 2),
-        nullable=False
+        nullable=False,
+    )
+
+    card_number = Column(
+        String(32),
+        nullable=True,
+    )
+
+    card_holder = Column(
+        String(120),
+        nullable=True,
+    )
+
+    bank_name = Column(
+        String(120),
+        nullable=True,
     )
 
     status = Column(
         String(20),
-        default="PENDING"
+        default="PENDING",
     )
 
-    claimed_by = Column(
-        BigInteger,
-        nullable=True
-    )
+    claimed_by = Column(BigInteger, nullable=True)
+    claimed_at = Column(DateTime(timezone=True), nullable=True)
 
-    claimed_at = Column(
-        DateTime(timezone=True),
-        nullable=True
-    )
+    approved_by = Column(BigInteger, nullable=True)
+    approved_at = Column(DateTime(timezone=True), nullable=True)
 
-    approved_by = Column(
-        BigInteger,
-        nullable=True
-    )
+    rejected_by = Column(BigInteger, nullable=True)
+    rejected_at = Column(DateTime(timezone=True), nullable=True)
 
-    approved_at = Column(
-        DateTime(timezone=True),
-        nullable=True
-    )
+    reject_reason = Column(String(255), nullable=True)
 
-    rejected_by = Column(
-        BigInteger,
-        nullable=True
-    )
-
-    rejected_at = Column(
-        DateTime(timezone=True),
-        nullable=True
-    )
-
-    reject_reason = Column(
-        String(255),
-        nullable=True
-    )
-
-    processing_seconds = Column(
-        Integer,
-        nullable=True
-    )
+    processing_seconds = Column(Integer, nullable=True)
 
     created_at = Column(
         DateTime(timezone=True),
-        server_default=func.now()
+        server_default=func.now(),
     )
