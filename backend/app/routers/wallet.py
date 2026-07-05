@@ -2,65 +2,69 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.crud.wallet import get_wallet, add_efc
+from app.crud.wallet import get_wallet, get_or_create_wallet, add_efc
 from app.crud.transaction import create_transaction
 from app.schemas.wallet import AddEFC
 
 router = APIRouter(
     prefix="/wallet",
-    tags=["Wallet"]
+    tags=["Wallet"],
 )
 
 
 @router.get("/{telegram_id}")
 def wallet_info(
     telegram_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     wallet = get_wallet(db, telegram_id)
 
     if not wallet:
-        return {
-            "message": "Wallet not found"
-        }
+        return {"message": "Wallet not found"}
 
     return {
         "telegram_id": wallet.telegram_id,
         "efc_balance": float(wallet.efc_balance),
         "uzs_balance": float(wallet.uzs_balance),
         "locked_efc": float(wallet.locked_efc),
-        "locked_uzs": float(wallet.locked_uzs)
+        "locked_uzs": float(wallet.locked_uzs),
     }
 
 
 @router.post("/add-efc")
 def add_efc_balance(
     data: AddEFC,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    result = add_efc(db, data.telegram_id, data.amount)
+    wallet = get_or_create_wallet(db, data.telegram_id)
+    balance_before = wallet.efc_balance
 
-    if not result:
-        return {
-            "message": "Wallet not found"
-        }
+    updated_wallet = add_efc(
+        db=db,
+        telegram_id=data.telegram_id,
+        amount=data.amount,
+    )
 
-    before, after = result
-    
+    if not updated_wallet:
+        return {"message": "Wallet not found"}
+
+    balance_after = updated_wallet.efc_balance
+
     create_transaction(
         db=db,
         telegram_id=data.telegram_id,
         currency="EFC",
         amount=data.amount,
-        balance_before=before,
-        balance_after=after,
+        balance_before=balance_before,
+        balance_after=balance_after,
         type="ADMIN_ADD_EFC",
-        description="EFC added manually"
+        description="Admin tomonidan EFC qo‘shildi",
     )
 
     return {
         "message": "EFC added successfully",
         "telegram_id": data.telegram_id,
-        "balance_before": float(before),
-        "balance_after": float(after)
+        "amount": float(data.amount),
+        "balance_before": float(balance_before),
+        "balance_after": float(balance_after),
     }
