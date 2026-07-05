@@ -23,11 +23,24 @@ class Withdraw(Base):
         nullable=False
     )
 
-    amount = Column(Numeric(18, 2), nullable=False)
+    amount = Column(
+        Numeric(18, 2),
+        nullable=False
+    )
 
     status = Column(
         String(20),
         default="PENDING"
+    )
+
+    claimed_by = Column(
+        BigInteger,
+        nullable=True
+    )
+
+    claimed_at = Column(
+        DateTime(timezone=True),
+        nullable=True
     )
 
     approved_by = Column(
@@ -37,6 +50,26 @@ class Withdraw(Base):
 
     approved_at = Column(
         DateTime(timezone=True),
+        nullable=True
+    )
+
+    rejected_by = Column(
+        BigInteger,
+        nullable=True
+    )
+
+    rejected_at = Column(
+        DateTime(timezone=True),
+        nullable=True
+    )
+
+    reject_reason = Column(
+        String(255),
+        nullable=True
+    )
+
+    processing_seconds = Column(
+        Integer,
         nullable=True
     )
 
