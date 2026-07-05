@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
 from app.core.database import create_tables
+from app.core.migrations import run_migrations
 import app.models
 
 from app.routers.auth import router as auth_router
@@ -13,12 +14,14 @@ from app.routers.product import router as product_router
 from app.routers.order import router as order_router
 from app.routers.system import router as system_router
 
+
 app = FastAPI(
     title="LEVEL_GROUP API",
-    version="1.0.0"
+    version="1.0.0",
 )
 
 create_tables()
+run_migrations()
 
 app.include_router(auth_router)
 app.include_router(user_router)
@@ -36,5 +39,5 @@ def root():
     return {
         "status": "online",
         "project": "LEVEL_GROUP",
-        "version": "1.0.0"
+        "version": "1.0.0",
     }
