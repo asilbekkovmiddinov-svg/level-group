@@ -17,6 +17,18 @@ def to_decimal(amount):
     return Decimal(str(amount))
 
 
+def calculate_processing_seconds(created_at):
+    if not created_at:
+        return None
+
+    now = datetime.utcnow()
+
+    if created_at.tzinfo is not None:
+        created_at = created_at.replace(tzinfo=None)
+
+    return int((now - created_at).total_seconds())
+
+
 def create_withdraw(db: Session, data: WithdrawCreate):
     amount = to_decimal(data.amount)
 
@@ -32,6 +44,9 @@ def create_withdraw(db: Session, data: WithdrawCreate):
     withdraw = Withdraw(
         telegram_id=data.telegram_id,
         amount=amount,
+        card_number=data.card_number,
+        card_holder=data.card_holder,
+        bank_name=data.bank_name,
         status="PENDING",
     )
 
@@ -65,14 +80,14 @@ def get_pending_withdraws(db: Session):
     ).order_by(
         Withdraw.id.desc()
     ).all()
+
+
 def get_completed_withdraws(db: Session):
     return db.query(Withdraw).filter(
         Withdraw.status.in_(["APPROVED", "REJECTED"])
     ).order_by(
         Withdraw.id.desc()
     ).all()
-
-
 def approve_withdraw(db: Session, withdraw_id: int, admin_id: int):
     withdraw = db.query(Withdraw).filter(
         Withdraw.id == withdraw_id
@@ -101,6 +116,9 @@ def approve_withdraw(db: Session, withdraw_id: int, admin_id: int):
     withdraw.status = "APPROVED"
     withdraw.approved_by = admin_id
     withdraw.approved_at = datetime.utcnow()
+    withdraw.processing_seconds = calculate_processing_seconds(
+        withdraw.created_at
+    )
 
     db.commit()
     db.refresh(withdraw)
@@ -119,7 +137,12 @@ def approve_withdraw(db: Session, withdraw_id: int, admin_id: int):
     return withdraw
 
 
-def reject_withdraw(db: Session, withdraw_id: int, admin_id: int):
+def reject_withdraw(
+    db: Session,
+    withdraw_id: int,
+    admin_id: int,
+    reason: str = "Admin rad etdi",
+):
     withdraw = db.query(Withdraw).filter(
         Withdraw.id == withdraw_id
     ).first()
@@ -147,7 +170,10 @@ def reject_withdraw(db: Session, withdraw_id: int, admin_id: int):
     withdraw.status = "REJECTED"
     withdraw.rejected_by = admin_id
     withdraw.rejected_at = datetime.utcnow()
-    withdraw.reject_reason = "Admin rad etdi"
+    withdraw.reject_reason = reason
+    withdraw.processing_seconds = calculate_processing_seconds(
+        withdraw.created_at
+    )
 
     db.commit()
     db.refresh(withdraw)
