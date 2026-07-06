@@ -7,6 +7,8 @@ from app.crud.wheel import (
     get_wheel_status,
     fill_coin_order_details,
     get_pending_coin_orders,
+    approve_coin_order,
+    reject_coin_order,
 )
 from app.schemas.wheel import (
     WheelSpinRequest,
@@ -93,4 +95,54 @@ def pending_coin_orders(
     return {
         "success": True,
         "data": [coin_order_response(order) for order in orders],
+    }
+@router.post("/coin-orders/{order_id}/approve")
+def approve_wheel_coin_order(
+    order_id: int,
+    admin_id: int,
+    db: Session = Depends(get_db),
+):
+    order = approve_coin_order(
+        db=db,
+        order_id=order_id,
+        admin_id=admin_id,
+    )
+
+    if order == "not_pending":
+        return {"success": False, "message": "Buyurtma kutilayotgan holatda emas"}
+
+    if not order:
+        return {"success": False, "message": "Buyurtma topilmadi"}
+
+    return {
+        "success": True,
+        "message": "Coin buyurtma bajarildi",
+        "data": coin_order_response(order),
+    }
+
+
+@router.post("/coin-orders/{order_id}/reject")
+def reject_wheel_coin_order(
+    order_id: int,
+    admin_id: int,
+    reason: str = "Admin rad etdi",
+    db: Session = Depends(get_db),
+):
+    order = reject_coin_order(
+        db=db,
+        order_id=order_id,
+        admin_id=admin_id,
+        reason=reason,
+    )
+
+    if order == "not_pending":
+        return {"success": False, "message": "Buyurtma kutilayotgan holatda emas"}
+
+    if not order:
+        return {"success": False, "message": "Buyurtma topilmadi"}
+
+    return {
+        "success": True,
+        "message": "Coin buyurtma rad etildi",
+        "data": coin_order_response(order),
     }
