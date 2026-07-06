@@ -511,3 +511,54 @@ def get_pending_coin_orders(db: Session):
     ).order_by(
         WheelCoinOrder.id.asc()
     ).all()
+def get_coin_order(db: Session, order_id: int):
+    return db.query(WheelCoinOrder).filter(
+        WheelCoinOrder.id == order_id
+    ).first()
+
+
+def approve_coin_order(
+    db: Session,
+    order_id: int,
+    admin_id: int,
+):
+    order = get_coin_order(db, order_id)
+
+    if not order:
+        return None
+
+    if order.status != "PENDING":
+        return "not_pending"
+
+    order.status = "COMPLETED"
+    order.admin_id = admin_id
+    order.completed_at = get_now()
+
+    db.commit()
+    db.refresh(order)
+
+    return order
+
+
+def reject_coin_order(
+    db: Session,
+    order_id: int,
+    admin_id: int,
+    reason: str = "Admin rad etdi",
+):
+    order = get_coin_order(db, order_id)
+
+    if not order:
+        return None
+
+    if order.status != "PENDING":
+        return "not_pending"
+
+    order.status = "REJECTED"
+    order.admin_id = admin_id
+    order.reject_reason = reason
+
+    db.commit()
+    db.refresh(order)
+
+    return order
