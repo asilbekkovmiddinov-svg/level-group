@@ -13,14 +13,15 @@ from app.crud.p2p import (
     confirm_p2p_trade,
     get_my_p2p_orders,
     get_my_p2p_trades,
+    update_p2p_order_price,
 )
 from app.schemas.p2p import (
     P2PCreate,
     P2PCancel,
     P2PTradeCreate,
     P2PTradeAction,
+    P2PUpdatePrice,
 )
-
 router = APIRouter(
     prefix="/p2p",
     tags=["P2P"],
@@ -307,4 +308,39 @@ def my_trades(
     return {
         "success": True,
         "data": [trade_response(trade) for trade in trades],
+    }
+
+
+@router.post("/{order_id}/update-price")
+def update_order_price(
+    order_id: int,
+    data: P2PUpdatePrice,
+    db: Session = Depends(get_db),
+):
+    order = update_p2p_order_price(
+        db=db,
+        order_id=order_id,
+        telegram_id=data.telegram_id,
+        price_uzs=data.price_uzs,
+    )
+
+    if order == "not_owner":
+        return {"success": False, "message": "Faqat e’lon egasi narxni o‘zgartira oladi"}
+
+    if order == "cannot_update":
+        return {"success": False, "message": "Bu e’lon narxini o‘zgartirib bo‘lmaydi"}
+
+    if order == "invalid_price":
+        return {"success": False, "message": "Narx noto‘g‘ri"}
+
+    if order == "has_pending_trade":
+        return {"success": False, "message": "Aktiv savdo so‘rovi bor. Avval uni yakunlang yoki rad eting"}
+
+    if not order:
+        return {"success": False, "message": "P2P e’lon topilmadi"}
+
+    return {
+        "success": True,
+        "message": "P2P e’lon narxi yangilandi",
+        "data": order_response(order),
     }
