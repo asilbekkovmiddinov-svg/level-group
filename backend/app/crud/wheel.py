@@ -193,6 +193,13 @@ def should_give_super_efc(current_spin: int):
 
 def choose_reward(settings: WheelSettings):
     current_spin = settings.global_spin_count + 1
+    if current_spin % 2 == 0:
+        return {
+            "code": "coin_130",
+            "type": REWARD_TYPE_COIN_ORDER,
+            "amount": Decimal("130"),
+            "message": "🏆 130 Coin yutdingiz!",
+        }
 
     if current_spin >= settings.next_jackpot_spin:
         settings.next_jackpot_spin = current_spin + random.randint(
