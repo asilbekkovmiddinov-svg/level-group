@@ -117,6 +117,7 @@ def create_p2p_order(
     efc_amount,
     price_uzs,
     min_trade_efc,
+    response_minutes,
 ):
     order_type = order_type.upper()
     efc_amount = round_efc(efc_amount)
@@ -173,6 +174,7 @@ def create_p2p_order(
         remaining_efc=efc_amount,
         price_uzs=price_uzs,
         min_trade_efc=min_trade_efc,
+        response_minutes=response_minutes,
         locked_currency=locked_currency,
         locked_amount=locked_amount,
         status=ORDER_STATUS_OPEN,
