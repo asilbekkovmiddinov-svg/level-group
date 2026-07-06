@@ -50,7 +50,12 @@ class P2POrder(Base):
         Numeric(18, 4),
         nullable=False,
     )
-
+    
+    response_minutes = Column(
+        Integer,
+        nullable=False,
+        default=15,
+        )
     locked_currency = Column(
         String(10),
         nullable=False,
