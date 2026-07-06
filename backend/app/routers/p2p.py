@@ -71,6 +71,7 @@ def create_order(
         efc_amount=data.efc_amount,
         price_uzs=data.price_uzs,
         min_trade_efc=data.min_trade_efc,
+        response_minutes=data.response_minutes,
     )
 
     if order == "invalid_order_type":
