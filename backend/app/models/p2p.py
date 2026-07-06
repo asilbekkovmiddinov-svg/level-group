@@ -8,6 +8,7 @@ from sqlalchemy import (
     ForeignKey,
 )
 from sqlalchemy.sql import func
+from sqlalchemy.orm import relationship
 
 from app.core.database import Base
 
@@ -17,19 +18,25 @@ class P2POrder(Base):
 
     id = Column(Integer, primary_key=True, index=True)
 
-    seller_id = Column(
+    owner_id = Column(
         BigInteger,
         ForeignKey("users.telegram_id"),
         nullable=False,
+        index=True,
     )
 
-    buyer_id = Column(
-        BigInteger,
-        ForeignKey("users.telegram_id"),
-        nullable=True,
+    order_type = Column(
+        String(10),
+        nullable=False,
+        index=True,
     )
 
     efc_amount = Column(
+        Numeric(18, 4),
+        nullable=False,
+    )
+
+    remaining_efc = Column(
         Numeric(18, 4),
         nullable=False,
     )
@@ -39,34 +46,38 @@ class P2POrder(Base):
         nullable=False,
     )
 
-    seller_fee_efc = Column(
+    min_trade_efc = Column(
         Numeric(18, 4),
-        default=0,
+        nullable=False,
     )
 
-    buyer_fee_uzs = Column(
-        Numeric(18, 2),
-        default=0,
+    locked_currency = Column(
+        String(10),
+        nullable=False,
     )
 
-    total_buyer_pay_uzs = Column(
-        Numeric(18, 2),
-        default=0,
-    )
-
-    seller_receive_uzs = Column(
-        Numeric(18, 2),
+    locked_amount = Column(
+        Numeric(18, 4),
+        nullable=False,
         default=0,
     )
 
     status = Column(
         String(20),
+        nullable=False,
         default="OPEN",
+        index=True,
     )
 
-    reserved_at = Column(
+    created_at = Column(
         DateTime(timezone=True),
-        nullable=True,
+        server_default=func.now(),
+    )
+
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
     )
 
     completed_at = Column(
@@ -79,7 +90,123 @@ class P2POrder(Base):
         nullable=True,
     )
 
+    trades = relationship(
+        "P2PTrade",
+        back_populates="order",
+        cascade="all, delete-orphan",
+    )
+
+
+class P2PTrade(Base):
+    __tablename__ = "p2p_trades"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    order_id = Column(
+        Integer,
+        ForeignKey("p2p_orders.id"),
+        nullable=False,
+        index=True,
+    )
+
+    owner_id = Column(
+        BigInteger,
+        ForeignKey("users.telegram_id"),
+        nullable=False,
+        index=True,
+    )
+
+    requester_id = Column(
+        BigInteger,
+        ForeignKey("users.telegram_id"),
+        nullable=False,
+        index=True,
+    )
+
+    order_type = Column(
+        String(10),
+        nullable=False,
+        index=True,
+    )
+
+    efc_amount = Column(
+        Numeric(18, 4),
+        nullable=False,
+    )
+
+    price_uzs = Column(
+        Numeric(18, 2),
+        nullable=False,
+    )
+
+    total_uzs = Column(
+        Numeric(18, 2),
+        nullable=False,
+    )
+
+    efc_fee = Column(
+        Numeric(18, 4),
+        nullable=False,
+        default=0,
+    )
+
+    uzs_fee = Column(
+        Numeric(18, 2),
+        nullable=False,
+        default=0,
+    )
+
+    owner_status = Column(
+        String(20),
+        nullable=False,
+        default="PENDING",
+    )
+
+    requester_status = Column(
+        String(20),
+        nullable=False,
+        default="PENDING",
+    )
+
+    status = Column(
+        String(20),
+        nullable=False,
+        default="PENDING",
+        index=True,
+    )
+
     created_at = Column(
         DateTime(timezone=True),
         server_default=func.now(),
+    )
+
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    approved_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    completed_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    rejected_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    cancelled_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    order = relationship(
+        "P2POrder",
+        back_populates="trades",
     )
