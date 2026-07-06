@@ -25,9 +25,11 @@ REWARD_TYPE_COIN_ORDER = "COIN_ORDER"
 
 STATUS_COMPLETED = "COMPLETED"
 STATUS_WAITING_DETAILS = "WAITING_DETAILS"
+STATUS_PENDING = "PENDING"
+STATUS_REJECTED = "REJECTED"
 
 MAX_AD_SPINS_PER_DAY = 10
-AD_COOLDOWN_MINUTES = 1
+AD_COOLDOWN_MINUTES = 60
 
 SUPER_EFC_INTERVAL_MIN = 9000
 SUPER_EFC_INTERVAL_MAX = 11000
@@ -90,8 +92,6 @@ BASE_REWARDS = [
         "message": "🔥 100 EFC yutdingiz!",
     },
 ]
-
-
 def to_decimal(value):
     return Decimal(str(value))
 
@@ -103,12 +103,24 @@ def round_efc(value):
     )
 
 
+def get_now():
+    return datetime.utcnow()
+
+
+def make_naive(dt):
+    if not dt:
+        return None
+
+    if dt.tzinfo is not None:
+        return dt.replace(tzinfo=None)
+
+    return dt
+
+
 def get_today():
     return date.today()
 
 
-def get_now():
-    return datetime.utcnow()
 def get_or_create_settings(db: Session):
     settings = db.query(WheelSettings).filter(
         WheelSettings.id == 1
@@ -180,10 +192,7 @@ def can_spin(limit: WheelDailyLimit, spin_type: str):
             return False, "Bugungi reklama aylantirish limiti tugagan"
 
         if limit.last_ad_spin_at:
-            last_ad_spin_at = limit.last_ad_spin_at
-
-            if last_ad_spin_at.tzinfo is not None:
-                last_ad_spin_at = last_ad_spin_at.replace(tzinfo=None)
+            last_ad_spin_at = make_naive(limit.last_ad_spin_at)
 
             next_time = last_ad_spin_at + timedelta(
                 minutes=AD_COOLDOWN_MINUTES
@@ -195,8 +204,7 @@ def can_spin(limit: WheelDailyLimit, spin_type: str):
                 return False, f"Keyingi reklama aylantirish: {minutes} daqiqadan keyin"
 
         return True, None
-
-    if spin_type == SPIN_TYPE_BONUS:
+        if spin_type == SPIN_TYPE_BONUS:
         if limit.bonus_spin_count <= 0:
             return False, "Bonus aylantirish mavjud emas"
         return True, None
@@ -204,14 +212,29 @@ def can_spin(limit: WheelDailyLimit, spin_type: str):
     return False, "Spin turi noto‘g‘ri"
 
 
+def mark_spin_used(limit: WheelDailyLimit, spin_type: str):
+    now = get_now()
+
+    if spin_type == SPIN_TYPE_FREE:
+        limit.free_spin_used = True
+
+    elif spin_type == SPIN_TYPE_AD:
+        limit.ad_spin_count += 1
+        limit.last_ad_spin_at = now
+
+    elif spin_type == SPIN_TYPE_BONUS:
+        limit.bonus_spin_count -= 1
+
+
+def add_bonus_spin(limit: WheelDailyLimit):
+    limit.bonus_spin_count += 1
+
+
 def get_next_ad_spin_at(limit: WheelDailyLimit):
     if not limit.last_ad_spin_at:
         return None
 
-    last_ad_spin_at = limit.last_ad_spin_at
-
-    if last_ad_spin_at.tzinfo is not None:
-        last_ad_spin_at = last_ad_spin_at.replace(tzinfo=None)
+    last_ad_spin_at = make_naive(limit.last_ad_spin_at)
 
     next_time = last_ad_spin_at + timedelta(
         minutes=AD_COOLDOWN_MINUTES
@@ -221,6 +244,7 @@ def get_next_ad_spin_at(limit: WheelDailyLimit):
         return None
 
     return next_time.isoformat()
+
 
 def choose_base_reward():
     total_weight = sum(item["weight"] for item in BASE_REWARDS)
@@ -233,6 +257,17 @@ def choose_base_reward():
             return item
 
     return BASE_REWARDS[0]
+
+
+def should_give_super_efc(current_spin: int):
+    interval = random.randint(
+        SUPER_EFC_INTERVAL_MIN,
+        SUPER_EFC_INTERVAL_MAX,
+    )
+
+    return current_spin % interval == 0
+
+
 def choose_reward(settings: WheelSettings):
     current_spin = settings.global_spin_count + 1
 
@@ -248,8 +283,7 @@ def choose_reward(settings: WheelSettings):
             "amount": Decimal(str(settings.jackpot_coin_amount)),
             "message": "👑 JACKPOT! 2000 coin yutdingiz!",
         }
-
-    if current_spin >= settings.next_130_coin_spin:
+        if current_spin >= settings.next_130_coin_spin:
         settings.next_130_coin_spin = current_spin + random.randint(
             COIN_130_INTERVAL_MIN,
             COIN_130_INTERVAL_MAX,
@@ -262,10 +296,7 @@ def choose_reward(settings: WheelSettings):
             "message": "🏆 130 coin yutdingiz!",
         }
 
-    if current_spin % random.randint(
-        SUPER_EFC_INTERVAL_MIN,
-        SUPER_EFC_INTERVAL_MAX,
-    ) == 0:
+    if should_give_super_efc(current_spin):
         return {
             "code": "efc_250",
             "type": REWARD_TYPE_EFC,
@@ -335,7 +366,6 @@ def apply_reward(
 ):
     reward_type = reward["type"]
     amount = round_efc(reward["amount"])
-
     if reward_type == REWARD_TYPE_EFC:
         wallet = add_efc_balance(
             db=db,
@@ -366,6 +396,8 @@ def apply_reward(
             first_name=first_name,
             coin_amount=int(amount),
         )
+
+
 def spin_wheel(
     db: Session,
     telegram_id: int,
@@ -414,7 +446,6 @@ def spin_wheel(
         reward=reward,
         global_spin_number=global_spin_number,
     )
-
     apply_reward(
         db=db,
         telegram_id=telegram_id,
@@ -480,7 +511,6 @@ def fill_coin_order_details(
     device: str,
 ):
     order = get_waiting_coin_order(db, telegram_id)
-
     if not order:
         return None
 
@@ -488,7 +518,7 @@ def fill_coin_order_details(
     order.konami_password = konami_password
     order.region = region
     order.device = device
-    order.status = "PENDING"
+    order.status = STATUS_PENDING
 
     db.commit()
     db.refresh(order)
@@ -498,10 +528,12 @@ def fill_coin_order_details(
 
 def get_pending_coin_orders(db: Session):
     return db.query(WheelCoinOrder).filter(
-        WheelCoinOrder.status == "PENDING"
+        WheelCoinOrder.status == STATUS_PENDING
     ).order_by(
         WheelCoinOrder.id.asc()
     ).all()
+
+
 def get_coin_order(db: Session, order_id: int):
     return db.query(WheelCoinOrder).filter(
         WheelCoinOrder.id == order_id
@@ -518,10 +550,10 @@ def approve_coin_order(
     if not order:
         return None
 
-    if order.status != "PENDING":
+    if order.status != STATUS_PENDING:
         return "not_pending"
 
-    order.status = "COMPLETED"
+    order.status = STATUS_COMPLETED
     order.admin_id = admin_id
     order.completed_at = get_now()
 
@@ -542,10 +574,10 @@ def reject_coin_order(
     if not order:
         return None
 
-    if order.status != "PENDING":
+    if order.status != STATUS_PENDING:
         return "not_pending"
 
-    order.status = "REJECTED"
+    order.status = STATUS_REJECTED
     order.admin_id = admin_id
     order.reject_reason = reason
 
