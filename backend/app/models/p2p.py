@@ -179,7 +179,12 @@ class P2PTrade(Base):
         default="PENDING",
         index=True,
     )
-
+    
+    expires_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    
     created_at = Column(
         DateTime(timezone=True),
         server_default=func.now(),
