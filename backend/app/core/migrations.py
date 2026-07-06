@@ -88,3 +88,52 @@ def run_migrations():
             ADD COLUMN IF NOT EXISTS response_minutes INTEGER DEFAULT 15 NOT NULL;
             """)
         )
+
+        connection.execute(
+            text("""
+            ALTER TABLE p2p_trades
+            ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP WITH TIME ZONE;
+            """)
+        )
+
+        connection.execute(
+            text("""
+            ALTER TABLE p2p_trades
+            ADD COLUMN IF NOT EXISTS owner_status VARCHAR(20) DEFAULT 'PENDING';
+            """)
+        )
+
+        connection.execute(
+            text("""
+            ALTER TABLE p2p_trades
+            ADD COLUMN IF NOT EXISTS requester_status VARCHAR(20) DEFAULT 'PENDING';
+            """)
+        )
+
+        connection.execute(
+            text("""
+            ALTER TABLE p2p_trades
+            ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP WITH TIME ZONE;
+            """)
+        )
+
+        connection.execute(
+            text("""
+            ALTER TABLE p2p_trades
+            ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP WITH TIME ZONE;
+            """)
+        )
+
+        connection.execute(
+            text("""
+            ALTER TABLE p2p_trades
+            ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMP WITH TIME ZONE;
+            """)
+        )
+
+        connection.execute(
+            text("""
+            ALTER TABLE p2p_trades
+            ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMP WITH TIME ZONE;
+            """)
+        )
