@@ -221,7 +221,12 @@ def get_next_ad_spin_at(limit: WheelDailyLimit):
     if not limit.last_ad_spin_at:
         return None
 
-    next_time = limit.last_ad_spin_at + timedelta(
+    last_ad_spin_at = limit.last_ad_spin_at
+
+    if last_ad_spin_at.tzinfo is not None:
+        last_ad_spin_at = last_ad_spin_at.replace(tzinfo=None)
+
+    next_time = last_ad_spin_at + timedelta(
         minutes=AD_COOLDOWN_MINUTES
     )
 
@@ -229,7 +234,6 @@ def get_next_ad_spin_at(limit: WheelDailyLimit):
         return None
 
     return next_time.isoformat()
-
 
 def choose_base_reward():
     total_weight = sum(item["weight"] for item in BASE_REWARDS)
