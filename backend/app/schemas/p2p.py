@@ -22,6 +22,11 @@ class P2PCancel(BaseModel):
     telegram_id: int
 
 
+class P2PUpdatePrice(BaseModel):
+    telegram_id: int
+    price_uzs: float
+
+
 class P2PResponse(BaseModel):
     id: int
 
