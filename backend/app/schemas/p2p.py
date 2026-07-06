@@ -7,7 +7,8 @@ class P2PCreate(BaseModel):
     efc_amount: float
     price_uzs: float
     min_trade_efc: float
-
+    response_minutes: int = 15
+    
 
 class P2PTradeCreate(BaseModel):
     telegram_id: int
