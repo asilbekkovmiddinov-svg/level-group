@@ -193,7 +193,6 @@ def can_spin(limit: WheelDailyLimit, spin_type: str):
 
         if limit.last_ad_spin_at:
             last_ad_spin_at = make_naive(limit.last_ad_spin_at)
-
             next_time = last_ad_spin_at + timedelta(
                 minutes=AD_COOLDOWN_MINUTES
             )
@@ -204,13 +203,13 @@ def can_spin(limit: WheelDailyLimit, spin_type: str):
                 return False, f"Keyingi reklama aylantirish: {minutes} daqiqadan keyin"
 
         return True, None
-        if spin_type == SPIN_TYPE_BONUS:
+
+    if spin_type == SPIN_TYPE_BONUS:
         if limit.bonus_spin_count <= 0:
             return False, "Bonus aylantirish mavjud emas"
         return True, None
 
     return False, "Spin turi noto‘g‘ri"
-
 
 def mark_spin_used(limit: WheelDailyLimit, spin_type: str):
     now = get_now()
