@@ -13,6 +13,7 @@ from app.routers.withdraw import router as withdraw_router
 from app.routers.product import router as product_router
 from app.routers.order import router as order_router
 from app.routers.p2p import router as p2p_router
+from app.routers.wheel import router as wheel_router
 from app.routers.system import router as system_router
 
 
@@ -33,6 +34,7 @@ app.include_router(withdraw_router)
 app.include_router(product_router)
 app.include_router(order_router)
 app.include_router(p2p_router)
+app.include_router(wheel_router)
 app.include_router(system_router)
 
 
