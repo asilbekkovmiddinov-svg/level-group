@@ -81,3 +81,10 @@ def run_migrations():
             ADD COLUMN IF NOT EXISTS bank_name VARCHAR(120);
             """)
         )
+
+        connection.execute(
+            text("""
+            ALTER TABLE p2p_orders
+            ADD COLUMN IF NOT EXISTS response_minutes INTEGER DEFAULT 15 NOT NULL;
+            """)
+        )
