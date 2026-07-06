@@ -180,7 +180,12 @@ def can_spin(limit: WheelDailyLimit, spin_type: str):
             return False, "Bugungi reklama aylantirish limiti tugagan"
 
         if limit.last_ad_spin_at:
-            next_time = limit.last_ad_spin_at + timedelta(
+            last_ad_spin_at = limit.last_ad_spin_at
+
+            if last_ad_spin_at.tzinfo is not None:
+                last_ad_spin_at = last_ad_spin_at.replace(tzinfo=None)
+
+            next_time = last_ad_spin_at + timedelta(
                 minutes=AD_COOLDOWN_MINUTES
             )
 
@@ -197,24 +202,6 @@ def can_spin(limit: WheelDailyLimit, spin_type: str):
         return True, None
 
     return False, "Spin turi noto‘g‘ri"
-
-
-def mark_spin_used(limit: WheelDailyLimit, spin_type: str):
-    now = get_now()
-
-    if spin_type == SPIN_TYPE_FREE:
-        limit.free_spin_used = True
-
-    elif spin_type == SPIN_TYPE_AD:
-        limit.ad_spin_count += 1
-        limit.last_ad_spin_at = now
-
-    elif spin_type == SPIN_TYPE_BONUS:
-        limit.bonus_spin_count -= 1
-
-
-def add_bonus_spin(limit: WheelDailyLimit):
-    limit.bonus_spin_count += 1
 
 
 def get_next_ad_spin_at(limit: WheelDailyLimit):
