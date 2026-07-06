@@ -507,3 +507,54 @@ def cancel_p2p_order(
     )
 
     return order
+    
+def update_p2p_order_price(
+    db: Session,
+    order_id: int,
+    telegram_id: int,
+    price_uzs,
+):
+    order = get_p2p_order(db, order_id)
+
+    if not order:
+        return None
+
+    if order.owner_id != telegram_id:
+        return "not_owner"
+
+    if order.status not in [ORDER_STATUS_OPEN, ORDER_STATUS_PARTIAL]:
+        return "cannot_update"
+
+    price_uzs = round_uzs(price_uzs)
+
+    if price_uzs <= 0:
+        return "invalid_price"
+
+    pending_trade = db.query(P2PTrade).filter(
+        P2PTrade.order_id == order_id,
+        P2PTrade.status.in_([
+            TRADE_STATUS_PENDING,
+            TRADE_STATUS_OWNER_APPROVED,
+        ]),
+    ).first()
+
+    if pending_trade:
+        return "has_pending_trade"
+
+    order.price_uzs = price_uzs
+
+    db.commit()
+    db.refresh(order)
+
+    create_transaction(
+        db=db,
+        telegram_id=telegram_id,
+        currency="P2P",
+        amount=0,
+        balance_before=0,
+        balance_after=0,
+        type="P2P_UPDATE_PRICE",
+        description=f"P2P order #{order.id} narxi yangilandi.",
+    )
+
+    return order
