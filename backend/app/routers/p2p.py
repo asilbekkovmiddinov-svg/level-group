@@ -6,15 +6,19 @@ from app.crud.p2p import (
     create_p2p_order,
     get_open_p2p_orders,
     get_p2p_order,
-    reserve_p2p_order,
-    complete_p2p_order,
     cancel_p2p_order,
+    create_p2p_trade,
+    approve_p2p_trade,
+    reject_p2p_trade,
+    confirm_p2p_trade,
+    get_my_p2p_orders,
+    get_my_p2p_trades,
 )
 from app.schemas.p2p import (
     P2PCreate,
-    P2PReserve,
-    P2PComplete,
     P2PCancel,
+    P2PTradeCreate,
+    P2PTradeAction,
 )
 
 router = APIRouter(
@@ -23,18 +27,34 @@ router = APIRouter(
 )
 
 
-def p2p_response(order):
+def order_response(order):
     return {
         "id": order.id,
-        "seller_id": order.seller_id,
-        "buyer_id": order.buyer_id,
+        "owner_id": order.owner_id,
+        "order_type": order.order_type,
         "efc_amount": float(order.efc_amount),
+        "remaining_efc": float(order.remaining_efc),
         "price_uzs": float(order.price_uzs),
-        "seller_fee_efc": float(order.seller_fee_efc),
-        "buyer_fee_uzs": float(order.buyer_fee_uzs),
-        "total_buyer_pay_uzs": float(order.total_buyer_pay_uzs),
-        "seller_receive_uzs": float(order.seller_receive_uzs),
+        "min_trade_efc": float(order.min_trade_efc),
         "status": order.status,
+        "created_at": str(order.created_at),
+    }
+
+
+def trade_response(trade):
+    return {
+        "id": trade.id,
+        "order_id": trade.order_id,
+        "owner_id": trade.owner_id,
+        "requester_id": trade.requester_id,
+        "order_type": trade.order_type,
+        "efc_amount": float(trade.efc_amount),
+        "price_uzs": float(trade.price_uzs),
+        "total_uzs": float(trade.total_uzs),
+        "efc_fee": float(trade.efc_fee),
+        "uzs_fee": float(trade.uzs_fee),
+        "status": trade.status,
+        "created_at": str(trade.created_at),
     }
 
 
@@ -46,26 +66,51 @@ def create_order(
     order = create_p2p_order(
         db=db,
         telegram_id=data.telegram_id,
+        order_type=data.order_type,
         efc_amount=data.efc_amount,
         price_uzs=data.price_uzs,
+        min_trade_efc=data.min_trade_efc,
     )
 
+    if order == "invalid_order_type":
+        return {"success": False, "message": "Order turi noto‘g‘ri"}
+
+    if order == "min_efc":
+        return {"success": False, "message": "Minimal e’lon 50 EFC"}
+
+    if order == "max_efc":
+        return {"success": False, "message": "Maksimal e’lon 10000 EFC"}
+
+    if order == "min_trade":
+        return {"success": False, "message": "Minimal savdo 50 EFC dan kam bo‘lmaydi"}
+
     if order == "insufficient_efc":
-        return {"message": "EFC balans yetarli emas"}
+        return {"success": False, "message": "EFC balans yetarli emas"}
+
+    if order == "insufficient_uzs":
+        return {"success": False, "message": "UZS balans yetarli emas"}
 
     if not order:
-        return {"message": "P2P order yaratilmadi"}
+        return {"success": False, "message": "P2P e’lon yaratilmadi"}
 
-    response = p2p_response(order)
-    response["message"] = "P2P order yaratildi"
-    return response
+    return {
+        "success": True,
+        "message": "P2P e’lon yaratildi",
+        "data": order_response(order),
+    }
 
 
 @router.get("/open")
-def open_orders(db: Session = Depends(get_db)):
-    return [p2p_response(order) for order in get_open_p2p_orders(db)]
+def open_orders(
+    order_type: str | None = None,
+    db: Session = Depends(get_db),
+):
+    orders = get_open_p2p_orders(db=db, order_type=order_type)
 
-
+    return {
+        "success": True,
+        "data": [order_response(order) for order in orders],
+    }
 @router.get("/{order_id}")
 def one_order(
     order_id: int,
@@ -74,62 +119,141 @@ def one_order(
     order = get_p2p_order(db, order_id)
 
     if not order:
-        return {"message": "P2P order topilmadi"}
+        return {"success": False, "message": "P2P e’lon topilmadi"}
 
-    return p2p_response(order)
-@router.post("/{order_id}/reserve")
-def reserve_order(
+    return {
+        "success": True,
+        "data": order_response(order),
+    }
+
+
+@router.post("/{order_id}/trade")
+def create_trade(
     order_id: int,
-    data: P2PReserve,
+    data: P2PTradeCreate,
     db: Session = Depends(get_db),
 ):
-    order = reserve_p2p_order(
+    trade = create_p2p_trade(
         db=db,
         order_id=order_id,
-        buyer_id=data.telegram_id,
+        telegram_id=data.telegram_id,
+        efc_amount=data.efc_amount,
     )
 
-    if order == "not_open":
-        return {"message": "Order ochiq emas"}
+    if trade == "not_open":
+        return {"success": False, "message": "E’lon ochiq emas"}
 
-    if order == "own_order":
-        return {"message": "O‘zingizning orderingizni sotib olmaysiz"}
+    if trade == "own_order":
+        return {"success": False, "message": "O‘zingizning e’loningiz bilan savdo qila olmaysiz"}
 
-    if not order:
-        return {"message": "P2P order topilmadi"}
+    if trade == "min_trade":
+        return {"success": False, "message": "Minimal savdo miqdori yetarli emas"}
 
-    response = p2p_response(order)
-    response["message"] = "P2P order band qilindi"
-    return response
+    if trade == "too_much":
+        return {"success": False, "message": "E’londa yetarli EFC qolmagan"}
+
+    if trade == "insufficient_efc":
+        return {"success": False, "message": "EFC balans yetarli emas"}
+
+    if trade == "insufficient_uzs":
+        return {"success": False, "message": "UZS balans yetarli emas"}
+
+    if not trade:
+        return {"success": False, "message": "Savdo so‘rovi yaratilmadi"}
+
+    return {
+        "success": True,
+        "message": "Savdo so‘rovi yuborildi",
+        "data": trade_response(trade),
+    }
 
 
-@router.post("/{order_id}/complete")
-def complete_order(
-    order_id: int,
-    data: P2PComplete,
+@router.post("/trade/{trade_id}/approve")
+def approve_trade(
+    trade_id: int,
+    data: P2PTradeAction,
     db: Session = Depends(get_db),
 ):
-    order = complete_p2p_order(
+    trade = approve_p2p_trade(
         db=db,
-        order_id=order_id,
-        buyer_id=data.telegram_id,
+        trade_id=trade_id,
+        telegram_id=data.telegram_id,
     )
 
-    if order == "not_reserved":
-        return {"message": "Order band qilinmagan"}
+    if trade == "not_owner":
+        return {"success": False, "message": "Faqat e’lon egasi tasdiqlaydi"}
 
-    if order == "not_buyer":
-        return {"message": "Bu order sizga tegishli emas"}
+    if trade == "not_pending":
+        return {"success": False, "message": "Savdo kutilayotgan holatda emas"}
 
-    if order == "insufficient_uzs":
-        return {"message": "UZS balans yetarli emas"}
+    if not trade:
+        return {"success": False, "message": "Savdo topilmadi"}
 
-    if not order:
-        return {"message": "P2P order topilmadi"}
+    return {
+        "success": True,
+        "message": "Savdo e’lon egasi tomonidan tasdiqlandi",
+        "data": trade_response(trade),
+    }
 
-    response = p2p_response(order)
-    response["message"] = "P2P order yakunlandi"
-    return response
+
+@router.post("/trade/{trade_id}/reject")
+def reject_trade(
+    trade_id: int,
+    data: P2PTradeAction,
+    db: Session = Depends(get_db),
+):
+    trade = reject_p2p_trade(
+        db=db,
+        trade_id=trade_id,
+        telegram_id=data.telegram_id,
+    )
+
+    if trade == "not_owner":
+        return {"success": False, "message": "Faqat e’lon egasi rad etadi"}
+
+    if trade == "not_pending":
+        return {"success": False, "message": "Savdo kutilayotgan holatda emas"}
+
+    if not trade:
+        return {"success": False, "message": "Savdo topilmadi"}
+
+    return {
+        "success": True,
+        "message": "Savdo rad etildi",
+        "data": trade_response(trade),
+    }
+@router.post("/trade/{trade_id}/confirm")
+def confirm_trade(
+    trade_id: int,
+    data: P2PTradeAction,
+    db: Session = Depends(get_db),
+):
+    trade = confirm_p2p_trade(
+        db=db,
+        trade_id=trade_id,
+        telegram_id=data.telegram_id,
+    )
+
+    if trade == "not_requester":
+        return {"success": False, "message": "Faqat savdo boshlagan foydalanuvchi yakuniy tasdiqlaydi"}
+
+    if trade == "not_approved":
+        return {"success": False, "message": "Savdo hali e’lon egasi tomonidan tasdiqlanmagan"}
+
+    if trade == "insufficient_efc":
+        return {"success": False, "message": "EFC balans yetarli emas"}
+
+    if trade == "insufficient_uzs":
+        return {"success": False, "message": "UZS balans yetarli emas"}
+
+    if not trade:
+        return {"success": False, "message": "Savdo topilmadi"}
+
+    return {
+        "success": True,
+        "message": "P2P savdo yakunlandi",
+        "data": trade_response(trade),
+    }
 
 
 @router.post("/{order_id}/cancel")
@@ -144,15 +268,43 @@ def cancel_order(
         telegram_id=data.telegram_id,
     )
 
-    if order == "not_seller":
-        return {"message": "Faqat sotuvchi bekor qila oladi"}
+    if order == "not_owner":
+        return {"success": False, "message": "Faqat e’lon egasi bekor qila oladi"}
 
     if order == "cannot_cancel":
-        return {"message": "Bu orderni bekor qilib bo‘lmaydi"}
+        return {"success": False, "message": "Bu e’lonni bekor qilib bo‘lmaydi"}
 
     if not order:
-        return {"message": "P2P order topilmadi"}
+        return {"success": False, "message": "P2P e’lon topilmadi"}
 
-    response = p2p_response(order)
-    response["message"] = "P2P order bekor qilindi"
-    return response
+    return {
+        "success": True,
+        "message": "P2P e’lon bekor qilindi",
+        "data": order_response(order),
+    }
+
+
+@router.get("/my/{telegram_id}")
+def my_orders(
+    telegram_id: int,
+    db: Session = Depends(get_db),
+):
+    orders = get_my_p2p_orders(db=db, telegram_id=telegram_id)
+
+    return {
+        "success": True,
+        "data": [order_response(order) for order in orders],
+    }
+
+
+@router.get("/trades/my/{telegram_id}")
+def my_trades(
+    telegram_id: int,
+    db: Session = Depends(get_db),
+):
+    trades = get_my_p2p_trades(db=db, telegram_id=telegram_id)
+
+    return {
+        "success": True,
+        "data": [trade_response(trade) for trade in trades],
+    }
