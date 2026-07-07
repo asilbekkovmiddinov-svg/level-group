@@ -179,3 +179,10 @@ def run_migrations():
             ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMP WITH TIME ZONE;
             """)
         )
+
+        connection.execute(
+            text("""
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMP WITH TIME ZONE;
+            """)
+        )
