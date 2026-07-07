@@ -170,8 +170,110 @@ def run_migrations():
         # ORDERS
         # =========================
 
-        connection.execute(
-            text("""
+        connection.execute(text("""
             ALTER TABLE orders
             ADD COLUMN IF NOT EXISTS region VARCHAR(100);
+        """))
+
+        # =========================
+        # 1VS1 ARENA MATCHES
+        # =========================
+
+        connection.execute(text("""
+            CREATE TABLE IF NOT EXISTS matches (
+                id SERIAL PRIMARY KEY,
+                creator_telegram_id BIGINT NOT NULL REFERENCES users(telegram_id),
+                opponent_telegram_id BIGINT REFERENCES users(telegram_id),
+                efc_amount NUMERIC(18, 2) NOT NULL,
+                total_pool NUMERIC(18, 2) NOT NULL DEFAULT 0,
+                commission_amount NUMERIC(18, 2) NOT NULL DEFAULT 0,
+                winner_reward NUMERIC(18, 2) NOT NULL DEFAULT 0,
+                status VARCHAR(30) NOT NULL DEFAULT 'WAITING_PLAYER',
+                scheduled_at TIMESTAMP WITH TIME ZONE NOT NULL,
+                ready_check_started_at TIMESTAMP WITH TIME ZONE,
+                ready_check_deadline_at TIMESTAMP WITH TIME ZONE,
+                creator_ready BOOLEAN NOT NULL DEFAULT FALSE,
+                opponent_ready BOOLEAN NOT NULL DEFAULT FALSE,
+                creator_ready_at TIMESTAMP WITH TIME ZONE,
+                opponent_ready_at TIMESTAMP WITH TIME ZONE,
+                room_code VARCHAR(64),
+                room_code_created_by BIGINT,
+                room_code_created_at TIMESTAMP WITH TIME ZONE,
+                creator_result_screenshot VARCHAR(500),
+                opponent_result_screenshot VARCHAR(500),
+                creator_result_uploaded_at TIMESTAMP WITH TIME ZONE,
+                opponent_result_uploaded_at TIMESTAMP WITH TIME ZONE,
+                winner_telegram_id BIGINT,
+                loser_telegram_id BIGINT,
+                result_type VARCHAR(30),
+                admin_telegram_id BIGINT,
+                admin_comment TEXT,
+                resolved_at TIMESTAMP WITH TIME ZONE,
+                cancel_reason TEXT,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
+            );
+        """))
+
+        connection.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_matches_creator_telegram_id
+            ON matches (creator_telegram_id);
+        """))
+
+        connection.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_matches_opponent_telegram_id
+            ON matches (opponent_telegram_id);
+        """))
+
+        connection.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_matches_status
+            ON matches (status);
+        """))
+
+        connection.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_matches_scheduled_at
+            ON matches (scheduled_at);
+        """))
+
+        connection.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_matches_winner_telegram_id
+            ON matches (winner_telegram_id);
+        """))
+
+        connection.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_matches_loser_telegram_id
+            ON matches (loser_telegram_id);
+        """))
+
+        # =========================
+        # 1VS1 ARENA STATS
+        # =========================
+
+        connection.execute(text("""
+            CREATE TABLE IF NOT EXISTS match_stats (
+                id SERIAL PRIMARY KEY,
+                telegram_id BIGINT NOT NULL UNIQUE REFERENCES users(telegram_id),
+                total_matches INTEGER NOT NULL DEFAULT 0,
+                wins INTEGER NOT NULL DEFAULT 0,
+                losses INTEGER NOT NULL DEFAULT 0,
+                win_rate NUMERIC(5, 2) NOT NULL DEFAULT 0,
+                win_streak INTEGER NOT NULL DEFAULT 0,
+                best_win_streak INTEGER NOT NULL DEFAULT 0,
+                total_efc_won NUMERIC(18, 2) NOT NULL DEFAULT 0,
+                total_efc_lost NUMERIC(18, 2) NOT NULL DEFAULT 0,
+                biggest_win NUMERIC(18, 2) NOT NULL DEFAULT 0,
+                rating INTEGER NOT NULL DEFAULT 1000,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
+            );
+        """))
+
+        connection.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_match_stats_telegram_id
+            ON match_stats (telegram_id);
+        """))
+
+        connection.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_match_stats_rating
+            ON match_stats (rating);
         """))
