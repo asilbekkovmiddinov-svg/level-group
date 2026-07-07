@@ -1,9 +1,10 @@
-from datetime import timezone, timedelta
+from datetime import datetime, timezone, timedelta
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.models.user import User
 from app.crud.p2p import (
     create_p2p_order,
     get_open_p2p_orders,
@@ -41,6 +42,7 @@ router = APIRouter(
 )
 
 UZ_TZ = timezone(timedelta(hours=5))
+ONLINE_LIMIT_MINUTES = 5
 
 
 def format_uz_datetime(dt):
@@ -53,7 +55,83 @@ def format_uz_datetime(dt):
     return dt.astimezone(UZ_TZ).strftime("%d.%m.%Y %H:%M:%S")
 
 
-def order_response(order):
+def format_last_seen(dt):
+    if not dt:
+        return "Noma’lum"
+
+    now = datetime.now(timezone.utc)
+
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+
+    seconds = int((now - dt).total_seconds())
+
+    if seconds < 60:
+        return "hozirgina"
+
+    minutes = seconds // 60
+
+    if minutes < 60:
+        return f"{minutes} daqiqa oldin"
+
+    hours = minutes // 60
+
+    if hours < 24:
+        return f"{hours} soat oldin"
+
+    days = hours // 24
+    return f"{days} kun oldin"
+
+
+def owner_online_response(db: Session, owner_id: int):
+    user = db.query(User).filter(
+        User.telegram_id == owner_id
+    ).first()
+
+    if not user or not user.last_seen_at:
+        return {
+            "owner_is_online": False,
+            "owner_online_text": "⚪ Offline",
+            "owner_last_seen_text": "Noma’lum",
+        }
+
+    last_seen = user.last_seen_at
+
+    if last_seen.tzinfo is None:
+        last_seen = last_seen.replace(tzinfo=timezone.utc)
+
+    now = datetime.now(timezone.utc)
+    diff_seconds = int((now - last_seen).total_seconds())
+
+    is_online = diff_seconds <= ONLINE_LIMIT_MINUTES * 60
+
+    if is_online:
+        return {
+            "owner_is_online": True,
+            "owner_online_text": "🟢 Online",
+            "owner_last_seen_text": "hozir faol",
+        }
+
+    return {
+        "owner_is_online": False,
+        "owner_online_text": "⚪ Offline",
+        "owner_last_seen_text": format_last_seen(last_seen),
+    }
+
+
+def order_response(order, db: Session | None = None):
+    owner_status = {
+        "owner_is_online": False,
+        "owner_online_text": "⚪ Offline",
+        "owner_last_seen_text": "Noma’lum",
+    }
+
+    if db:
+        owner_status = owner_online_response(
+            db=db,
+            owner_id=order.owner_id,
+        )
+
     return {
         "id": order.id,
         "owner_id": order.owner_id,
@@ -64,6 +142,9 @@ def order_response(order):
         "min_trade_efc": float(order.min_trade_efc),
         "response_minutes": order.response_minutes,
         "status": order.status,
+        "owner_is_online": owner_status["owner_is_online"],
+        "owner_online_text": owner_status["owner_online_text"],
+        "owner_last_seen_text": owner_status["owner_last_seen_text"],
         "created_at": format_uz_datetime(order.created_at),
         "updated_at": format_uz_datetime(order.updated_at),
         "completed_at": format_uz_datetime(order.completed_at),
@@ -90,11 +171,7 @@ def trade_response(trade):
         "requester_status": trade.requester_status,
         "status": trade.status,
         "response_minutes": trade.order.response_minutes if trade.order else 15,
-        "expires_at": (
-            trade.expires_at.isoformat()
-            if trade.expires_at
-            else None
-        ),
+        "expires_at": trade.expires_at.isoformat() if trade.expires_at else None,
         "owner_expires_at": (
             trade.owner_expires_at.isoformat()
             if trade.owner_expires_at
@@ -176,7 +253,7 @@ def create_order(
     return {
         "success": True,
         "message": "P2P e’lon yaratildi",
-        "data": order_response(order),
+        "data": order_response(order, db),
     }
 
 
@@ -189,7 +266,7 @@ def open_orders(
 
     return {
         "success": True,
-        "data": [order_response(order) for order in orders],
+        "data": [order_response(order, db) for order in orders],
     }
 
 
@@ -202,7 +279,7 @@ def my_orders(
 
     return {
         "success": True,
-        "data": [order_response(order) for order in orders],
+        "data": [order_response(order, db) for order in orders],
     }
 
 
@@ -253,7 +330,7 @@ def one_order(
 
     return {
         "success": True,
-        "data": order_response(order),
+        "data": order_response(order, db),
     }
 
 
@@ -448,7 +525,7 @@ def cancel_order(
     return {
         "success": True,
         "message": "P2P e’lon bekor qilindi",
-        "data": order_response(order),
+        "data": order_response(order, db),
     }
 
 
@@ -495,7 +572,7 @@ def update_order_price(
     return {
         "success": True,
         "message": "P2P e’lon narxi yangilandi",
-        "data": order_response(order),
+        "data": order_response(order, db),
     }
 
 
@@ -554,7 +631,7 @@ def update_order_amount(
     return {
         "success": True,
         "message": "P2P e’lon miqdori yangilandi",
-        "data": order_response(order),
+        "data": order_response(order, db),
     }
 
 
@@ -592,7 +669,7 @@ def update_order_min_trade(
     return {
         "success": True,
         "message": "Minimal savdo yangilandi",
-        "data": order_response(order),
+        "data": order_response(order, db),
     }
 
 
@@ -630,5 +707,5 @@ def update_order_response_minutes(
     return {
         "success": True,
         "message": "Javob vaqti yangilandi",
-        "data": order_response(order),
+        "data": order_response(order, db),
         }
