@@ -44,8 +44,14 @@ class MatchCancel(BaseModel):
 
 class MatchResponse(BaseModel):
     id: int
+
     creator_telegram_id: int
-    opponent_telegram_id: Optional[int]
+    creator_username: Optional[str] = None
+    creator_first_name: Optional[str] = None
+
+    opponent_telegram_id: Optional[int] = None
+    opponent_username: Optional[str] = None
+    opponent_first_name: Optional[str] = None
 
     efc_amount: Decimal
     total_pool: Decimal
@@ -53,40 +59,44 @@ class MatchResponse(BaseModel):
     winner_reward: Decimal
 
     status: MatchStatus
-
     scheduled_at: datetime
-    ready_check_started_at: Optional[datetime]
-    ready_check_deadline_at: Optional[datetime]
+
+    ready_check_started_at: Optional[datetime] = None
+    ready_check_deadline_at: Optional[datetime] = None
 
     creator_ready: bool
     opponent_ready: bool
-    creator_ready_at: Optional[datetime]
-    opponent_ready_at: Optional[datetime]
+    creator_ready_at: Optional[datetime] = None
+    opponent_ready_at: Optional[datetime] = None
 
-    room_code: Optional[str]
-    room_code_created_by: Optional[int]
-    room_code_created_at: Optional[datetime]
+    room_code: Optional[str] = None
+    room_code_created_by: Optional[int] = None
+    room_code_created_at: Optional[datetime] = None
 
-    creator_result_screenshot: Optional[str]
-    opponent_result_screenshot: Optional[str]
-    creator_result_uploaded_at: Optional[datetime]
-    opponent_result_uploaded_at: Optional[datetime]
+    creator_result_screenshot: Optional[str] = None
+    opponent_result_screenshot: Optional[str] = None
+    creator_result_uploaded_at: Optional[datetime] = None
+    opponent_result_uploaded_at: Optional[datetime] = None
 
-    winner_telegram_id: Optional[int]
-    loser_telegram_id: Optional[int]
-    result_type: Optional[MatchResultType]
+    winner_telegram_id: Optional[int] = None
+    loser_telegram_id: Optional[int] = None
+    result_type: Optional[MatchResultType] = None
 
-    admin_telegram_id: Optional[int]
-    admin_comment: Optional[str]
-    resolved_at: Optional[datetime]
+    admin_telegram_id: Optional[int] = None
+    admin_comment: Optional[str] = None
+    resolved_at: Optional[datetime] = None
 
-    cancel_reason: Optional[str]
+    cancel_reason: Optional[str] = None
 
     created_at: datetime
     updated_at: datetime
 
     class Config:
         from_attributes = True
+
+
+class MatchListResponse(BaseModel):
+    matches: list[MatchResponse]
 
 
 class MatchStatsResponse(BaseModel):
@@ -97,7 +107,6 @@ class MatchStatsResponse(BaseModel):
     wins: int
     losses: int
     win_rate: Decimal
-
     win_streak: int
     best_win_streak: int
 
@@ -112,10 +121,6 @@ class MatchStatsResponse(BaseModel):
 
     class Config:
         from_attributes = True
-
-
-class MatchListResponse(BaseModel):
-    matches: list[MatchResponse]
 
 
 class MatchLeaderboardResponse(BaseModel):
