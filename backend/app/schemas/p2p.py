@@ -9,7 +9,7 @@ class P2PCreate(BaseModel):
     efc_amount: float
     price_uzs: float
     min_trade_efc: float
-    response_minutes: int = 15
+    response_minutes: int = Field(default=15, ge=5, le=60)
 
 
 class P2PTradeCreate(BaseModel):
@@ -43,6 +43,8 @@ class P2PUpdateMinTrade(BaseModel):
 class P2PUpdateResponseMinutes(BaseModel):
     telegram_id: int
     response_minutes: int = Field(ge=5, le=60)
+
+
 class P2PResponse(BaseModel):
     id: int
 
@@ -56,7 +58,6 @@ class P2PResponse(BaseModel):
     price_uzs: float
 
     response_minutes: int
-
     status: str
 
     class Config:
@@ -75,7 +76,6 @@ class P2PTradeResponse(BaseModel):
 
     efc_amount: float
     price_uzs: float
-
     total_uzs: float
 
     efc_fee: float
@@ -86,6 +86,7 @@ class P2PTradeResponse(BaseModel):
 
     status: str
 
+    expires_at: Optional[str] = None
     owner_expires_at: Optional[str] = None
     requester_expires_at: Optional[str] = None
 
@@ -93,34 +94,81 @@ class P2PTradeResponse(BaseModel):
 
     class Config:
         from_attributes = True
-    class P2PHistoryResponse(BaseModel):
-    trade_id: int
+
+
+class P2PMyOrderResponse(BaseModel):
+    id: int
 
     order_type: str
 
+    efc_amount: float
+    remaining_efc: float
+
+    min_trade_efc: float
+    price_uzs: float
+
+    response_minutes: int
     status: str
 
+    class Config:
+        from_attributes = True
+
+
+class P2PMyTradeResponse(BaseModel):
+    id: int
+
+    order_id: int
+
+    owner_id: int
+    requester_id: int
+
+    order_type: str
+
     efc_amount: float
+    price_uzs: float
     total_uzs: float
 
     efc_fee: float
     uzs_fee: float
 
-    created_at: str
+    owner_status: str
+    requester_status: str
+    status: str
+
+    remaining_seconds: int = 0
+    remaining_text: str = "00:00"
+
+    class Config:
+        from_attributes = True
 
 
-class P2PMyOrdersResponse(BaseModel):
+class P2PHistoryResponse(BaseModel):
     id: int
+
+    order_id: int
+
+    owner_id: int
+    requester_id: int
 
     order_type: str
 
-    remaining_efc: float
-
+    efc_amount: float
     price_uzs: float
+    total_uzs: float
 
-    response_minutes: int
+    efc_fee: float
+    uzs_fee: float
 
     status: str
+
+    created_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    rejected_at: Optional[str] = None
+    cancelled_at: Optional[str] = None
+    timeout_at: Optional[str] = None
+
+    class Config:
+        from_attributes = True
 
 
 class P2PRemainingTimeResponse(BaseModel):
