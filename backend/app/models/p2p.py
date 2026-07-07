@@ -50,12 +50,13 @@ class P2POrder(Base):
         Numeric(18, 4),
         nullable=False,
     )
-    
+
     response_minutes = Column(
         Integer,
         nullable=False,
         default=15,
-        )
+    )
+
     locked_currency = Column(
         String(10),
         nullable=False,
@@ -72,6 +73,10 @@ class P2POrder(Base):
         nullable=False,
         default="OPEN",
         index=True,
+    )
+        cancel_reason = Column(
+        String(255),
+        nullable=True,
     )
 
     created_at = Column(
@@ -148,7 +153,6 @@ class P2PTrade(Base):
         Numeric(18, 2),
         nullable=False,
     )
-
     efc_fee = Column(
         Numeric(18, 4),
         nullable=False,
@@ -179,12 +183,32 @@ class P2PTrade(Base):
         default="PENDING",
         index=True,
     )
-    
+
     expires_at = Column(
         DateTime(timezone=True),
         nullable=True,
     )
-    
+
+    owner_expires_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    requester_expires_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    timeout_stage = Column(
+        String(30),
+        nullable=True,
+    )
+
+    cancel_reason = Column(
+        String(255),
+        nullable=True,
+    )
+
     created_at = Column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -195,7 +219,6 @@ class P2PTrade(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
-
     approved_at = Column(
         DateTime(timezone=True),
         nullable=True,
@@ -212,6 +235,11 @@ class P2PTrade(Base):
     )
 
     cancelled_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    timeout_at = Column(
         DateTime(timezone=True),
         nullable=True,
     )
