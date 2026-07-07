@@ -1,15 +1,23 @@
 <!DOCTYPE html>
 <html lang="uz">
+
 <head>
+
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
 
     <title>LEVEL GROUP</title>
 
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
 
     <link rel="stylesheet" href="style.css">
+
 </head>
+
 <body>
 
 <div id="loader">
@@ -19,7 +27,8 @@
 <div id="app" class="hidden">
 
     <div class="card">
-        <h2>💰 Hamyon</h2>
+
+        <h2>LEVEL GROUP</h2>
 
         <div class="balance">
             <span>EFC</span>
@@ -30,24 +39,83 @@
             <span>UZS</span>
             <strong id="uzsBalance">0</strong>
         </div>
+
     </div>
 
     <div class="menu">
 
-        <button data-page="wallet">
-            💰 Hamyon
+        <button
+            class="menu-card"
+            data-page="shop"
+        >
+            🛒 Coin sotib olish
         </button>
 
-        <button data-page="p2p">
-            🤝 P2P
+        <button
+            class="menu-card"
+            data-page="p2p"
+        >
+            🤝 P2P Market
         </button>
 
-        <button data-page="wheel">
+        <button
+            class="menu-card"
+            data-page="wheel"
+        >
             🎰 Baraban
         </button>
 
-        <button data-page="profile">
+        <button
+            class="menu-card"
+            data-page="orders"
+        >
+            📜 Buyurtmalar
+        </button>
+
+        <button
+            class="menu-card"
+            data-page="profile"
+        >
             👤 Profil
+        </button>
+
+    </div>
+
+    <div class="bottom-nav">
+
+        <button
+            class="nav-btn active"
+            data-page="home"
+        >
+            🏠
+        </button>
+
+        <button
+            class="nav-btn"
+            data-page="shop"
+        >
+            🛒
+        </button>
+
+        <button
+            class="nav-btn"
+            data-page="p2p"
+        >
+            🤝
+        </button>
+
+        <button
+            class="nav-btn"
+            data-page="wheel"
+        >
+            🎰
+        </button>
+
+        <button
+            class="nav-btn"
+            data-page="profile"
+        >
+            👤
         </button>
 
     </div>
@@ -56,7 +124,20 @@
 
 <script src="config.js"></script>
 <script src="api.js"></script>
+
+<script src="components/loader.js"></script>
+<script src="components/modal.js"></script>
+<script src="components/navbar.js"></script>
+
+<script src="pages/wallet.js"></script>
+<script src="pages/shop.js"></script>
+<script src="pages/p2p.js"></script>
+<script src="pages/wheel.js"></script>
+<script src="pages/orders.js"></script>
+<script src="pages/profile.js"></script>
+
 <script src="app.js"></script>
 
 </body>
+
 </html>
