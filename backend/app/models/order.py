@@ -1,4 +1,11 @@
-from sqlalchemy import Column, Integer, String, Numeric, DateTime, BigInteger
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    Numeric,
+    DateTime,
+    BigInteger,
+)
 from sqlalchemy.sql import func
 
 from app.core.database import Base
@@ -19,6 +26,8 @@ class Order(Base):
 
     price_uzs = Column(Numeric(18, 2), nullable=False)
 
+    region = Column(String(100), nullable=True)
+
     status = Column(String(30), default="PENDING")
     # PENDING, CLAIMED, COMPLETED, REJECTED, CANCELLED
 
@@ -37,11 +46,11 @@ class Order(Base):
 
     created_at = Column(
         DateTime(timezone=True),
-        server_default=func.now()
+        server_default=func.now(),
     )
 
     updated_at = Column(
         DateTime(timezone=True),
         server_default=func.now(),
-        onupdate=func.now()
+        onupdate=func.now(),
     )
