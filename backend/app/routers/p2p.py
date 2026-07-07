@@ -37,6 +37,7 @@ def order_response(order):
         "remaining_efc": float(order.remaining_efc),
         "price_uzs": float(order.price_uzs),
         "min_trade_efc": float(order.min_trade_efc),
+        "response_minutes": order.response_minutes,
         "status": order.status,
         "created_at": str(order.created_at),
     }
@@ -55,6 +56,8 @@ def trade_response(trade):
         "efc_fee": float(trade.efc_fee),
         "uzs_fee": float(trade.uzs_fee),
         "status": trade.status,
+        "response_minutes": trade.order.response_minutes if trade.order else 15,
+"expires_at": trade.expires_at.isoformat() if trade.expires_at else None,
         "created_at": str(trade.created_at),
     }
 
