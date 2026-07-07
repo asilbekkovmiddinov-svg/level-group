@@ -6,9 +6,10 @@
 }
 
 body {
-    background: #10151f;
-    color: white;
-    padding: 20px;
+    background: #111827;
+    color: #ffffff;
+    padding: 16px;
+    padding-bottom: 90px;
 }
 
 .hidden {
@@ -16,20 +17,24 @@ body {
 }
 
 #loader {
-    text-align: center;
-    margin-top: 80px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
     font-size: 20px;
+    font-weight: bold;
 }
 
 .card {
-    background: #1b2433;
-    border-radius: 16px;
+    background: #1f2937;
+    border-radius: 18px;
     padding: 20px;
-    margin-bottom: 20px;
+    margin-bottom: 18px;
 }
 
 .card h2 {
-    margin-bottom: 20px;
+    text-align: center;
+    margin-bottom: 18px;
 }
 
 .balance {
@@ -44,8 +49,8 @@ body {
 }
 
 .balance strong {
-    color: #4caf50;
-    font-size: 18px;
+    color: #22c55e;
+    font-size: 20px;
 }
 
 .menu {
@@ -53,21 +58,46 @@ body {
     gap: 12px;
 }
 
-.menu button {
+.menu-card {
     border: none;
     border-radius: 14px;
     padding: 16px;
-    font-size: 17px;
-    cursor: pointer;
-    background: #2b3648;
+    background: #dc2626;
     color: white;
-    transition: .2s;
+    font-size: 17px;
+    font-weight: bold;
+    cursor: pointer;
 }
 
-.menu button:active {
+.menu-card:active {
     transform: scale(.98);
 }
 
-.menu button:hover {
-    background: #39475f;
+.bottom-nav {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+
+    padding: 12px;
+
+    background: #1f2937;
+
+    border-top: 1px solid rgba(255,255,255,.08);
+}
+
+.nav-btn {
+    border: none;
+    background: transparent;
+    color: white;
+    font-size: 24px;
+    cursor: pointer;
+}
+
+.nav-btn.active {
+    color: #ef4444;
 }
