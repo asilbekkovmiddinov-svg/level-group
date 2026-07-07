@@ -1,124 +1,94 @@
 <!DOCTYPE html>
 <html lang="uz">
-
 <head>
-
     <meta charset="UTF-8">
-
-    <meta
-        name="viewport"
-        content="width=device-width, initial-scale=1.0"
-    >
-
-    <title>LEVEL GROUP</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LEVEL_GROUP</title>
 
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-
     <link rel="stylesheet" href="style.css">
-
 </head>
-
 <body>
 
-<div id="loader">
-    Yuklanmoqda...
+<div id="loader" class="loader">
+    <div class="loader-logo">LG</div>
+    <p>LEVEL_GROUP yuklanmoqda...</p>
 </div>
 
-<div id="app" class="hidden">
+<div id="app" class="app hidden">
 
-    <div class="card">
+    <header class="app-header">
+        <button class="back-btn" id="backBtn">←</button>
+        <h1 id="pageTitle">LEVEL_GROUP</h1>
+        <button class="icon-btn" id="refreshBtn">↻</button>
+    </header>
 
-        <h2>LEVEL GROUP</h2>
+    <main id="pageContent" class="page-content">
 
-        <div class="balance">
-            <span>EFC</span>
-            <strong id="efcBalance">0</strong>
-        </div>
+        <section id="homePage" class="page active-page">
 
-        <div class="balance">
-            <span>UZS</span>
-            <strong id="uzsBalance">0</strong>
-        </div>
+            <div class="profile-hero">
+                <div class="avatar">LG</div>
+                <div>
+                    <h2 id="homeName">LEVEL_GROUP</h2>
+                    <p class="online-dot">● Online</p>
+                </div>
+            </div>
 
-    </div>
+            <div class="wallet-grid">
+                <div class="balance-card">
+                    <span>EFC balans</span>
+                    <strong id="efcBalance">0</strong>
+                    <small>coins</small>
+                </div>
 
-    <div class="menu">
+                <div class="balance-card">
+                    <span>UZS balans</span>
+                    <strong id="uzsBalance">0</strong>
+                    <small>so‘m</small>
+                </div>
+            </div>
 
-        <button
-            class="menu-card"
-            data-page="shop"
-        >
-            🛒 Coin sotib olish
-        </button>
+            <div class="bonus-grid">
+                <button class="bonus-card" data-page="wheel">
+                    🎁 Kundalik bonus
+                    <small>Klaim qilish</small>
+                </button>
 
-        <button
-            class="menu-card"
-            data-page="p2p"
-        >
-            🤝 P2P Market
-        </button>
+                <button class="bonus-card" data-page="wheel">
+                    ▶️ Reklama bonus
+                    <small>5 ta mavjud</small>
+                </button>
+            </div>
 
-        <button
-            class="menu-card"
-            data-page="wheel"
-        >
-            🎰 Baraban
-        </button>
+            <h3 class="section-title">Asosiy bo‘limlar</h3>
 
-        <button
-            class="menu-card"
-            data-page="orders"
-        >
-            📜 Buyurtmalar
-        </button>
+            <div class="main-grid">
+                <button class="menu-card" data-page="shop">🛒<span>Coin Shop</span></button>
+                <button class="menu-card" data-page="p2p">🤝<span>P2P Market</span></button>
+                <button class="menu-card" data-page="wheel">🎰<span>Wheel</span></button>
+                <button class="menu-card" data-page="orders">📜<span>Orders</span></button>
+                <button class="menu-card" data-page="profile">👤<span>Profil</span></button>
+                <button class="menu-card" data-page="support">🎧<span>Qo‘llab-quvvatlash</span></button>
+            </div>
 
-        <button
-            class="menu-card"
-            data-page="profile"
-        >
-            👤 Profil
-        </button>
+        </section>
 
-    </div>
+        <section id="p2pPage" class="page"></section>
+        <section id="shopPage" class="page"></section>
+        <section id="wheelPage" class="page"></section>
+        <section id="ordersPage" class="page"></section>
+        <section id="profilePage" class="page"></section>
 
-    <div class="bottom-nav">
+    </main>
 
-        <button
-            class="nav-btn active"
-            data-page="home"
-        >
-            🏠
-        </button>
-
-        <button
-            class="nav-btn"
-            data-page="shop"
-        >
-            🛒
-        </button>
-
-        <button
-            class="nav-btn"
-            data-page="p2p"
-        >
-            🤝
-        </button>
-
-        <button
-            class="nav-btn"
-            data-page="wheel"
-        >
-            🎰
-        </button>
-
-        <button
-            class="nav-btn"
-            data-page="profile"
-        >
-            👤
-        </button>
-
-    </div>
+    <nav class="bottom-nav">
+        <button class="nav-btn active" data-page="home">🏠<span>Asosiy</span></button>
+        <button class="nav-btn" data-page="p2p">🤝<span>P2P</span></button>
+        <button class="nav-btn" data-page="wheel">🎰<span>Wheel</span></button>
+        <button class="nav-btn" data-page="orders">📜<span>Orders</span></button>
+        <button class="nav-btn" data-page="profile">👤<span>Profil</span></button>
+    </nav>
 
 </div>
 
@@ -139,5 +109,4 @@
 <script src="app.js"></script>
 
 </body>
-
 </html>
