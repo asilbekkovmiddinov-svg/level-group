@@ -12,6 +12,11 @@ function formatMoney(value) {
     });
 }
 
+function showLoader() {
+    loader.classList.remove("hidden");
+    app.classList.add("hidden");
+}
+
 function hideLoader() {
     loader.classList.add("hidden");
     app.classList.remove("hidden");
@@ -37,14 +42,32 @@ function setupButtons() {
         button.addEventListener("click", () => {
             const page = button.dataset.page;
 
-            tg.showAlert(
-                `${page} bo‘limi keyingi bosqichda WebApp ichida ochiladi.`
-            );
+            if (page === "wallet") {
+                loadWallet();
+                tg.showAlert("Hamyon yangilandi.");
+                return;
+            }
+
+            if (page === "p2p") {
+                tg.showAlert("P2P WebApp sahifasi keyingi bosqichda qo‘shiladi.");
+                return;
+            }
+
+            if (page === "wheel") {
+                tg.showAlert("Baraban WebApp sahifasi keyingi bosqichda qo‘shiladi.");
+                return;
+            }
+
+            if (page === "profile") {
+                tg.showAlert("Profil WebApp sahifasi keyingi bosqichda qo‘shiladi.");
+            }
         });
     });
 }
 
 async function initApp() {
+    showLoader();
+
     try {
         await registerUser();
         await updateUserSeen();
