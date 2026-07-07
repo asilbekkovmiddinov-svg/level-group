@@ -5,29 +5,29 @@ async function loadWalletPage() {
         const result = await getWallet();
 
         if (!result || result.success === false) {
-            tg.showAlert("Hamyonni yuklab bo'lmadi.");
+            Modal.error("Hamyonni yuklab bo‘lmadi.");
             return;
         }
 
         walletData = result.data || result;
 
-        renderWallet();
+        renderWalletPage();
     } catch (error) {
         console.error(error);
-        tg.showAlert("Hamyonni yuklashda xatolik.");
+        Modal.error("Hamyonni yuklashda xatolik.");
     }
 }
 
-function renderWallet() {
-    if (!walletData) {
-        return;
-    }
+function renderWalletPage() {
+    const page = document.getElementById("homePage");
 
-    const efc = Number(walletData.efc_balance || 0).toLocaleString("uz-UZ");
-    const uzs = Number(walletData.uzs_balance || 0).toLocaleString("uz-UZ");
+    const efc = Number(walletData?.efc_balance || 0).toLocaleString("uz-UZ");
+    const uzs = Number(walletData?.uzs_balance || 0).toLocaleString("uz-UZ");
 
     document.getElementById("efcBalance").textContent = efc;
     document.getElementById("uzsBalance").textContent = uzs;
+
+    if (!page) return;
 }
 
 async function refreshWallet() {
@@ -35,9 +35,21 @@ async function refreshWallet() {
 }
 
 async function openDeposit() {
-    tg.showAlert("Deposit bo'limi keyingi bosqichda ochiladi.");
+    tg.showPopup({
+        title: "UZS to‘ldirish",
+        message: "To‘ldirish summasini bot orqali yuboring. WebApp deposit formasi V1.1 da qo‘shiladi.",
+        buttons: [
+            { type: "ok", text: "Tushunarli" }
+        ]
+    });
 }
 
 async function openWithdraw() {
-    tg.showAlert("Withdraw bo'limi keyingi bosqichda ochiladi.");
+    tg.showPopup({
+        title: "UZS yechish",
+        message: "Yechish so‘rovini bot orqali yuboring. WebApp withdraw formasi V1.1 da qo‘shiladi.",
+        buttons: [
+            { type: "ok", text: "Tushunarli" }
+        ]
+    });
 }
