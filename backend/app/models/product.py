@@ -12,10 +12,10 @@ class Product(Base):
     title = Column(String(150), nullable=False)
 
     category = Column(String(50), nullable=False)
-    # ANDROID_COINS, REGION_COINS, IPHONE_COINS, SPECIAL_PACK
+    # ANDROID_COINS, REGION_COINS, SPECIAL_PACK
 
     platform = Column(String(50), nullable=True)
-    # android, iphone, region
+    # android, ios, region
 
     region = Column(String(100), nullable=True)
 
@@ -23,11 +23,16 @@ class Product(Base):
 
     price_uzs = Column(Numeric(18, 2), nullable=False)
 
+    description = Column(String(255), nullable=True)
+
+    order_index = Column(Integer, default=0)
+
     is_active = Column(Boolean, default=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
     updated_at = Column(
         DateTime(timezone=True),
         server_default=func.now(),
-        onupdate=func.now()
+        onupdate=func.now(),
     )
