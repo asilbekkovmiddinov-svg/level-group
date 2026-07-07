@@ -6,6 +6,7 @@ from app.crud.product import (
     create_product,
     get_products,
     get_active_products,
+    get_active_products_by_category,
     update_product,
 )
 from app.schemas.product import ProductCreate, ProductUpdate
@@ -21,9 +22,15 @@ def product_response(product):
         "id": product.id,
         "name": product.title,
         "title": product.title,
-        "coin_amount": getattr(product, "coin_amount", 0),
+        "category": product.category,
+        "platform": product.platform,
+        "region": product.region,
+        "coin_amount": product.coins_amount,
+        "coins_amount": product.coins_amount,
         "price": float(product.price_uzs),
         "price_uzs": float(product.price_uzs),
+        "description": product.description,
+        "order_index": product.order_index,
         "is_active": product.is_active,
     }
 
@@ -53,8 +60,17 @@ def all_products(db: Session = Depends(get_db)):
 
 
 @router.get("/active")
-def active_products(db: Session = Depends(get_db)):
-    products = get_active_products(db)
+def active_products(
+    category: str | None = None,
+    db: Session = Depends(get_db),
+):
+    if category:
+        products = get_active_products_by_category(
+            db=db,
+            category=category,
+        )
+    else:
+        products = get_active_products(db)
 
     return {
         "success": True,
