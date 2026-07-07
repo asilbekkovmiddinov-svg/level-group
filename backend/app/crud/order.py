@@ -15,7 +15,7 @@ def create_order(db: Session, data: OrderCreate):
         db.query(Product)
         .filter(
             Product.id == data.product_id,
-            Product.is_active == True
+            Product.is_active == True,
         )
         .first()
     )
@@ -42,7 +42,8 @@ def create_order(db: Session, data: OrderCreate):
         product_title=product.title,
         coins_amount=product.coins_amount,
         price_uzs=product.price_uzs,
-        status="PENDING"
+        region=data.region,
+        status="PENDING",
     )
 
     db.add(order)
@@ -57,7 +58,7 @@ def create_order(db: Session, data: OrderCreate):
         balance_before=before,
         balance_after=wallet.uzs_balance,
         type="ORDER_PAYMENT",
-        description=f"Order payment for {product.title}"
+        description=f"Order payment for {product.title}",
     )
 
     return order
@@ -96,6 +97,8 @@ def get_claimed_orders(db: Session):
         .order_by(Order.claimed_at.asc())
         .all()
     )
+
+
 def update_order_status(db: Session, order_id: int, status: str):
     order = db.query(Order).filter(
         Order.id == order_id
@@ -168,7 +171,7 @@ def reject_order(
     db: Session,
     order_id: int,
     admin_id: int,
-    reason: str
+    reason: str,
 ):
     order = db.query(Order).filter(
         Order.id == order_id
@@ -183,7 +186,7 @@ def reject_order(
     result = add_uzs(
         db=db,
         telegram_id=order.telegram_id,
-        amount=float(order.price_uzs)
+        amount=float(order.price_uzs),
     )
 
     if not result:
@@ -199,7 +202,7 @@ def reject_order(
         balance_before=before,
         balance_after=after,
         type="ORDER_REJECT_REFUND",
-        description=f"Refund for rejected Order #{order.id}"
+        description=f"Refund for rejected Order #{order.id}",
     )
 
     now = datetime.now(timezone.utc)
@@ -237,7 +240,7 @@ def cancel_order(db: Session, order_id: int):
     result = add_uzs(
         db=db,
         telegram_id=order.telegram_id,
-        amount=float(order.price_uzs)
+        amount=float(order.price_uzs),
     )
 
     if not result:
@@ -253,7 +256,7 @@ def cancel_order(db: Session, order_id: int):
         balance_before=before,
         balance_after=after,
         type="ORDER_REFUND",
-        description=f"Refund for Order #{order.id}"
+        description=f"Refund for Order #{order.id}",
     )
 
     order.status = "CANCELLED"
