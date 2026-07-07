@@ -2,90 +2,55 @@
 <html lang="uz">
 <head>
     <meta charset="UTF-8">
-    <meta
-        name="viewport"
-        content="width=device-width, initial-scale=1.0, viewport-fit=cover"
-    >
+    <meta name="viewport" content="width=device-width,initial-scale=1">
 
-    <title>LEVEL_GROUP</title>
+    <title>LEVEL GROUP</title>
 
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
 
     <link rel="stylesheet" href="style.css">
 </head>
-
 <body>
 
-<div id="loader" class="loader">
-    <div class="spinner"></div>
-    <p>LEVEL_GROUP yuklanmoqda...</p>
+<div id="loader">
+    Yuklanmoqda...
 </div>
 
-<div id="app" class="app hidden">
+<div id="app" class="hidden">
 
-    <header class="topbar">
-        <div class="brand">
-            <div class="logo">LG</div>
+    <div class="card">
+        <h2>💰 Hamyon</h2>
 
-            <div>
-                <h1>LEVEL_GROUP</h1>
-                <p>Gaming Market</p>
-            </div>
+        <div class="balance">
+            <span>EFC</span>
+            <strong id="efcBalance">0</strong>
         </div>
-    </header>
 
-    <main class="content">
+        <div class="balance">
+            <span>UZS</span>
+            <strong id="uzsBalance">0</strong>
+        </div>
+    </div>
 
-        <section class="balance-card">
-            <div class="section-title">💰 Hamyon</div>
+    <div class="menu">
 
-            <div class="balance-grid">
-                <div class="balance-box">
-                    <span>EFC</span>
-                    <strong id="efcBalance">0</strong>
-                </div>
+        <button data-page="wallet">
+            💰 Hamyon
+        </button>
 
-                <div class="balance-box">
-                    <span>UZS</span>
-                    <strong id="uzsBalance">0</strong>
-                </div>
-            </div>
-        </section>
+        <button data-page="p2p">
+            🤝 P2P
+        </button>
 
-        <section class="menu-grid">
-            <button class="menu-card" data-page="shop">
-                <span>🛒</span>
-                <b>Coin sotib olish</b>
-                <small>eFootball coin buyurtmalari</small>
-            </button>
+        <button data-page="wheel">
+            🎰 Baraban
+        </button>
 
-            <button class="menu-card" data-page="p2p">
-                <span>🤝</span>
-                <b>P2P Market</b>
-                <small>EFC sotish va sotib olish</small>
-            </button>
+        <button data-page="profile">
+            👤 Profil
+        </button>
 
-            <button class="menu-card" data-page="wheel">
-                <span>🎰</span>
-                <b>Baraban</b>
-                <small>Bonus va sovrinlar</small>
-            </button>
-
-            <button class="menu-card" data-page="profile">
-                <span>👤</span>
-                <b>Profil</b>
-                <small>Akkaunt va statistika</small>
-            </button>
-        </section>
-
-    </main>
-
-    <nav class="bottom-nav">
-        <button class="nav-btn active" data-page="home">🏠</button>
-        <button class="nav-btn" data-page="p2p">🤝</button>
-        <button class="nav-btn" data-page="wheel">🎰</button>
-        <button class="nav-btn" data-page="profile">👤</button>
-    </nav>
+    </div>
 
 </div>
 
