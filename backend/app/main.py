@@ -1,8 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.core.database import create_tables
+from app.core.database import create_tables, SessionLocal
 from app.core.migrations import run_migrations
+from app.core.seed_products import seed_products
+
 import app.models
 
 from app.routers.auth import router as auth_router
@@ -37,6 +39,13 @@ app.add_middleware(
 
 create_tables()
 run_migrations()
+
+db = SessionLocal()
+
+try:
+    seed_products(db)
+finally:
+    db.close()
 
 app.include_router(auth_router)
 app.include_router(user_router)
