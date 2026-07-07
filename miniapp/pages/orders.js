@@ -1,51 +1,83 @@
-let ordersData = [];
+let orderHistory = [];
 
 async function loadOrdersPage() {
-    try {
-        const depositResult = await getWallet();
 
-        ordersData = [];
+    Navbar.setActive("orders");
+    showPage("ordersPage", "Buyurtmalar");
 
-        if (depositResult) {
-            ordersData.push({
-                title: "Hamyon",
-                status: "Tayyor"
-            });
-        }
+    const page = document.getElementById("ordersPage");
 
-        renderOrders();
-    } catch (error) {
-        console.error(error);
-        tg.showAlert("Buyurtmalarni yuklashda xatolik.");
+    page.innerHTML = `
+        <div class="list-card">
+            <h3>📜 Buyurtmalar</h3>
+
+            <p class="gray">
+                Bu yerda Coin, Deposit, Withdraw, P2P va Wheel buyurtmalari ko'rinadi.
+            </p>
+        </div>
+
+        <div id="ordersList">
+            <div class="empty-state">
+                Buyurtmalar yuklanmoqda...
+            </div>
+        </div>
+    `;
+
+    await loadOrders();
+}
+
+async function loadOrders() {
+
+    orderHistory = [];
+
+    const wallet = await getWallet();
+
+    if (wallet) {
+
+        orderHistory.push({
+            title: "Wallet",
+            status: "ACTIVE"
+        });
+
     }
+
+    renderOrders();
 }
 
 function renderOrders() {
-    tg.showAlert(
-        `📜 Buyurtmalar\n\nJami: ${ordersData.length}`
-    );
+
+    const container = document.getElementById("ordersList");
+
+    if (!orderHistory.length) {
+
+        container.innerHTML = `
+            <div class="empty-state">
+                Buyurtmalar topilmadi.
+            </div>
+        `;
+
+        return;
+
+    }
+
+    container.innerHTML = orderHistory.map(order => `
+
+        <div class="list-card">
+
+            <h3>${order.title}</h3>
+
+            <p class="green">
+                ${order.status}
+            </p>
+
+        </div>
+
+    `).join("");
+
 }
 
 async function refreshOrders() {
-    await loadOrdersPage();
-}
 
-async function openDepositOrders() {
-    tg.showAlert("Deposit tarixi keyingi bosqichda ochiladi.");
-}
+    await loadOrders();
 
-async function openWithdrawOrders() {
-    tg.showAlert("Withdraw tarixi keyingi bosqichda ochiladi.");
-}
-
-async function openCoinOrders() {
-    tg.showAlert("Coin buyurtmalari keyingi bosqichda ochiladi.");
-}
-
-async function openWheelOrders() {
-    tg.showAlert("Wheel buyurtmalari keyingi bosqichda ochiladi.");
-}
-
-async function openP2POrdersHistory() {
-    tg.showAlert("P2P tarixi keyingi bosqichda ochiladi.");
 }
