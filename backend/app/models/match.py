@@ -11,8 +11,8 @@ from sqlalchemy import (
     Integer,
     Numeric,
     String,
-    Text,
 )
+from sqlalchemy.orm import relationship
 
 from app.core.database import Base
 
@@ -47,6 +47,7 @@ class Match(Base):
         nullable=False,
         index=True,
     )
+
     opponent_telegram_id = Column(
         BigInteger,
         ForeignKey("users.telegram_id"),
@@ -54,10 +55,36 @@ class Match(Base):
         index=True,
     )
 
+    creator = relationship(
+        "User",
+        foreign_keys=[creator_telegram_id],
+    )
+
+    opponent = relationship(
+        "User",
+        foreign_keys=[opponent_telegram_id],
+    )
+
+    @property
+    def creator_username(self):
+        return self.creator.username if self.creator else None
+
+    @property
+    def creator_first_name(self):
+        return self.creator.first_name if self.creator else None
+
+    @property
+    def opponent_username(self):
+        return self.opponent.username if self.opponent else None
+
+    @property
+    def opponent_first_name(self):
+        return self.opponent.first_name if self.opponent else None
+
     efc_amount = Column(Numeric(18, 2), nullable=False)
-    total_pool = Column(Numeric(18, 2), nullable=False, default=0)
-    commission_amount = Column(Numeric(18, 2), nullable=False, default=0)
-    winner_reward = Column(Numeric(18, 2), nullable=False, default=0)
+    total_pool = Column(Numeric(18, 2), nullable=False)
+    commission_amount = Column(Numeric(18, 2), nullable=False)
+    winner_reward = Column(Numeric(18, 2), nullable=False)
 
     status = Column(
         SQLEnum(MatchStatus),
@@ -67,11 +94,13 @@ class Match(Base):
     )
 
     scheduled_at = Column(DateTime, nullable=False, index=True)
+
     ready_check_started_at = Column(DateTime, nullable=True)
     ready_check_deadline_at = Column(DateTime, nullable=True)
 
     creator_ready = Column(Boolean, nullable=False, default=False)
     opponent_ready = Column(Boolean, nullable=False, default=False)
+
     creator_ready_at = Column(DateTime, nullable=True)
     opponent_ready_at = Column(DateTime, nullable=True)
 
@@ -81,21 +110,23 @@ class Match(Base):
 
     creator_result_screenshot = Column(String(500), nullable=True)
     opponent_result_screenshot = Column(String(500), nullable=True)
+
     creator_result_uploaded_at = Column(DateTime, nullable=True)
     opponent_result_uploaded_at = Column(DateTime, nullable=True)
 
     winner_telegram_id = Column(BigInteger, nullable=True, index=True)
     loser_telegram_id = Column(BigInteger, nullable=True, index=True)
+
     result_type = Column(
         SQLEnum(MatchResultType),
         nullable=True,
     )
 
     admin_telegram_id = Column(BigInteger, nullable=True)
-    admin_comment = Column(Text, nullable=True)
+    admin_comment = Column(String(255), nullable=True)
     resolved_at = Column(DateTime, nullable=True)
 
-    cancel_reason = Column(Text, nullable=True)
+    cancel_reason = Column(String(255), nullable=True)
 
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(
@@ -132,7 +163,7 @@ class MatchStats(Base):
     total_efc_lost = Column(Numeric(18, 2), nullable=False, default=0)
     biggest_win = Column(Numeric(18, 2), nullable=False, default=0)
 
-    rating = Column(Integer, nullable=False, default=1000, index=True)
+    rating = Column(Integer, nullable=False, default=1000)
 
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(
