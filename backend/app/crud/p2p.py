@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_DOWN
 
 from sqlalchemy.orm import Session
@@ -41,7 +41,7 @@ REQUESTER_TIMEOUT_STAGE = "REQUESTER_CONFIRM"
 
 
 def now_utc():
-    return datetime.utcnow()
+    return datetime.now(timezone.utc)
 
 
 def to_decimal(value):
