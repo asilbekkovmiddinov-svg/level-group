@@ -18,6 +18,7 @@ from app.routers.order import router as order_router
 from app.routers.p2p import router as p2p_router
 from app.routers.wheel import router as wheel_router
 from app.routers.system import router as system_router
+from app.routers.match import router as match_router
 
 
 app = FastAPI(
@@ -58,6 +59,7 @@ app.include_router(order_router)
 app.include_router(p2p_router)
 app.include_router(wheel_router)
 app.include_router(system_router)
+app.include_router(match_router)
 
 
 @app.get("/")
