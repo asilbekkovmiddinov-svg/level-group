@@ -12,7 +12,9 @@ def create_product(db: Session, data: ProductCreate):
         region=data.region,
         coins_amount=data.coins_amount,
         price_uzs=data.price_uzs,
-        is_active=True
+        description=data.description,
+        order_index=data.order_index or 0,
+        is_active=True,
     )
 
     db.add(product)
@@ -24,14 +26,33 @@ def create_product(db: Session, data: ProductCreate):
 
 def get_products(db: Session):
     return db.query(Product).order_by(
-        Product.id.desc()
+        Product.category.asc(),
+        Product.order_index.asc(),
+        Product.id.asc(),
     ).all()
 
 
 def get_active_products(db: Session):
     return db.query(Product).filter(
         Product.is_active == True
-    ).order_by(Product.id.desc()).all()
+    ).order_by(
+        Product.category.asc(),
+        Product.order_index.asc(),
+        Product.id.asc(),
+    ).all()
+
+
+def get_active_products_by_category(
+    db: Session,
+    category: str,
+):
+    return db.query(Product).filter(
+        Product.is_active == True,
+        Product.category == category,
+    ).order_by(
+        Product.order_index.asc(),
+        Product.id.asc(),
+    ).all()
 
 
 def update_product(db: Session, product_id: int, data: ProductUpdate):
