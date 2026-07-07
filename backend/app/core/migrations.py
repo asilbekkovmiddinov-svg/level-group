@@ -91,8 +91,50 @@ def run_migrations():
 
         connection.execute(
             text("""
+            ALTER TABLE p2p_orders
+            ADD COLUMN IF NOT EXISTS cancel_reason VARCHAR(255);
+            """)
+        )
+
+        connection.execute(
+            text("""
             ALTER TABLE p2p_trades
             ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP WITH TIME ZONE;
+            """)
+        )
+
+        connection.execute(
+            text("""
+            ALTER TABLE p2p_trades
+            ADD COLUMN IF NOT EXISTS owner_expires_at TIMESTAMP WITH TIME ZONE;
+            """)
+        )
+
+        connection.execute(
+            text("""
+            ALTER TABLE p2p_trades
+            ADD COLUMN IF NOT EXISTS requester_expires_at TIMESTAMP WITH TIME ZONE;
+            """)
+        )
+
+        connection.execute(
+            text("""
+            ALTER TABLE p2p_trades
+            ADD COLUMN IF NOT EXISTS timeout_at TIMESTAMP WITH TIME ZONE;
+            """)
+        )
+
+        connection.execute(
+            text("""
+            ALTER TABLE p2p_trades
+            ADD COLUMN IF NOT EXISTS timeout_stage VARCHAR(30);
+            """)
+        )
+
+        connection.execute(
+            text("""
+            ALTER TABLE p2p_trades
+            ADD COLUMN IF NOT EXISTS cancel_reason VARCHAR(255);
             """)
         )
 
