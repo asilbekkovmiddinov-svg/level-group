@@ -1,3 +1,5 @@
+from datetime import timezone, timedelta
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
@@ -38,6 +40,18 @@ router = APIRouter(
     tags=["P2P"],
 )
 
+UZ_TZ = timezone(timedelta(hours=5))
+
+
+def format_uz_datetime(dt):
+    if not dt:
+        return None
+
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+
+    return dt.astimezone(UZ_TZ).strftime("%d.%m.%Y %H:%M:%S")
+
 
 def order_response(order):
     return {
@@ -50,10 +64,10 @@ def order_response(order):
         "min_trade_efc": float(order.min_trade_efc),
         "response_minutes": order.response_minutes,
         "status": order.status,
-        "created_at": str(order.created_at),
-        "updated_at": str(order.updated_at) if order.updated_at else None,
-        "completed_at": str(order.completed_at) if order.completed_at else None,
-        "cancelled_at": str(order.cancelled_at) if order.cancelled_at else None,
+        "created_at": format_uz_datetime(order.created_at),
+        "updated_at": format_uz_datetime(order.updated_at),
+        "completed_at": format_uz_datetime(order.completed_at),
+        "cancelled_at": format_uz_datetime(order.cancelled_at),
         "cancel_reason": order.cancel_reason,
     }
 
@@ -76,7 +90,11 @@ def trade_response(trade):
         "requester_status": trade.requester_status,
         "status": trade.status,
         "response_minutes": trade.order.response_minutes if trade.order else 15,
-        "expires_at": trade.expires_at.isoformat() if trade.expires_at else None,
+        "expires_at": (
+            trade.expires_at.isoformat()
+            if trade.expires_at
+            else None
+        ),
         "owner_expires_at": (
             trade.owner_expires_at.isoformat()
             if trade.owner_expires_at
@@ -91,13 +109,13 @@ def trade_response(trade):
         "remaining_text": remaining_text,
         "timeout_stage": trade.timeout_stage,
         "cancel_reason": trade.cancel_reason,
-        "created_at": str(trade.created_at),
-        "updated_at": str(trade.updated_at) if trade.updated_at else None,
-        "approved_at": str(trade.approved_at) if trade.approved_at else None,
-        "completed_at": str(trade.completed_at) if trade.completed_at else None,
-        "rejected_at": str(trade.rejected_at) if trade.rejected_at else None,
-        "cancelled_at": str(trade.cancelled_at) if trade.cancelled_at else None,
-        "timeout_at": str(trade.timeout_at) if trade.timeout_at else None,
+        "created_at": format_uz_datetime(trade.created_at),
+        "updated_at": format_uz_datetime(trade.updated_at),
+        "approved_at": format_uz_datetime(trade.approved_at),
+        "completed_at": format_uz_datetime(trade.completed_at),
+        "rejected_at": format_uz_datetime(trade.rejected_at),
+        "cancelled_at": format_uz_datetime(trade.cancelled_at),
+        "timeout_at": format_uz_datetime(trade.timeout_at),
     }
 
 
@@ -141,7 +159,10 @@ def create_order(
         return {"success": False, "message": "Maksimal e’lon 10000 EFC"}
 
     if order == "min_trade":
-        return {"success": False, "message": "Minimal savdo 50 EFC dan kam bo‘lmaydi"}
+        return {
+            "success": False,
+            "message": "Minimal savdo 50 EFC dan kam bo‘lmaydi",
+        }
 
     if order == "insufficient_efc":
         return {"success": False, "message": "EFC balans yetarli emas"}
@@ -234,6 +255,8 @@ def one_order(
         "success": True,
         "data": order_response(order),
     }
+
+
 @router.post("/{order_id}/trade")
 def create_trade(
     order_id: int,
@@ -251,10 +274,16 @@ def create_trade(
         return {"success": False, "message": "E’lon ochiq emas"}
 
     if trade == "own_order":
-        return {"success": False, "message": "O‘zingizning e’loningiz bilan savdo qila olmaysiz"}
+        return {
+            "success": False,
+            "message": "O‘zingizning e’loningiz bilan savdo qila olmaysiz",
+        }
 
     if trade == "min_trade":
-        return {"success": False, "message": "Minimal savdo miqdori yetarli emas"}
+        return {
+            "success": False,
+            "message": "Minimal savdo miqdori yetarli emas",
+        }
 
     if trade == "too_much":
         return {"success": False, "message": "E’londa yetarli EFC qolmagan"}
@@ -353,10 +382,16 @@ def confirm_trade(
         return {"success": False, "message": "Savdo vaqti tugagan"}
 
     if trade == "not_requester":
-        return {"success": False, "message": "Faqat savdo boshlagan foydalanuvchi yakuniy tasdiqlaydi"}
+        return {
+            "success": False,
+            "message": "Faqat savdo boshlagan foydalanuvchi yakuniy tasdiqlaydi",
+        }
 
     if trade == "not_approved":
-        return {"success": False, "message": "Savdo hali e’lon egasi tomonidan tasdiqlanmagan"}
+        return {
+            "success": False,
+            "message": "Savdo hali e’lon egasi tomonidan tasdiqlanmagan",
+        }
 
     if trade == "too_much":
         return {"success": False, "message": "E’londa yetarli EFC qolmagan"}
@@ -390,13 +425,22 @@ def cancel_order(
     )
 
     if order == "not_owner":
-        return {"success": False, "message": "Faqat e’lon egasi bekor qila oladi"}
+        return {
+            "success": False,
+            "message": "Faqat e’lon egasi bekor qila oladi",
+        }
 
     if order == "cannot_cancel":
-        return {"success": False, "message": "Bu e’lonni bekor qilib bo‘lmaydi"}
+        return {
+            "success": False,
+            "message": "Bu e’lonni bekor qilib bo‘lmaydi",
+        }
 
     if order == "has_pending_trade":
-        return {"success": False, "message": "Aktiv savdo bor. Avval uni yakunlang yoki rad eting"}
+        return {
+            "success": False,
+            "message": "Aktiv savdo bor. Avval uni yakunlang yoki rad eting",
+        }
 
     if not order:
         return {"success": False, "message": "P2P e’lon topilmadi"}
@@ -422,10 +466,16 @@ def update_order_price(
     )
 
     if order == "not_owner":
-        return {"success": False, "message": "Faqat e’lon egasi narxni o‘zgartira oladi"}
+        return {
+            "success": False,
+            "message": "Faqat e’lon egasi narxni o‘zgartira oladi",
+        }
 
     if order == "cannot_update":
-        return {"success": False, "message": "Bu e’lon narxini o‘zgartirib bo‘lmaydi"}
+        return {
+            "success": False,
+            "message": "Bu e’lon narxini o‘zgartirib bo‘lmaydi",
+        }
 
     if order == "invalid_price":
         return {"success": False, "message": "Narx noto‘g‘ri"}
@@ -434,7 +484,10 @@ def update_order_price(
         return {"success": False, "message": "UZS balans yetarli emas"}
 
     if order == "has_pending_trade":
-        return {"success": False, "message": "Aktiv savdo so‘rovi bor. Avval uni yakunlang yoki rad eting"}
+        return {
+            "success": False,
+            "message": "Aktiv savdo so‘rovi bor. Avval uni yakunlang yoki rad eting",
+        }
 
     if not order:
         return {"success": False, "message": "P2P e’lon topilmadi"}
@@ -460,13 +513,22 @@ def update_order_amount(
     )
 
     if order == "not_owner":
-        return {"success": False, "message": "Faqat e’lon egasi miqdorni o‘zgartira oladi"}
+        return {
+            "success": False,
+            "message": "Faqat e’lon egasi miqdorni o‘zgartira oladi",
+        }
 
     if order == "cannot_update":
-        return {"success": False, "message": "Bu e’lon miqdorini o‘zgartirib bo‘lmaydi"}
+        return {
+            "success": False,
+            "message": "Bu e’lon miqdorini o‘zgartirib bo‘lmaydi",
+        }
 
     if order == "has_pending_trade":
-        return {"success": False, "message": "Aktiv savdo bor. Avval uni yakunlang yoki rad eting"}
+        return {
+            "success": False,
+            "message": "Aktiv savdo bor. Avval uni yakunlang yoki rad eting",
+        }
 
     if order == "min_efc":
         return {"success": False, "message": "Minimal e’lon 50 EFC"}
@@ -475,7 +537,10 @@ def update_order_amount(
         return {"success": False, "message": "Maksimal e’lon 10000 EFC"}
 
     if order == "less_than_sold":
-        return {"success": False, "message": "Miqdor sotilgan EFC dan kam bo‘la olmaydi"}
+        return {
+            "success": False,
+            "message": "Miqdor sotilgan EFC dan kam bo‘la olmaydi",
+        }
 
     if order == "insufficient_efc":
         return {"success": False, "message": "EFC balans yetarli emas"}
@@ -507,10 +572,16 @@ def update_order_min_trade(
     )
 
     if order == "not_owner":
-        return {"success": False, "message": "Faqat e’lon egasi minimal savdoni o‘zgartira oladi"}
+        return {
+            "success": False,
+            "message": "Faqat e’lon egasi minimal savdoni o‘zgartira oladi",
+        }
 
     if order == "cannot_update":
-        return {"success": False, "message": "Bu e’lonni o‘zgartirib bo‘lmaydi"}
+        return {
+            "success": False,
+            "message": "Bu e’lonni o‘zgartirib bo‘lmaydi",
+        }
 
     if order == "min_trade":
         return {"success": False, "message": "Minimal savdo noto‘g‘ri"}
@@ -539,10 +610,16 @@ def update_order_response_minutes(
     )
 
     if order == "not_owner":
-        return {"success": False, "message": "Faqat e’lon egasi javob vaqtini o‘zgartira oladi"}
+        return {
+            "success": False,
+            "message": "Faqat e’lon egasi javob vaqtini o‘zgartira oladi",
+        }
 
     if order == "cannot_update":
-        return {"success": False, "message": "Bu e’lonni o‘zgartirib bo‘lmaydi"}
+        return {
+            "success": False,
+            "message": "Bu e’lonni o‘zgartirib bo‘lmaydi",
+        }
 
     if order == "invalid_response_minutes":
         return {"success": False, "message": "Javob vaqti noto‘g‘ri"}
@@ -554,4 +631,4 @@ def update_order_response_minutes(
         "success": True,
         "message": "Javob vaqti yangilandi",
         "data": order_response(order),
-    }
+        }
