@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal, ROUND_DOWN
 
 from sqlalchemy.orm import Session
@@ -33,6 +33,15 @@ TRADE_STATUS_PENDING = "PENDING"
 TRADE_STATUS_OWNER_APPROVED = "OWNER_APPROVED"
 TRADE_STATUS_COMPLETED = "COMPLETED"
 TRADE_STATUS_REJECTED = "REJECTED"
+TRADE_STATUS_TIMEOUT = "TIMEOUT"
+TRADE_STATUS_CANCELLED = "CANCELLED"
+
+OWNER_TIMEOUT_STAGE = "OWNER_RESPONSE"
+REQUESTER_TIMEOUT_STAGE = "REQUESTER_CONFIRM"
+
+
+def now_utc():
+    return datetime.utcnow()
 
 
 def to_decimal(value):
@@ -63,6 +72,36 @@ def calculate_efc_fee(efc_amount):
 
 def calculate_uzs_fee(total_uzs):
     return round_uzs(round_uzs(total_uzs) * P2P_FEE_PERCENT)
+
+
+def format_remaining_time(deadline):
+    if not deadline:
+        return 0, "00:00"
+
+    seconds = int((deadline - now_utc()).total_seconds())
+
+    if seconds <= 0:
+        return 0, "00:00"
+
+    minutes = seconds // 60
+    sec = seconds % 60
+
+    return seconds, f"{minutes:02d}:{sec:02d}"
+
+
+def get_trade_active_deadline(trade: P2PTrade):
+    if trade.status == TRADE_STATUS_PENDING:
+        return trade.owner_expires_at or trade.expires_at
+
+    if trade.status == TRADE_STATUS_OWNER_APPROVED:
+        return trade.requester_expires_at
+
+    return None
+
+
+def get_trade_remaining_time(trade: P2PTrade):
+    deadline = get_trade_active_deadline(trade)
+    return format_remaining_time(deadline)
 
 
 def get_p2p_order(db: Session, order_id: int):
@@ -110,6 +149,47 @@ def get_my_p2p_trades(db: Session, telegram_id: int):
     ).order_by(
         P2PTrade.id.desc()
     ).all()
+
+
+def get_my_active_p2p_trades(db: Session, telegram_id: int):
+    return db.query(P2PTrade).filter(
+        (
+            (P2PTrade.owner_id == telegram_id)
+            | (P2PTrade.requester_id == telegram_id)
+        ),
+        P2PTrade.status.in_([
+            TRADE_STATUS_PENDING,
+            TRADE_STATUS_OWNER_APPROVED,
+        ]),
+    ).order_by(
+        P2PTrade.id.desc()
+    ).all()
+
+
+def get_p2p_history(
+    db: Session,
+    telegram_id: int,
+    status: str | None = None,
+):
+    query = db.query(P2PTrade).filter(
+        (
+            (P2PTrade.owner_id == telegram_id)
+            | (P2PTrade.requester_id == telegram_id)
+        ),
+        P2PTrade.status.in_([
+            TRADE_STATUS_COMPLETED,
+            TRADE_STATUS_REJECTED,
+            TRADE_STATUS_TIMEOUT,
+            TRADE_STATUS_CANCELLED,
+        ]),
+    )
+
+    if status:
+        query = query.filter(P2PTrade.status == status.upper())
+
+    return query.order_by(P2PTrade.id.desc()).all()
+
+
 def create_p2p_order(
     db: Session,
     telegram_id: int,
@@ -126,6 +206,9 @@ def create_p2p_order(
 
     if order_type not in [ORDER_TYPE_BUY, ORDER_TYPE_SELL]:
         return "invalid_order_type"
+
+    if response_minutes not in [5, 10, 15, 30, 60]:
+        return "invalid_response_minutes"
 
     if efc_amount < MIN_EFC_AMOUNT:
         return "min_efc"
@@ -247,6 +330,8 @@ def create_p2p_trade(
         if not locked:
             return "insufficient_efc"
 
+    owner_expires_at = now_utc() + timedelta(minutes=order.response_minutes)
+
     trade = P2PTrade(
         order_id=order.id,
         owner_id=order.owner_id,
@@ -260,6 +345,8 @@ def create_p2p_trade(
         owner_status="PENDING",
         requester_status="PENDING",
         status=TRADE_STATUS_PENDING,
+        expires_at=owner_expires_at,
+        owner_expires_at=owner_expires_at,
     )
 
     db.add(trade)
@@ -267,48 +354,7 @@ def create_p2p_trade(
     db.refresh(trade)
 
     return trade
-
-
-def approve_p2p_trade(
-    db: Session,
-    trade_id: int,
-    telegram_id: int,
-):
-    trade = get_p2p_trade(db, trade_id)
-
-    if not trade:
-        return None
-
-    if trade.owner_id != telegram_id:
-        return "not_owner"
-
-    if trade.status != TRADE_STATUS_PENDING:
-        return "not_pending"
-
-    trade.owner_status = "APPROVED"
-    trade.status = TRADE_STATUS_OWNER_APPROVED
-    trade.approved_at = datetime.utcnow()
-
-    db.commit()
-    db.refresh(trade)
-
-    return trade
-def reject_p2p_trade(
-    db: Session,
-    trade_id: int,
-    telegram_id: int,
-):
-    trade = get_p2p_trade(db, trade_id)
-
-    if not trade:
-        return None
-
-    if trade.owner_id != telegram_id:
-        return "not_owner"
-
-    if trade.status != TRADE_STATUS_PENDING:
-        return "not_pending"
-
+def release_requester_locked_balance(db: Session, trade: P2PTrade):
     if trade.order_type == ORDER_TYPE_SELL:
         unlock_uzs_balance(
             db=db,
@@ -322,9 +368,73 @@ def reject_p2p_trade(
             amount=trade.efc_amount + trade.efc_fee,
         )
 
+
+def approve_p2p_trade(
+    db: Session,
+    trade_id: int,
+    telegram_id: int,
+):
+    trade = get_p2p_trade(db, trade_id)
+
+    if not trade:
+        return None
+
+    check = check_and_timeout_trade(db, trade)
+    if check == "timed_out":
+        return "timeout"
+
+    if trade.owner_id != telegram_id:
+        return "not_owner"
+
+    if trade.status != TRADE_STATUS_PENDING:
+        return "not_pending"
+
+    order = get_p2p_order(db, trade.order_id)
+
+    if not order:
+        return None
+
+    requester_expires_at = now_utc() + timedelta(
+        minutes=order.response_minutes
+    )
+
+    trade.owner_status = "APPROVED"
+    trade.status = TRADE_STATUS_OWNER_APPROVED
+    trade.approved_at = now_utc()
+    trade.requester_expires_at = requester_expires_at
+    trade.expires_at = requester_expires_at
+
+    db.commit()
+    db.refresh(trade)
+
+    return trade
+
+
+def reject_p2p_trade(
+    db: Session,
+    trade_id: int,
+    telegram_id: int,
+):
+    trade = get_p2p_trade(db, trade_id)
+
+    if not trade:
+        return None
+
+    check = check_and_timeout_trade(db, trade)
+    if check == "timed_out":
+        return "timeout"
+
+    if trade.owner_id != telegram_id:
+        return "not_owner"
+
+    if trade.status != TRADE_STATUS_PENDING:
+        return "not_pending"
+
+    release_requester_locked_balance(db, trade)
+
     trade.owner_status = "REJECTED"
     trade.status = TRADE_STATUS_REJECTED
-    trade.rejected_at = datetime.utcnow()
+    trade.rejected_at = now_utc()
 
     db.commit()
     db.refresh(trade)
@@ -352,6 +462,10 @@ def confirm_p2p_trade(
 
     if not trade:
         return None
+
+    check = check_and_timeout_trade(db, trade)
+    if check == "timed_out":
+        return "timeout"
 
     if trade.requester_id != telegram_id:
         return "not_requester"
@@ -421,13 +535,13 @@ def confirm_p2p_trade(
 
     if order.remaining_efc <= 0:
         order.status = ORDER_STATUS_COMPLETED
-        order.completed_at = datetime.utcnow()
+        order.completed_at = now_utc()
     else:
         order.status = ORDER_STATUS_PARTIAL
 
     trade.requester_status = "CONFIRMED"
     trade.status = TRADE_STATUS_COMPLETED
-    trade.completed_at = datetime.utcnow()
+    trade.completed_at = now_utc()
 
     db.commit()
     db.refresh(trade)
@@ -457,6 +571,62 @@ def confirm_p2p_trade(
     return trade
 
 
+def check_and_timeout_trade(db: Session, trade: P2PTrade):
+    if trade.status == TRADE_STATUS_PENDING:
+        deadline = trade.owner_expires_at or trade.expires_at
+
+        if deadline and deadline <= now_utc():
+            release_requester_locked_balance(db, trade)
+
+            trade.status = TRADE_STATUS_TIMEOUT
+            trade.owner_status = "TIMEOUT"
+            trade.timeout_stage = OWNER_TIMEOUT_STAGE
+            trade.timeout_at = now_utc()
+            trade.cancel_reason = "Owner javob vaqti tugadi"
+
+            db.commit()
+            db.refresh(trade)
+
+            return "timed_out"
+
+    if trade.status == TRADE_STATUS_OWNER_APPROVED:
+        deadline = trade.requester_expires_at or trade.expires_at
+
+        if deadline and deadline <= now_utc():
+            release_requester_locked_balance(db, trade)
+
+            trade.status = TRADE_STATUS_TIMEOUT
+            trade.requester_status = "TIMEOUT"
+            trade.timeout_stage = REQUESTER_TIMEOUT_STAGE
+            trade.timeout_at = now_utc()
+            trade.cancel_reason = "Requester yakuniy tasdiqlash vaqti tugadi"
+
+            db.commit()
+            db.refresh(trade)
+
+            return "timed_out"
+
+    return "active"
+
+
+def check_all_p2p_timeouts(db: Session):
+    trades = db.query(P2PTrade).filter(
+        P2PTrade.status.in_([
+            TRADE_STATUS_PENDING,
+            TRADE_STATUS_OWNER_APPROVED,
+        ])
+    ).all()
+
+    timed_out = []
+
+    for trade in trades:
+        result = check_and_timeout_trade(db, trade)
+        if result == "timed_out":
+            timed_out.append(trade)
+
+    return timed_out
+
+
 def cancel_p2p_order(
     db: Session,
     order_id: int,
@@ -472,6 +642,17 @@ def cancel_p2p_order(
 
     if order.status not in [ORDER_STATUS_OPEN, ORDER_STATUS_PARTIAL]:
         return "cannot_cancel"
+
+    pending_trade = db.query(P2PTrade).filter(
+        P2PTrade.order_id == order_id,
+        P2PTrade.status.in_([
+            TRADE_STATUS_PENDING,
+            TRADE_STATUS_OWNER_APPROVED,
+        ]),
+    ).first()
+
+    if pending_trade:
+        return "has_pending_trade"
 
     if order.order_type == ORDER_TYPE_SELL:
         unlock_efc_balance(
@@ -492,7 +673,8 @@ def cancel_p2p_order(
         )
 
     order.status = ORDER_STATUS_CANCELLED
-    order.cancelled_at = datetime.utcnow()
+    order.cancel_reason = "Owner e’lonni bekor qildi"
+    order.cancelled_at = now_utc()
 
     db.commit()
     db.refresh(order)
@@ -509,7 +691,8 @@ def cancel_p2p_order(
     )
 
     return order
-    
+
+
 def update_p2p_order_price(
     db: Session,
     order_id: int,
@@ -527,11 +710,6 @@ def update_p2p_order_price(
     if order.status not in [ORDER_STATUS_OPEN, ORDER_STATUS_PARTIAL]:
         return "cannot_update"
 
-    price_uzs = round_uzs(price_uzs)
-
-    if price_uzs <= 0:
-        return "invalid_price"
-
     pending_trade = db.query(P2PTrade).filter(
         P2PTrade.order_id == order_id,
         P2PTrade.status.in_([
@@ -542,6 +720,33 @@ def update_p2p_order_price(
 
     if pending_trade:
         return "has_pending_trade"
+
+    price_uzs = round_uzs(price_uzs)
+
+    if price_uzs <= 0:
+        return "invalid_price"
+
+    if order.order_type == ORDER_TYPE_BUY:
+        old_locked = calculate_total_uzs(order.remaining_efc, order.price_uzs)
+        new_locked = calculate_total_uzs(order.remaining_efc, price_uzs)
+
+        if new_locked > old_locked:
+            diff = new_locked - old_locked
+            locked = lock_uzs_balance(
+                db=db,
+                telegram_id=telegram_id,
+                amount=diff,
+            )
+
+            if not locked:
+                return "insufficient_uzs"
+
+        elif old_locked > new_locked:
+            unlock_uzs_balance(
+                db=db,
+                telegram_id=telegram_id,
+                amount=old_locked - new_locked,
+            )
 
     order.price_uzs = price_uzs
 
@@ -558,5 +763,162 @@ def update_p2p_order_price(
         type="P2P_UPDATE_PRICE",
         description=f"P2P order #{order.id} narxi yangilandi.",
     )
+
+    return order
+
+
+def update_p2p_order_amount(
+    db: Session,
+    order_id: int,
+    telegram_id: int,
+    efc_amount,
+):
+    order = get_p2p_order(db, order_id)
+
+    if not order:
+        return None
+
+    if order.owner_id != telegram_id:
+        return "not_owner"
+
+    if order.status not in [ORDER_STATUS_OPEN, ORDER_STATUS_PARTIAL]:
+        return "cannot_update"
+
+    pending_trade = db.query(P2PTrade).filter(
+        P2PTrade.order_id == order_id,
+        P2PTrade.status.in_([
+            TRADE_STATUS_PENDING,
+            TRADE_STATUS_OWNER_APPROVED,
+        ]),
+    ).first()
+
+    if pending_trade:
+        return "has_pending_trade"
+
+    new_amount = round_efc(efc_amount)
+
+    if new_amount < MIN_EFC_AMOUNT:
+        return "min_efc"
+
+    if new_amount > MAX_EFC_AMOUNT:
+        return "max_efc"
+
+    sold_amount = round_efc(order.efc_amount - order.remaining_efc)
+
+    if new_amount < sold_amount:
+        return "less_than_sold"
+
+    new_remaining = round_efc(new_amount - sold_amount)
+
+    if order.order_type == ORDER_TYPE_SELL:
+        if new_remaining > order.remaining_efc:
+            diff = new_remaining - order.remaining_efc
+            locked = lock_efc_balance(
+                db=db,
+                telegram_id=telegram_id,
+                amount=diff,
+            )
+
+            if not locked:
+                return "insufficient_efc"
+
+        elif order.remaining_efc > new_remaining:
+            unlock_efc_balance(
+                db=db,
+                telegram_id=telegram_id,
+                amount=order.remaining_efc - new_remaining,
+            )
+
+    else:
+        old_locked = calculate_total_uzs(order.remaining_efc, order.price_uzs)
+        new_locked = calculate_total_uzs(new_remaining, order.price_uzs)
+
+        if new_locked > old_locked:
+            diff = new_locked - old_locked
+            locked = lock_uzs_balance(
+                db=db,
+                telegram_id=telegram_id,
+                amount=diff,
+            )
+
+            if not locked:
+                return "insufficient_uzs"
+
+        elif old_locked > new_locked:
+            unlock_uzs_balance(
+                db=db,
+                telegram_id=telegram_id,
+                amount=old_locked - new_locked,
+            )
+
+    order.efc_amount = new_amount
+    order.remaining_efc = new_remaining
+
+    if order.min_trade_efc > order.remaining_efc:
+        order.min_trade_efc = order.remaining_efc
+
+    db.commit()
+    db.refresh(order)
+
+    return order
+
+
+def update_p2p_order_min_trade(
+    db: Session,
+    order_id: int,
+    telegram_id: int,
+    min_trade_efc,
+):
+    order = get_p2p_order(db, order_id)
+
+    if not order:
+        return None
+
+    if order.owner_id != telegram_id:
+        return "not_owner"
+
+    if order.status not in [ORDER_STATUS_OPEN, ORDER_STATUS_PARTIAL]:
+        return "cannot_update"
+
+    min_trade_efc = round_efc(min_trade_efc)
+
+    if min_trade_efc < MIN_EFC_AMOUNT:
+        return "min_trade"
+
+    if min_trade_efc > order.remaining_efc:
+        return "min_trade"
+
+    order.min_trade_efc = min_trade_efc
+
+    db.commit()
+    db.refresh(order)
+
+    return order
+
+
+def update_p2p_order_response_minutes(
+    db: Session,
+    order_id: int,
+    telegram_id: int,
+    response_minutes: int,
+):
+    order = get_p2p_order(db, order_id)
+
+    if not order:
+        return None
+
+    if order.owner_id != telegram_id:
+        return "not_owner"
+
+    if order.status not in [ORDER_STATUS_OPEN, ORDER_STATUS_PARTIAL]:
+        return "cannot_update"
+
+    if response_minutes not in [5, 10, 15, 30, 60]:
+        return "invalid_response_minutes"
+
+    order.response_minutes = response_minutes
+
+    db.commit()
+    db.refresh(order)
 
     return order
