@@ -74,7 +74,8 @@ class P2POrder(Base):
         default="OPEN",
         index=True,
     )
-        cancel_reason = Column(
+    
+    cancel_reason = Column(
         String(255),
         nullable=True,
     )
