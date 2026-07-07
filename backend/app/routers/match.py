@@ -44,6 +44,24 @@ def get_open_matches(
     return {"matches": matches}
 
 
+@router.get("/worker/due-scheduled", response_model=MatchListResponse)
+def get_due_scheduled_matches(
+    limit: int = Query(default=50, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    matches = match_crud.get_due_scheduled_matches(db=db, limit=limit)
+    return {"matches": matches}
+
+
+@router.get("/worker/expired-ready", response_model=MatchListResponse)
+def get_expired_ready_matches(
+    limit: int = Query(default=50, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    matches = match_crud.get_expired_ready_matches(db=db, limit=limit)
+    return {"matches": matches}
+
+
 @router.get("/user/{telegram_id}", response_model=MatchListResponse)
 def get_user_matches(
     telegram_id: int,
