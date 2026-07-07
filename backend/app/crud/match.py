@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Optional
 
@@ -196,12 +196,16 @@ def create_match(
 ) -> Match:
     efc_amount = _to_decimal(efc_amount)
 
+    if scheduled_at.tzinfo is not None:
+        scheduled_at = scheduled_at.astimezone(timezone(timedelta(hours=5))).replace(tzinfo=None)
+
+    now_uz = datetime.utcnow() + timedelta(hours=5)
+
     if efc_amount <= 0:
         raise ValueError("EFC miqdori 0 dan katta bo‘lishi kerak")
 
-    if scheduled_at <= datetime.now(timezone.utc):
+    if scheduled_at <= now_uz:
         raise ValueError("Match vaqti hozirgi vaqtdan keyin bo‘lishi kerak")
-
     total_pool, commission_amount, winner_reward = _calculate_match_money(efc_amount)
 
     _lock_efc(
