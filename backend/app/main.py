@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.database import create_tables
 from app.core.migrations import run_migrations
@@ -20,6 +21,18 @@ from app.routers.system import router as system_router
 app = FastAPI(
     title="LEVEL_GROUP API",
     version="1.0.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://miniapp-jocker7005.waw0.amvera.tech",
+        "https://web.telegram.org",
+        "https://telegram.org",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 create_tables()
