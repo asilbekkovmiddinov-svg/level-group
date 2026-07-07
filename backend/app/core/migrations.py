@@ -165,3 +165,13 @@ def run_migrations():
             ALTER TABLE products
             ADD COLUMN IF NOT EXISTS order_index INTEGER DEFAULT 0;
         """))
+
+        # =========================
+        # ORDERS
+        # =========================
+
+        connection.execute(
+            text("""
+            ALTER TABLE orders
+            ADD COLUMN IF NOT EXISTS region VARCHAR(100);
+        """))
