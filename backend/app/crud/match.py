@@ -199,7 +199,7 @@ def create_match(
     if efc_amount <= 0:
         raise ValueError("EFC miqdori 0 dan katta bo‘lishi kerak")
 
-        if scheduled_at <= datetime.now(timezone.utc):
+    if scheduled_at <= datetime.now(timezone.utc):
         raise ValueError("Match vaqti hozirgi vaqtdan keyin bo‘lishi kerak")
 
     total_pool, commission_amount, winner_reward = _calculate_match_money(efc_amount)
