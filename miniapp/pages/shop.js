@@ -1,41 +1,121 @@
-let shopProducts = [];
+let products = [];
 
 async function loadShopPage() {
+    Navbar.setActive("shop");
+    showPage("shopPage", "Coin Shop");
+
+    const page = document.getElementById("shopPage");
+
+    page.innerHTML = `
+        <div id="shopProducts">
+            <div class="empty-state">
+                Mahsulotlar yuklanmoqda...
+            </div>
+        </div>
+    `;
+
     try {
         const result = await getProducts();
 
         if (!result || result.success === false) {
-            tg.showAlert("Mahsulotlarni yuklab bo'lmadi.");
+            document.getElementById("shopProducts").innerHTML = `
+                <div class="empty-state">
+                    Mahsulotlarni yuklab bo'lmadi.
+                </div>
+            `;
             return;
         }
 
-        shopProducts = result.data || result || [];
+        products = result.data || [];
 
-        renderShop();
+        renderProducts();
+
     } catch (error) {
+
         console.error(error);
-        tg.showAlert("Shop yuklashda xatolik.");
+
+        document.getElementById("shopProducts").innerHTML = `
+            <div class="empty-state">
+                Xatolik yuz berdi.
+            </div>
+        `;
+
     }
 }
 
-function renderShop() {
-    tg.showAlert(
-        "Coin sotib olish WebApp ichida keyingi bosqichda to'liq ochiladi."
+function renderProducts() {
+
+    const container = document.getElementById("shopProducts");
+
+    if (!products.length) {
+
+        container.innerHTML = `
+            <div class="empty-state">
+                Mahsulotlar topilmadi.
+            </div>
+        `;
+
+        return;
+
+    }
+
+    container.innerHTML = products.map(product => `
+
+        <div class="list-card">
+
+            <h3>${product.name}</h3>
+
+            <p>
+                🪙 Coin:
+                <b>${formatMoney(product.coin_amount)}</b>
+            </p>
+
+            <p>
+                💵 Narx:
+                <b>${formatMoney(product.price)} UZS</b>
+            </p>
+
+            <button
+                class="red-btn"
+                onclick="buyProduct(${product.id})"
+            >
+                🛒 Sotib olish
+            </button>
+
+        </div>
+
+    `).join("");
+
+}
+
+async function buyProduct(productId) {
+
+    const result = await createOrder(productId);
+
+    if (!result || result.success === false) {
+
+        Modal.error(
+            result?.message || "Buyurtma yaratilmadi."
+        );
+
+        return;
+
+    }
+
+    Modal.success(
+        "Buyurtma muvaffaqiyatli yaratildi."
     );
+
 }
 
-async function createShopOrder(productId) {
-    try {
-        const result = await createOrder(TELEGRAM_ID, productId);
+async function refreshShop() {
 
-        if (!result || result.success === false) {
-            tg.showAlert(result?.message || "Buyurtma yaratilmadi.");
-            return;
-        }
+    await loadShopPage();
 
-        tg.showAlert("Buyurtma yaratildi.");
-    } catch (error) {
-        console.error(error);
-        tg.showAlert("Buyurtma yaratishda xatolik.");
-    }
+}
+
+function formatMoney(value) {
+
+    return Number(value || 0).toLocaleString("uz-UZ");
+
 }
