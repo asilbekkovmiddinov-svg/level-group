@@ -1,1 +1,158 @@
+*{
+    margin:0;
+    padding:0;
+    box-sizing:border-box;
+    font-family:Arial,sans-serif;
+}
 
+body{
+    background:#111827;
+    color:#fff;
+}
+
+.hidden{
+    display:none;
+}
+
+.loader{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    height:100vh;
+}
+
+.spinner{
+    width:48px;
+    height:48px;
+    border:5px solid #444;
+    border-top:5px solid #ff4040;
+    border-radius:50%;
+    animation:spin 1s linear infinite;
+    margin-bottom:15px;
+}
+
+@keyframes spin{
+    from{transform:rotate(0deg);}
+    to{transform:rotate(360deg);}
+}
+
+.topbar{
+    padding:20px;
+    background:#1f2937;
+    border-bottom:1px solid #333;
+}
+
+.brand{
+    display:flex;
+    align-items:center;
+    gap:15px;
+}
+
+.logo{
+    width:55px;
+    height:55px;
+    border-radius:50%;
+    background:#ff4040;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-weight:bold;
+    font-size:20px;
+}
+
+.content{
+    padding:20px;
+    padding-bottom:100px;
+}
+
+.balance-card{
+    background:#1f2937;
+    border-radius:18px;
+    padding:20px;
+    margin-bottom:20px;
+}
+
+.section-title{
+    font-size:18px;
+    margin-bottom:15px;
+    font-weight:bold;
+}
+
+.balance-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:15px;
+}
+
+.balance-box{
+    background:#111827;
+    border-radius:15px;
+    padding:18px;
+    text-align:center;
+}
+
+.balance-box span{
+    display:block;
+    color:#bbb;
+    margin-bottom:10px;
+}
+
+.balance-box strong{
+    font-size:22px;
+    color:#00ff88;
+}
+
+.menu-grid{
+    display:grid;
+    gap:15px;
+}
+
+.menu-card{
+    background:#1f2937;
+    border:none;
+    border-radius:18px;
+    color:white;
+    padding:18px;
+    text-align:left;
+    cursor:pointer;
+}
+
+.menu-card span{
+    font-size:28px;
+}
+
+.menu-card b{
+    display:block;
+    margin-top:8px;
+    font-size:18px;
+}
+
+.menu-card small{
+    display:block;
+    color:#aaa;
+    margin-top:6px;
+}
+
+.bottom-nav{
+    position:fixed;
+    left:0;
+    right:0;
+    bottom:0;
+    display:flex;
+    justify-content:space-around;
+    background:#1f2937;
+    border-top:1px solid #333;
+    padding:12px 0;
+}
+
+.nav-btn{
+    background:none;
+    border:none;
+    color:white;
+    font-size:24px;
+}
+
+.nav-btn.active{
+    color:#ff4040;
+}
