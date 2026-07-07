@@ -13,7 +13,14 @@ from app.crud.p2p import (
     confirm_p2p_trade,
     get_my_p2p_orders,
     get_my_p2p_trades,
+    get_my_active_p2p_trades,
+    get_p2p_history,
+    get_trade_remaining_time,
+    check_all_p2p_timeouts,
     update_p2p_order_price,
+    update_p2p_order_amount,
+    update_p2p_order_min_trade,
+    update_p2p_order_response_minutes,
 )
 from app.schemas.p2p import (
     P2PCreate,
@@ -21,7 +28,11 @@ from app.schemas.p2p import (
     P2PTradeCreate,
     P2PTradeAction,
     P2PUpdatePrice,
+    P2PUpdateAmount,
+    P2PUpdateMinTrade,
+    P2PUpdateResponseMinutes,
 )
+
 router = APIRouter(
     prefix="/p2p",
     tags=["P2P"],
@@ -40,10 +51,16 @@ def order_response(order):
         "response_minutes": order.response_minutes,
         "status": order.status,
         "created_at": str(order.created_at),
+        "updated_at": str(order.updated_at) if order.updated_at else None,
+        "completed_at": str(order.completed_at) if order.completed_at else None,
+        "cancelled_at": str(order.cancelled_at) if order.cancelled_at else None,
+        "cancel_reason": order.cancel_reason,
     }
 
 
 def trade_response(trade):
+    remaining_seconds, remaining_text = get_trade_remaining_time(trade)
+
     return {
         "id": trade.id,
         "order_id": trade.order_id,
@@ -55,10 +72,44 @@ def trade_response(trade):
         "total_uzs": float(trade.total_uzs),
         "efc_fee": float(trade.efc_fee),
         "uzs_fee": float(trade.uzs_fee),
+        "owner_status": trade.owner_status,
+        "requester_status": trade.requester_status,
         "status": trade.status,
         "response_minutes": trade.order.response_minutes if trade.order else 15,
-"expires_at": trade.expires_at.isoformat() if trade.expires_at else None,
+        "expires_at": trade.expires_at.isoformat() if trade.expires_at else None,
+        "owner_expires_at": (
+            trade.owner_expires_at.isoformat()
+            if trade.owner_expires_at
+            else None
+        ),
+        "requester_expires_at": (
+            trade.requester_expires_at.isoformat()
+            if trade.requester_expires_at
+            else None
+        ),
+        "remaining_seconds": remaining_seconds,
+        "remaining_text": remaining_text,
+        "timeout_stage": trade.timeout_stage,
+        "cancel_reason": trade.cancel_reason,
         "created_at": str(trade.created_at),
+        "updated_at": str(trade.updated_at) if trade.updated_at else None,
+        "approved_at": str(trade.approved_at) if trade.approved_at else None,
+        "completed_at": str(trade.completed_at) if trade.completed_at else None,
+        "rejected_at": str(trade.rejected_at) if trade.rejected_at else None,
+        "cancelled_at": str(trade.cancelled_at) if trade.cancelled_at else None,
+        "timeout_at": str(trade.timeout_at) if trade.timeout_at else None,
+    }
+
+
+@router.post("/timeouts/check")
+def check_timeouts(db: Session = Depends(get_db)):
+    trades = check_all_p2p_timeouts(db=db)
+
+    return {
+        "success": True,
+        "message": "P2P timeout tekshirildi",
+        "count": len(trades),
+        "data": [trade_response(trade) for trade in trades],
     }
 
 
@@ -79,6 +130,9 @@ def create_order(
 
     if order == "invalid_order_type":
         return {"success": False, "message": "Order turi noto‘g‘ri"}
+
+    if order == "invalid_response_minutes":
+        return {"success": False, "message": "Javob vaqti noto‘g‘ri"}
 
     if order == "min_efc":
         return {"success": False, "message": "Minimal e’lon 50 EFC"}
@@ -116,6 +170,56 @@ def open_orders(
         "success": True,
         "data": [order_response(order) for order in orders],
     }
+
+
+@router.get("/my/{telegram_id}")
+def my_orders(
+    telegram_id: int,
+    db: Session = Depends(get_db),
+):
+    orders = get_my_p2p_orders(db=db, telegram_id=telegram_id)
+
+    return {
+        "success": True,
+        "data": [order_response(order) for order in orders],
+    }
+
+
+@router.get("/trades/my/{telegram_id}")
+def my_trades(
+    telegram_id: int,
+    active_only: bool = False,
+    db: Session = Depends(get_db),
+):
+    if active_only:
+        trades = get_my_active_p2p_trades(db=db, telegram_id=telegram_id)
+    else:
+        trades = get_my_p2p_trades(db=db, telegram_id=telegram_id)
+
+    return {
+        "success": True,
+        "data": [trade_response(trade) for trade in trades],
+    }
+
+
+@router.get("/history/{telegram_id}")
+def my_history(
+    telegram_id: int,
+    status: str | None = None,
+    db: Session = Depends(get_db),
+):
+    trades = get_p2p_history(
+        db=db,
+        telegram_id=telegram_id,
+        status=status,
+    )
+
+    return {
+        "success": True,
+        "data": [trade_response(trade) for trade in trades],
+    }
+
+
 @router.get("/{order_id}")
 def one_order(
     order_id: int,
@@ -130,8 +234,6 @@ def one_order(
         "success": True,
         "data": order_response(order),
     }
-
-
 @router.post("/{order_id}/trade")
 def create_trade(
     order_id: int,
@@ -185,6 +287,9 @@ def approve_trade(
         telegram_id=data.telegram_id,
     )
 
+    if trade == "timeout":
+        return {"success": False, "message": "Savdo vaqti tugagan"}
+
     if trade == "not_owner":
         return {"success": False, "message": "Faqat e’lon egasi tasdiqlaydi"}
 
@@ -213,6 +318,9 @@ def reject_trade(
         telegram_id=data.telegram_id,
     )
 
+    if trade == "timeout":
+        return {"success": False, "message": "Savdo vaqti tugagan"}
+
     if trade == "not_owner":
         return {"success": False, "message": "Faqat e’lon egasi rad etadi"}
 
@@ -227,6 +335,8 @@ def reject_trade(
         "message": "Savdo rad etildi",
         "data": trade_response(trade),
     }
+
+
 @router.post("/trade/{trade_id}/confirm")
 def confirm_trade(
     trade_id: int,
@@ -239,11 +349,17 @@ def confirm_trade(
         telegram_id=data.telegram_id,
     )
 
+    if trade == "timeout":
+        return {"success": False, "message": "Savdo vaqti tugagan"}
+
     if trade == "not_requester":
         return {"success": False, "message": "Faqat savdo boshlagan foydalanuvchi yakuniy tasdiqlaydi"}
 
     if trade == "not_approved":
         return {"success": False, "message": "Savdo hali e’lon egasi tomonidan tasdiqlanmagan"}
+
+    if trade == "too_much":
+        return {"success": False, "message": "E’londa yetarli EFC qolmagan"}
 
     if trade == "insufficient_efc":
         return {"success": False, "message": "EFC balans yetarli emas"}
@@ -279,6 +395,9 @@ def cancel_order(
     if order == "cannot_cancel":
         return {"success": False, "message": "Bu e’lonni bekor qilib bo‘lmaydi"}
 
+    if order == "has_pending_trade":
+        return {"success": False, "message": "Aktiv savdo bor. Avval uni yakunlang yoki rad eting"}
+
     if not order:
         return {"success": False, "message": "P2P e’lon topilmadi"}
 
@@ -286,32 +405,6 @@ def cancel_order(
         "success": True,
         "message": "P2P e’lon bekor qilindi",
         "data": order_response(order),
-    }
-
-
-@router.get("/my/{telegram_id}")
-def my_orders(
-    telegram_id: int,
-    db: Session = Depends(get_db),
-):
-    orders = get_my_p2p_orders(db=db, telegram_id=telegram_id)
-
-    return {
-        "success": True,
-        "data": [order_response(order) for order in orders],
-    }
-
-
-@router.get("/trades/my/{telegram_id}")
-def my_trades(
-    telegram_id: int,
-    db: Session = Depends(get_db),
-):
-    trades = get_my_p2p_trades(db=db, telegram_id=telegram_id)
-
-    return {
-        "success": True,
-        "data": [trade_response(trade) for trade in trades],
     }
 
 
@@ -337,6 +430,9 @@ def update_order_price(
     if order == "invalid_price":
         return {"success": False, "message": "Narx noto‘g‘ri"}
 
+    if order == "insufficient_uzs":
+        return {"success": False, "message": "UZS balans yetarli emas"}
+
     if order == "has_pending_trade":
         return {"success": False, "message": "Aktiv savdo so‘rovi bor. Avval uni yakunlang yoki rad eting"}
 
@@ -346,5 +442,116 @@ def update_order_price(
     return {
         "success": True,
         "message": "P2P e’lon narxi yangilandi",
+        "data": order_response(order),
+    }
+
+
+@router.post("/{order_id}/update-amount")
+def update_order_amount(
+    order_id: int,
+    data: P2PUpdateAmount,
+    db: Session = Depends(get_db),
+):
+    order = update_p2p_order_amount(
+        db=db,
+        order_id=order_id,
+        telegram_id=data.telegram_id,
+        efc_amount=data.efc_amount,
+    )
+
+    if order == "not_owner":
+        return {"success": False, "message": "Faqat e’lon egasi miqdorni o‘zgartira oladi"}
+
+    if order == "cannot_update":
+        return {"success": False, "message": "Bu e’lon miqdorini o‘zgartirib bo‘lmaydi"}
+
+    if order == "has_pending_trade":
+        return {"success": False, "message": "Aktiv savdo bor. Avval uni yakunlang yoki rad eting"}
+
+    if order == "min_efc":
+        return {"success": False, "message": "Minimal e’lon 50 EFC"}
+
+    if order == "max_efc":
+        return {"success": False, "message": "Maksimal e’lon 10000 EFC"}
+
+    if order == "less_than_sold":
+        return {"success": False, "message": "Miqdor sotilgan EFC dan kam bo‘la olmaydi"}
+
+    if order == "insufficient_efc":
+        return {"success": False, "message": "EFC balans yetarli emas"}
+
+    if order == "insufficient_uzs":
+        return {"success": False, "message": "UZS balans yetarli emas"}
+
+    if not order:
+        return {"success": False, "message": "P2P e’lon topilmadi"}
+
+    return {
+        "success": True,
+        "message": "P2P e’lon miqdori yangilandi",
+        "data": order_response(order),
+    }
+
+
+@router.post("/{order_id}/update-min-trade")
+def update_order_min_trade(
+    order_id: int,
+    data: P2PUpdateMinTrade,
+    db: Session = Depends(get_db),
+):
+    order = update_p2p_order_min_trade(
+        db=db,
+        order_id=order_id,
+        telegram_id=data.telegram_id,
+        min_trade_efc=data.min_trade_efc,
+    )
+
+    if order == "not_owner":
+        return {"success": False, "message": "Faqat e’lon egasi minimal savdoni o‘zgartira oladi"}
+
+    if order == "cannot_update":
+        return {"success": False, "message": "Bu e’lonni o‘zgartirib bo‘lmaydi"}
+
+    if order == "min_trade":
+        return {"success": False, "message": "Minimal savdo noto‘g‘ri"}
+
+    if not order:
+        return {"success": False, "message": "P2P e’lon topilmadi"}
+
+    return {
+        "success": True,
+        "message": "Minimal savdo yangilandi",
+        "data": order_response(order),
+    }
+
+
+@router.post("/{order_id}/update-response-minutes")
+def update_order_response_minutes(
+    order_id: int,
+    data: P2PUpdateResponseMinutes,
+    db: Session = Depends(get_db),
+):
+    order = update_p2p_order_response_minutes(
+        db=db,
+        order_id=order_id,
+        telegram_id=data.telegram_id,
+        response_minutes=data.response_minutes,
+    )
+
+    if order == "not_owner":
+        return {"success": False, "message": "Faqat e’lon egasi javob vaqtini o‘zgartira oladi"}
+
+    if order == "cannot_update":
+        return {"success": False, "message": "Bu e’lonni o‘zgartirib bo‘lmaydi"}
+
+    if order == "invalid_response_minutes":
+        return {"success": False, "message": "Javob vaqti noto‘g‘ri"}
+
+    if not order:
+        return {"success": False, "message": "P2P e’lon topilmadi"}
+
+    return {
+        "success": True,
+        "message": "Javob vaqti yangilandi",
         "data": order_response(order),
     }
