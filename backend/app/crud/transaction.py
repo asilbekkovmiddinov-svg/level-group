@@ -1,4 +1,5 @@
 from sqlalchemy.orm import Session
+from decimal import Decimal
 
 from app.models.transaction import Transaction
 
@@ -7,11 +8,12 @@ def create_transaction(
     db: Session,
     telegram_id: int,
     currency: str,
-    amount: float,
-    balance_before: float,
-    balance_after: float,
+    amount: Decimal,
+    balance_before: Decimal,
+    balance_after: Decimal,
     type: str,
-    description: str = None
+    description: str = None,
+    commit: bool = True,
 ):
     transaction = Transaction(
         telegram_id=telegram_id,
@@ -24,7 +26,10 @@ def create_transaction(
     )
 
     db.add(transaction)
-    db.commit()
-    db.refresh(transaction)
+    db.flush()
+
+    if commit:
+        db.commit()
+        db.refresh(transaction)
 
     return transaction
