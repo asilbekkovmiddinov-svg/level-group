@@ -2,13 +2,13 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.telegram_auth import TelegramUser, get_current_telegram_user
 from app.crud.user import (
     get_user,
     create_user,
     update_user_last_seen,
 )
 from app.crud.wallet import create_wallet
-from app.schemas.user import UserCreate
 
 router = APIRouter(
     prefix="/user",
@@ -17,11 +17,14 @@ router = APIRouter(
 
 
 @router.post("/register")
-def register(user: UserCreate, db: Session = Depends(get_db)):
-    db_user = get_user(db, user.telegram_id)
+def register(
+    current_user: TelegramUser = Depends(get_current_telegram_user),
+    db: Session = Depends(get_db),
+):
+    db_user = get_user(db, current_user.telegram_id)
 
     if db_user:
-        update_user_last_seen(db=db, telegram_id=user.telegram_id)
+        update_user_last_seen(db=db, telegram_id=current_user.telegram_id)
 
         return {
             "success": True,
@@ -29,8 +32,8 @@ def register(user: UserCreate, db: Session = Depends(get_db)):
             "telegram_id": db_user.telegram_id,
         }
 
-    db_user = create_user(db, user)
-    create_wallet(db, user.telegram_id)
+    db_user = create_user(db, current_user)
+    create_wallet(db, current_user.telegram_id)
 
     return {
         "success": True,
@@ -39,14 +42,14 @@ def register(user: UserCreate, db: Session = Depends(get_db)):
     }
 
 
-@router.post("/{telegram_id}/seen")
+@router.post("/seen")
 def user_seen(
-    telegram_id: int,
+    current_user: TelegramUser = Depends(get_current_telegram_user),
     db: Session = Depends(get_db),
 ):
     user = update_user_last_seen(
         db=db,
-        telegram_id=telegram_id,
+        telegram_id=current_user.telegram_id,
     )
 
     if not user:
