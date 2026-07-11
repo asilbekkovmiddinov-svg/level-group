@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from app.models.user import User
-from app.schemas.user import UserCreate
+from app.core.telegram_auth import TelegramUser
 
 
 def get_user(db: Session, telegram_id: int):
@@ -12,7 +12,7 @@ def get_user(db: Session, telegram_id: int):
     ).first()
 
 
-def create_user(db: Session, user: UserCreate):
+def create_user(db: Session, user: TelegramUser):
     db_user = User(
         telegram_id=user.telegram_id,
         first_name=user.first_name,
