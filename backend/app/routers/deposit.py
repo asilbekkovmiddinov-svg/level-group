@@ -40,6 +40,9 @@ def get_user_display(db: Session, telegram_id: int):
 def create_deposit_request(data: DepositCreate, db: Session = Depends(get_db)):
     deposit = create_deposit(db, data)
 
+    if deposit == "invalid_amount":
+        return {"message": "Deposit amount must be greater than zero"}
+
     return {
         "message": "Deposit request created",
         "deposit_id": deposit.id,
@@ -78,6 +81,9 @@ def claim_deposit_request(
     if deposit == "already_claimed":
         return {"message": "Deposit already claimed"}
 
+    if deposit == "operation_failed":
+        return {"message": "Deposit claim failed"}
+
     return {
         "message": "Deposit claimed",
         "deposit_id": deposit.id,
@@ -103,6 +109,9 @@ def approve_deposit_request(
     if deposit == "wallet_not_found":
         return {"message": "Wallet not found"}
 
+    if deposit == "operation_failed":
+        return {"message": "Deposit approve failed"}
+
     username = get_user_display(db, deposit.telegram_id)
 
     return {
@@ -112,12 +121,8 @@ def approve_deposit_request(
         "username": username,
         "amount": float(deposit.amount),
         "status": deposit.status,
-        "completed_by": (
-            getattr(deposit, "completed_by", None)
-            or getattr(deposit, "approved_by", None)
-            or getattr(deposit, "claimed_by", None)
-            or data.admin_id
-        ),
+        "approved_by": getattr(deposit, "approved_by", None),
+        "approved_at": getattr(deposit, "approved_at", None),
         "processing_seconds": getattr(deposit, "processing_seconds", 0),
     }
 
@@ -140,6 +145,9 @@ def reject_deposit_request(
 
     if deposit == "invalid_status":
         return {"message": "Invalid deposit status"}
+
+    if deposit == "operation_failed":
+        return {"message": "Deposit reject failed"}
 
     username = get_user_display(db, deposit.telegram_id)
 
