@@ -153,6 +153,20 @@ def run_migrations():
         """))
 
         # =========================
+        # DEPOSITS
+        # =========================
+
+        connection.execute(text("""
+            ALTER TABLE deposits
+            ADD COLUMN IF NOT EXISTS approved_by BIGINT;
+        """))
+
+        connection.execute(text("""
+            ALTER TABLE deposits
+            ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP WITH TIME ZONE;
+        """))
+
+        # =========================
         # PRODUCTS
         # =========================
 
