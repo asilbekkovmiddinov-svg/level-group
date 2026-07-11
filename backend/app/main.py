@@ -20,6 +20,7 @@ from app.routers.wheel import router as wheel_router
 from app.routers.system import router as system_router
 from app.routers.match import router as match_router
 from app.routers.match_overview import router as match_overview_router
+from app.routers.internal_wallet import router as internal_wallet_router
 
 
 app = FastAPI(
@@ -62,6 +63,7 @@ app.include_router(wheel_router)
 app.include_router(system_router)
 app.include_router(match_router)
 app.include_router(match_overview_router)
+app.include_router(internal_wallet_router)
 
 
 @app.get("/")
