@@ -1,7 +1,11 @@
-from fastapi import APIRouter, Depends
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.config import INTERNAL_API_KEY
+from app.core.telegram_auth import TelegramUser, get_current_telegram_user
 from app.crud.wallet import get_wallet, get_or_create_wallet, add_efc
 from app.crud.transaction import create_transaction
 from app.schemas.wallet import AddEFC
@@ -12,12 +16,12 @@ router = APIRouter(
 )
 
 
-@router.get("/{telegram_id}")
+@router.get("")
 def wallet_info(
-    telegram_id: int,
+    current_user: TelegramUser = Depends(get_current_telegram_user),
     db: Session = Depends(get_db),
 ):
-    wallet = get_wallet(db, telegram_id)
+    wallet = get_wallet(db, current_user.telegram_id)
 
     if not wallet:
         return {"message": "Wallet not found"}
@@ -31,11 +35,24 @@ def wallet_info(
     }
 
 
-@router.post("/add-efc")
+@router.post("/add-efc", include_in_schema=False)
 def add_efc_balance(
     data: AddEFC,
+    x_internal_api_key: Annotated[str | None, Header()] = None,
     db: Session = Depends(get_db),
 ):
+    if not INTERNAL_API_KEY or not x_internal_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Internal wallet operations are not configured",
+        )
+
+    if x_internal_api_key != INTERNAL_API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Internal wallet operation is forbidden",
+        )
+
     wallet = get_or_create_wallet(db, data.telegram_id)
     balance_before = wallet.efc_balance
 
