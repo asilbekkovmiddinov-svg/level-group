@@ -29,8 +29,11 @@ def withdraw_response(withdraw):
         "bank_name": withdraw.bank_name,
         "status": withdraw.status,
         "claimed_by": withdraw.claimed_by,
+        "claimed_at": withdraw.claimed_at,
         "approved_by": withdraw.approved_by,
+        "approved_at": withdraw.approved_at,
         "rejected_by": withdraw.rejected_by,
+        "rejected_at": withdraw.rejected_at,
         "reject_reason": withdraw.reject_reason,
         "processing_seconds": withdraw.processing_seconds,
     }
@@ -42,6 +45,12 @@ def create_withdraw_request(data: WithdrawCreate, db: Session = Depends(get_db))
 
     if withdraw == "insufficient":
         return {"message": "Balans yetarli emas"}
+
+    if withdraw == "invalid_amount":
+        return {"message": "Withdraw amount must be greater than zero"}
+
+    if withdraw == "operation_failed":
+        return {"message": "Withdraw request failed"}
 
     if not withdraw:
         return {"message": "Wallet topilmadi"}
@@ -60,6 +69,9 @@ def claim_withdraw_request(withdraw_id: int, admin_id: int, db: Session = Depend
 
     if withdraw == "not_pending":
         return {"message": "Withdraw is not pending"}
+
+    if withdraw == "operation_failed":
+        return {"message": "Withdraw claim failed"}
 
     if not withdraw:
         return {"message": "Withdraw topilmadi"}
@@ -100,6 +112,15 @@ def approve_withdraw_request(withdraw_id: int, admin_id: int, db: Session = Depe
     if withdraw == "rejected":
         return {"message": "Withdraw oldin rad etilgan"}
 
+    if withdraw == "not_claimed":
+        return {"message": "Withdraw avval claim qilinishi kerak"}
+
+    if withdraw == "invalid_amount":
+        return {"message": "Withdraw summasi noto‘g‘ri"}
+
+    if withdraw == "operation_failed":
+        return {"message": "Withdraw approve failed"}
+
     if not withdraw:
         return {"message": "Withdraw topilmadi"}
 
@@ -123,6 +144,15 @@ def reject_withdraw_request(withdraw_id: int, admin_id: int, db: Session = Depen
 
     if withdraw == "rejected":
         return {"message": "Withdraw oldin rad etilgan"}
+
+    if withdraw == "not_claimed":
+        return {"message": "Withdraw avval claim qilinishi kerak"}
+
+    if withdraw == "invalid_amount":
+        return {"message": "Withdraw summasi noto‘g‘ri"}
+
+    if withdraw == "operation_failed":
+        return {"message": "Withdraw reject failed"}
 
     if not withdraw:
         return {"message": "Withdraw topilmadi"}
