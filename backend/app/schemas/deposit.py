@@ -1,10 +1,12 @@
+from decimal import Decimal
+
 from pydantic import BaseModel
 from typing import Optional
 
 
 class DepositCreate(BaseModel):
     telegram_id: int
-    amount: float
+    amount: Decimal
 
 
 class DepositAdminAction(BaseModel):
