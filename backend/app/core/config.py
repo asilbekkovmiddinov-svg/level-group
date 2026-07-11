@@ -13,5 +13,5 @@ TELEGRAM_INIT_DATA_MAX_AGE_SECONDS = int(
 )
 
 # Used only by trusted server-to-server clients (for example the bot) for
-# balance operations.  It must never be exposed to the Mini App.
+# internal wallet operations. It must never be exposed to the Mini App.
 INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY")
