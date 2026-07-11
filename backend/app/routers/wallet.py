@@ -6,9 +6,13 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.config import INTERNAL_API_KEY
 from app.core.telegram_auth import TelegramUser, get_current_telegram_user
-from app.crud.wallet import get_wallet, get_or_create_wallet, add_efc
-from app.crud.transaction import create_transaction
+from app.crud.wallet import get_wallet
 from app.schemas.wallet import AddEFC
+from app.services.wallet_service import (
+    InvalidWalletAmountError,
+    WalletOperationFailedError,
+    add_efc_with_transaction,
+)
 
 router = APIRouter(
     prefix="/wallet",
@@ -53,35 +57,23 @@ def add_efc_balance(
             detail="Internal wallet operation is forbidden",
         )
 
-    wallet = get_or_create_wallet(db, data.telegram_id)
-    balance_before = wallet.efc_balance
-
-    updated_wallet = add_efc(
-        db=db,
-        telegram_id=data.telegram_id,
-        amount=data.amount,
-    )
-
-    if not updated_wallet:
-        return {"message": "Wallet not found"}
-
-    balance_after = updated_wallet.efc_balance
-
-    create_transaction(
-        db=db,
-        telegram_id=data.telegram_id,
-        currency="EFC",
-        amount=data.amount,
-        balance_before=balance_before,
-        balance_after=balance_after,
-        type="ADMIN_ADD_EFC",
-        description="Admin tomonidan EFC qo‘shildi",
-    )
+    try:
+        updated_wallet = add_efc_with_transaction(
+            db=db,
+            telegram_id=data.telegram_id,
+            amount=data.amount,
+            transaction_type="ADMIN_ADD_EFC",
+            description="Admin tomonidan EFC qo‘shildi",
+        )
+    except InvalidWalletAmountError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error))
+    except WalletOperationFailedError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error))
 
     return {
         "message": "EFC added successfully",
         "telegram_id": data.telegram_id,
         "amount": float(data.amount),
-        "balance_before": float(balance_before),
-        "balance_after": float(balance_after),
+        "balance_before": float(updated_wallet.efc_balance - data.amount),
+        "balance_after": float(updated_wallet.efc_balance),
     }
