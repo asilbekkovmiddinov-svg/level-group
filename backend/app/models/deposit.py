@@ -40,7 +40,7 @@ class Deposit(Base):
     )
     # PENDING
     # CLAIMED
-    # COMPLETED
+    # APPROVED
     # REJECTED
 
     card_number = Column(
@@ -64,6 +64,16 @@ class Deposit(Base):
     )
 
     completed_at = Column(
+        DateTime(timezone=True),
+        nullable=True
+    )
+
+    approved_by = Column(
+        BigInteger,
+        nullable=True
+    )
+
+    approved_at = Column(
         DateTime(timezone=True),
         nullable=True
     )
