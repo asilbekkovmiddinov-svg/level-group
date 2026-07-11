@@ -8,6 +8,8 @@ from app.core.config import INTERNAL_API_KEY
 from app.core.database import get_db
 from app.crud.user import get_user
 from app.crud.wallet import get_wallet
+from app.crud.withdraw import create_withdraw
+from app.schemas.withdraw import InternalWithdrawCreate
 
 
 router = APIRouter(prefix="/internal", tags=["Internal"])
@@ -53,4 +55,35 @@ def internal_wallet_info(
         "uzs_balance": float(wallet.uzs_balance),
         "locked_efc": float(wallet.locked_efc),
         "locked_uzs": float(wallet.locked_uzs),
+    }
+
+
+@router.post("/withdraw/create", status_code=status.HTTP_201_CREATED)
+def internal_create_withdraw(
+    data: InternalWithdrawCreate,
+    _: None = Depends(require_internal_api_key),
+    db: Session = Depends(get_db),
+):
+    withdraw = create_withdraw(db, data, data.telegram_id)
+    if withdraw == "insufficient":
+        raise HTTPException(status_code=400, detail="Balans yetarli emas")
+    if withdraw == "minimum_amount":
+        raise HTTPException(status_code=400, detail="Minimal withdraw summasi 15 000 UZS")
+    if withdraw == "invalid_amount":
+        raise HTTPException(status_code=400, detail="Withdraw amount must be greater than zero")
+    if withdraw == "operation_failed":
+        raise HTTPException(status_code=500, detail="Withdraw request failed")
+    if withdraw == "wallet_not_found" or not withdraw:
+        raise HTTPException(status_code=404, detail="Wallet topilmadi")
+
+    return {
+        "withdraw_id": withdraw.id,
+        "telegram_id": withdraw.telegram_id,
+        "amount": float(withdraw.amount),
+        "card_number": withdraw.card_number,
+        "card_holder": withdraw.card_holder,
+        "bank_name": withdraw.bank_name,
+        "status": withdraw.status,
+        "created_at": withdraw.created_at,
+        "message": "Pul yechish so‘rovi qabul qilindi. To‘lov 24 soat ichida yuboriladi.",
     }

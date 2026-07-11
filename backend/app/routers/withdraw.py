@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -12,6 +12,7 @@ from app.crud.withdraw import (
     reject_withdraw,
 )
 from app.schemas.withdraw import WithdrawCreate
+from app.core.telegram_auth import TelegramUser, get_current_telegram_user
 
 router = APIRouter(
     prefix="/withdraw",
@@ -28,6 +29,7 @@ def withdraw_response(withdraw):
         "card_holder": withdraw.card_holder,
         "bank_name": withdraw.bank_name,
         "status": withdraw.status,
+        "created_at": withdraw.created_at,
         "claimed_by": withdraw.claimed_by,
         "claimed_at": withdraw.claimed_at,
         "approved_by": withdraw.approved_by,
@@ -39,21 +41,24 @@ def withdraw_response(withdraw):
     }
 
 
-@router.post("/create")
-def create_withdraw_request(data: WithdrawCreate, db: Session = Depends(get_db)):
-    withdraw = create_withdraw(db, data)
+@router.post("/create", status_code=status.HTTP_201_CREATED)
+def create_withdraw_request(
+    data: WithdrawCreate,
+    current_user: TelegramUser = Depends(get_current_telegram_user),
+    db: Session = Depends(get_db),
+):
+    withdraw = create_withdraw(db, data, current_user.telegram_id)
 
     if withdraw == "insufficient":
-        return {"message": "Balans yetarli emas"}
-
+        raise HTTPException(status_code=400, detail="Balans yetarli emas")
+    if withdraw == "minimum_amount":
+        raise HTTPException(status_code=400, detail="Minimal withdraw summasi 15 000 UZS")
     if withdraw == "invalid_amount":
-        return {"message": "Withdraw amount must be greater than zero"}
-
+        raise HTTPException(status_code=400, detail="Withdraw amount must be greater than zero")
     if withdraw == "operation_failed":
-        return {"message": "Withdraw request failed"}
-
-    if not withdraw:
-        return {"message": "Wallet topilmadi"}
+        raise HTTPException(status_code=500, detail="Withdraw request failed")
+    if withdraw == "wallet_not_found" or not withdraw:
+        raise HTTPException(status_code=404, detail="Wallet topilmadi")
 
     response = withdraw_response(withdraw)
     response["message"] = "Pul yechish so‘rovi qabul qilindi. To‘lov 24 soat ichida yuboriladi."

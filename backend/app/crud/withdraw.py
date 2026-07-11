@@ -14,6 +14,7 @@ from app.crud.wallet import (
 )
 from app.models.withdraw import Withdraw
 from app.schemas.withdraw import WithdrawCreate
+MIN_WITHDRAW_AMOUNT = Decimal("15000")
 def _withdraw_for_update(db: Session, withdraw_id: int):
     return db.query(Withdraw).filter(Withdraw.id == withdraw_id).with_for_update().first()
 def _processing_seconds(created_at, now: datetime) -> int:
@@ -22,25 +23,27 @@ def _processing_seconds(created_at, now: datetime) -> int:
     if created_at.tzinfo is None:
         now = now.replace(tzinfo=None)
     return max(0, int((now - created_at).total_seconds()))
-def create_withdraw(db: Session, data: WithdrawCreate):
+def create_withdraw(db: Session, data: WithdrawCreate, telegram_id: int):
     amount = to_decimal(data.amount)
     if amount is None:
         return "invalid_amount"
+    if amount < MIN_WITHDRAW_AMOUNT:
+        return "minimum_amount"
 
     try:
         with db.begin():
-            wallet = get_wallet_for_update(db, data.telegram_id)
+            wallet = get_wallet_for_update(db, telegram_id)
             if not wallet:
                 return "wallet_not_found"
             if Decimal(str(wallet.uzs_balance)) < amount:
                 return "insufficient"
 
-            locked_wallet = lock_uzs_balance(db, data.telegram_id, amount)
+            locked_wallet = lock_uzs_balance(db, telegram_id, amount)
             if not locked_wallet:
                 return "insufficient"
 
             withdraw = Withdraw(
-                telegram_id=data.telegram_id,
+                telegram_id=telegram_id,
                 amount=amount,
                 card_number=data.card_number,
                 card_holder=data.card_holder,
@@ -53,7 +56,7 @@ def create_withdraw(db: Session, data: WithdrawCreate):
             balance_after = Decimal(str(locked_wallet.uzs_balance))
             create_transaction(
                 db=db,
-                telegram_id=data.telegram_id,
+                telegram_id=telegram_id,
                 currency="UZS",
                 amount=amount,
                 balance_before=balance_after + amount,
