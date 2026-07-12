@@ -12,6 +12,8 @@ from app.crud.withdraw import create_withdraw
 from app.crud.deposit import create_deposit
 from app.schemas.withdraw import InternalWithdrawCreate
 from app.schemas.deposit import InternalDepositCreate
+from app.models.deposit import Deposit
+from app.services.object_storage import StorageOperationError, generate_presigned_get_url
 
 
 router = APIRouter(prefix="/internal", tags=["Internal"])
@@ -103,3 +105,13 @@ def internal_create_deposit(
     if deposit == "minimum_amount":
         raise HTTPException(status_code=400, detail="Minimal deposit summasi 15 000 UZS")
     return {"message": "Deposit request created", "deposit_id": deposit.id, "telegram_id": deposit.telegram_id, "amount": float(deposit.amount), "status": deposit.status}
+
+@router.get("/deposits/{deposit_id}/receipt-url")
+def internal_deposit_receipt_url(deposit_id: int, _: None = Depends(require_internal_api_key), db: Session = Depends(get_db)):
+    deposit = db.query(Deposit).filter(Deposit.id == deposit_id).first()
+    if not deposit or not deposit.receipt_object_key:
+        raise HTTPException(404, "Receipt not found")
+    try:
+        return {"url": generate_presigned_get_url(deposit.receipt_object_key)}
+    except StorageOperationError:
+        raise HTTPException(500, "Receipt access is unavailable")
