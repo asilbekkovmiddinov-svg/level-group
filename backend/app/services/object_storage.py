@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from dataclasses import dataclass
 
 from app.core import config
 
@@ -11,6 +12,21 @@ class StorageConfigurationError(RuntimeError):
 
 class StorageOperationError(RuntimeError):
     pass
+
+
+class StorageObjectNotFoundError(StorageOperationError):
+    pass
+
+
+@dataclass(frozen=True)
+class DownloadedObject:
+    content: bytes
+    content_type: str
+    content_length: int
+
+
+MAX_RECEIPT_DOWNLOAD_SIZE = 5 * 1024 * 1024
+RECEIPT_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 
 
 def validate_storage_config() -> None:
@@ -71,3 +87,33 @@ def generate_presigned_get_url(object_key: str, expires_in: int | None = None) -
         )
     except Exception as error:
         raise StorageOperationError("Presigned URL generation failed") from error
+
+
+def download_object_bytes(object_key: str) -> DownloadedObject:
+    if not object_key:
+        raise StorageObjectNotFoundError("Object not found")
+    body = None
+    try:
+        response = get_storage_client().get_object(Bucket=config.S3_BUCKET_NAME, Key=object_key)
+        content_type = response.get("ContentType")
+        content_length = response.get("ContentLength")
+        if content_type not in RECEIPT_CONTENT_TYPES or not isinstance(content_length, int) or content_length < 1 or content_length > MAX_RECEIPT_DOWNLOAD_SIZE:
+            raise StorageOperationError("Invalid receipt object")
+        body = response["Body"]
+        content = body.read(MAX_RECEIPT_DOWNLOAD_SIZE + 1)
+        if len(content) != content_length or len(content) > MAX_RECEIPT_DOWNLOAD_SIZE:
+            raise StorageOperationError("Invalid receipt object")
+        return DownloadedObject(content=content, content_type=content_type, content_length=content_length)
+    except StorageOperationError:
+        raise
+    except Exception as error:
+        code = getattr(getattr(error, "response", {}), "get", lambda *_: {})("Error", {}).get("Code")
+        if code in {"NoSuchKey", "NoSuchBucket", "404"}:
+            raise StorageObjectNotFoundError("Object not found") from error
+        raise StorageOperationError("Object download failed") from error
+    finally:
+        if body is not None:
+            try:
+                body.close()
+            except Exception:
+                pass
