@@ -39,6 +39,8 @@ def attempts_exceeded(attempts: int, max_attempts: int) -> bool:
 
 def start_deposit_receipt_notification(db, deposit_id: int, now: datetime | None = None) -> DepositReceiptNotificationResult:
     now = now or datetime.now(timezone.utc)
+    deposit = None
+    previous = None
     try:
         deposit = db.query(Deposit).filter(Deposit.id == deposit_id).with_for_update().first()
         if not deposit: raise DepositNotificationNotFoundError("Deposit not found")
@@ -48,9 +50,12 @@ def start_deposit_receipt_notification(db, deposit_id: int, now: datetime | None
         if state == "SENDING" and not is_notification_sending_stale(state, deposit.receipt_notification_last_attempt_at, now, RECEIPT_NOTIFICATION_STALE_SECONDS): raise DepositNotificationInProgressError("Notification in progress")
         if state not in {"PENDING", "FAILED", "SENDING"}: raise DepositNotificationStateError("Invalid notification state")
         if attempts_exceeded(deposit.receipt_notification_attempts, RECEIPT_NOTIFICATION_MAX_ATTEMPTS): raise DepositNotificationAttemptsExceededError("Notification attempts exceeded")
+        previous = (deposit.receipt_notification_status, deposit.receipt_notification_attempts, deposit.receipt_notification_last_attempt_at, deposit.receipt_notification_last_error, deposit.receipt_notification_sent_at, deposit.receipt_notification_message_id)
         deposit.receipt_notification_status = "SENDING"; deposit.receipt_notification_attempts += 1; deposit.receipt_notification_last_attempt_at = now; deposit.receipt_notification_last_error = None; deposit.receipt_notification_sent_at = None; deposit.receipt_notification_message_id = None
         db.commit()
         return DepositReceiptNotificationResult(deposit.id, "SENDING", deposit.receipt_notification_attempts, None, None, True)
     except Exception:
         db.rollback()
+        if deposit is not None and previous is not None:
+            (deposit.receipt_notification_status, deposit.receipt_notification_attempts, deposit.receipt_notification_last_attempt_at, deposit.receipt_notification_last_error, deposit.receipt_notification_sent_at, deposit.receipt_notification_message_id) = previous
         raise
