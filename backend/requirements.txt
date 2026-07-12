@@ -8,3 +8,4 @@ alembic
 boto3
 python-multipart
 pytest
+httpx2
