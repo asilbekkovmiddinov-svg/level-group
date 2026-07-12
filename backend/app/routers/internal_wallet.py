@@ -14,6 +14,15 @@ from app.schemas.withdraw import InternalWithdrawCreate
 from app.schemas.deposit import InternalDepositCreate
 from app.models.deposit import Deposit
 from app.services.object_storage import StorageOperationError, generate_presigned_get_url
+from app.services.deposit_notifications import (
+    DepositNotificationAlreadySentError,
+    DepositNotificationAttemptsExceededError,
+    DepositNotificationInProgressError,
+    DepositNotificationNotFoundError,
+    DepositNotificationStateError,
+    DepositReceiptMissingError,
+    send_deposit_receipt_notification,
+)
 
 
 router = APIRouter(prefix="/internal", tags=["Internal"])
@@ -115,3 +124,35 @@ def internal_deposit_receipt_url(deposit_id: int, _: None = Depends(require_inte
         return {"url": generate_presigned_get_url(deposit.receipt_object_key)}
     except StorageOperationError:
         raise HTTPException(500, "Receipt access is unavailable")
+
+
+@router.post("/deposits/{deposit_id}/send-receipt-notification")
+def send_deposit_receipt_notification_request(
+    deposit_id: int,
+    _: None = Depends(require_internal_api_key),
+    db: Session = Depends(get_db),
+):
+    try:
+        result = send_deposit_receipt_notification(db, deposit_id)
+    except (DepositNotificationNotFoundError, DepositReceiptMissingError):
+        raise HTTPException(404, "Deposit receipt not found")
+    except (
+        DepositNotificationAlreadySentError,
+        DepositNotificationInProgressError,
+        DepositNotificationAttemptsExceededError,
+        DepositNotificationStateError,
+    ):
+        raise HTTPException(409, "Receipt notification cannot be started")
+
+    if result.status == "FAILED":
+        raise HTTPException(
+            503 if result.retryable else 500,
+            "Receipt notification delivery failed",
+        )
+
+    return {
+        "status": result.status,
+        "message_id": result.message_id,
+        "attempts": result.attempts,
+        "sent_at": result.sent_at,
+    }
