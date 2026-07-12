@@ -22,6 +22,17 @@ from app.core.telegram_auth import TelegramUser, get_current_telegram_user
 router = APIRouter(prefix="/deposit", tags=["Deposit"])
 
 
+def deposit_response(deposit):
+    return {
+        "deposit_id": deposit.id, "telegram_id": deposit.telegram_id,
+        "amount": float(deposit.amount), "status": deposit.status,
+        "receipt_uploaded": bool(deposit.receipt_object_key),
+        "receipt_content_type": deposit.receipt_content_type,
+        "receipt_size": deposit.receipt_size,
+        "receipt_uploaded_at": deposit.receipt_uploaded_at,
+    }
+
+
 def get_user_display(db: Session, telegram_id: int):
     user = db.query(User).filter(User.telegram_id == telegram_id).first()
 
@@ -50,28 +61,22 @@ def create_deposit_request(
     if deposit == "minimum_amount":
         raise HTTPException(status_code=400, detail="Minimal deposit summasi 15 000 UZS")
 
-    return {
-        "message": "Deposit request created",
-        "deposit_id": deposit.id,
-        "telegram_id": deposit.telegram_id,
-        "amount": float(deposit.amount),
-        "status": deposit.status,
-    }
+    return {"message": "Deposit request created", **deposit_response(deposit)}
 
 
 @router.get("/all")
 def all_deposits(db: Session = Depends(get_db)):
-    return get_deposits(db)
+    return [deposit_response(deposit) for deposit in get_deposits(db)]
 
 
 @router.get("/pending")
 def pending_deposits(db: Session = Depends(get_db)):
-    return get_pending_deposits(db)
+    return [deposit_response(deposit) for deposit in get_pending_deposits(db)]
 
 
 @router.get("/claimed")
 def claimed_deposits(db: Session = Depends(get_db)):
-    return get_claimed_deposits(db)
+    return [deposit_response(deposit) for deposit in get_claimed_deposits(db)]
 
 
 @router.post("/{deposit_id}/claim")

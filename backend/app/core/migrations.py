@@ -166,6 +166,19 @@ def run_migrations():
             ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP WITH TIME ZONE;
         """))
 
+        connection.execute(text("""
+            ALTER TABLE deposits ADD COLUMN IF NOT EXISTS receipt_object_key VARCHAR(500);
+        """))
+        connection.execute(text("""
+            ALTER TABLE deposits ADD COLUMN IF NOT EXISTS receipt_content_type VARCHAR(100);
+        """))
+        connection.execute(text("""
+            ALTER TABLE deposits ADD COLUMN IF NOT EXISTS receipt_size INTEGER;
+        """))
+        connection.execute(text("""
+            ALTER TABLE deposits ADD COLUMN IF NOT EXISTS receipt_uploaded_at TIMESTAMP WITH TIME ZONE;
+        """))
+
         # =========================
         # PRODUCTS
         # =========================

@@ -48,6 +48,11 @@ class Deposit(Base):
         nullable=True
     )
 
+    receipt_object_key = Column(String(500), nullable=True)
+    receipt_content_type = Column(String(100), nullable=True)
+    receipt_size = Column(Integer, nullable=True)
+    receipt_uploaded_at = Column(DateTime(timezone=True), nullable=True)
+
     claimed_by = Column(
         BigInteger,
         nullable=True
