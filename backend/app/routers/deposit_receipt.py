@@ -11,6 +11,7 @@ from app.core.database import get_db
 from app.core.telegram_auth import TelegramUser, get_current_telegram_user
 from app.models.deposit import Deposit
 from app.services.object_storage import StorageOperationError, delete_object, upload_object
+from app.services.deposit_notifications import send_deposit_receipt_notification
 
 router = APIRouter(prefix="/deposits", tags=["Deposits"])
 logger = logging.getLogger(__name__)
@@ -56,4 +57,10 @@ async def upload_deposit_receipt(deposit_id: int, file: UploadFile = File(...), 
     if old_key:
         try: delete_object(old_key)
         except StorageOperationError: logger.warning("previous receipt cleanup failed")
-    return receipt_metadata(deposit)
+    try:
+        notification = send_deposit_receipt_notification(db, deposit.id)
+        notification_status = notification.status
+    except Exception:
+        logger.warning("receipt notification did not start")
+        notification_status = deposit.receipt_notification_status
+    return {**receipt_metadata(deposit), "notification_status": notification_status}

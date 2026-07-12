@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from app.services.object_storage import StorageObjectNotFoundError, StorageOperationError
-from app.services.telegram_notifications import (TelegramNotificationNetworkError, TelegramNotificationPermanentError, TelegramNotificationRateLimitError, TelegramNotificationTemporaryError, TelegramNotificationTimeoutError)
+from app.services.telegram_notifications import (TelegramNotificationConfigError, TelegramNotificationNetworkError, TelegramNotificationPermanentError, TelegramNotificationRateLimitError, TelegramNotificationResponseError, TelegramNotificationTemporaryError, TelegramNotificationTimeoutError)
 from app.core.config import RECEIPT_NOTIFICATION_MAX_ATTEMPTS, RECEIPT_NOTIFICATION_STALE_SECONDS
 from app.models.deposit import Deposit
 from app.models.user import User
@@ -25,7 +25,7 @@ class NotificationErrorClassification:
     retryable: bool; safe_message: str
 
 def classify_notification_error(error: Exception) -> NotificationErrorClassification:
-    if isinstance(error, (DepositReceiptMissingError, StorageObjectNotFoundError, TelegramNotificationPermanentError, DepositNotificationStateError)):
+    if isinstance(error, (DepositReceiptMissingError, StorageObjectNotFoundError, TelegramNotificationConfigError, TelegramNotificationPermanentError, TelegramNotificationResponseError, DepositNotificationStateError)):
         return NotificationErrorClassification(False, "Notification cannot be delivered")
     if isinstance(error, (TelegramNotificationTimeoutError, TelegramNotificationNetworkError, TelegramNotificationRateLimitError, TelegramNotificationTemporaryError, StorageOperationError)):
         return NotificationErrorClassification(True, "Notification service temporarily unavailable")
@@ -103,7 +103,7 @@ def send_deposit_receipt_notification(db, deposit_id: int, now: datetime | None 
         receipt = download_object_bytes(deposit.receipt_object_key)
         extension = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}[receipt.content_type]
         telegram = send_deposit_receipt_photo(receipt.content, receipt.content_type, f"receipt.{extension}", _caption(deposit, user))
-    except (DepositReceiptMissingError, StorageOperationError, TelegramNotificationTimeoutError, TelegramNotificationNetworkError, TelegramNotificationRateLimitError, TelegramNotificationTemporaryError, TelegramNotificationPermanentError, TelegramNotificationResponseError) as error:
+    except (DepositReceiptMissingError, StorageOperationError, TelegramNotificationConfigError, TelegramNotificationTimeoutError, TelegramNotificationNetworkError, TelegramNotificationRateLimitError, TelegramNotificationTemporaryError, TelegramNotificationPermanentError, TelegramNotificationResponseError) as error:
         return _finalize_failed(db, deposit_id, started.attempts, error)
     try:
         deposit = _locked_deposit(db, deposit_id)
