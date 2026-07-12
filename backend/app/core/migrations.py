@@ -1,6 +1,12 @@
-from sqlalchemy import text
+import logging
+
+from sqlalchemy import bindparam, text
 
 from app.core.database import engine
+from app.models.match import LEGACY_MATCH_STATUS_MAPPING
+
+
+logger = logging.getLogger(__name__)
 
 
 def run_migrations():
@@ -239,13 +245,18 @@ def run_migrations():
                 commission_amount NUMERIC(18, 2) NOT NULL DEFAULT 0,
                 winner_reward NUMERIC(18, 2) NOT NULL DEFAULT 0,
                 status VARCHAR(30) NOT NULL DEFAULT 'WAITING_PLAYER',
+                game_type VARCHAR(32) NOT NULL DEFAULT 'EFOOTBALL',
                 scheduled_at TIMESTAMP WITH TIME ZONE NOT NULL,
                 ready_check_started_at TIMESTAMP WITH TIME ZONE,
                 ready_check_deadline_at TIMESTAMP WITH TIME ZONE,
+                ready_window_started_at TIMESTAMP WITH TIME ZONE,
+                ready_deadline_at TIMESTAMP WITH TIME ZONE,
                 creator_ready BOOLEAN NOT NULL DEFAULT FALSE,
                 opponent_ready BOOLEAN NOT NULL DEFAULT FALSE,
                 creator_ready_at TIMESTAMP WITH TIME ZONE,
                 opponent_ready_at TIMESTAMP WITH TIME ZONE,
+                creator_rules_accepted_at TIMESTAMP WITH TIME ZONE,
+                opponent_rules_accepted_at TIMESTAMP WITH TIME ZONE,
                 room_code VARCHAR(64),
                 room_code_created_by BIGINT,
                 room_code_created_at TIMESTAMP WITH TIME ZONE,
@@ -253,6 +264,10 @@ def run_migrations():
                 opponent_result_screenshot VARCHAR(500),
                 creator_result_uploaded_at TIMESTAMP WITH TIME ZONE,
                 opponent_result_uploaded_at TIMESTAMP WITH TIME ZONE,
+                creator_result_video VARCHAR(500),
+                opponent_result_video VARCHAR(500),
+                creator_result_video_uploaded_at TIMESTAMP WITH TIME ZONE,
+                opponent_result_video_uploaded_at TIMESTAMP WITH TIME ZONE,
                 winner_telegram_id BIGINT,
                 loser_telegram_id BIGINT,
                 result_type VARCHAR(30),
@@ -294,6 +309,100 @@ def run_migrations():
             CREATE INDEX IF NOT EXISTS ix_matches_loser_telegram_id
             ON matches (loser_telegram_id);
         """))
+
+        # Arena V2 foundation: these additions are nullable where they model
+        # future flow steps, so existing rows remain valid during rollout.
+        connection.execute(text("""
+            ALTER TABLE matches
+            ADD COLUMN IF NOT EXISTS game_type VARCHAR(32) NOT NULL DEFAULT 'EFOOTBALL';
+        """))
+        connection.execute(text("""
+            ALTER TABLE matches
+            ADD COLUMN IF NOT EXISTS creator_rules_accepted_at TIMESTAMP WITH TIME ZONE;
+        """))
+        connection.execute(text("""
+            ALTER TABLE matches
+            ADD COLUMN IF NOT EXISTS opponent_rules_accepted_at TIMESTAMP WITH TIME ZONE;
+        """))
+        connection.execute(text("""
+            ALTER TABLE matches
+            ADD COLUMN IF NOT EXISTS ready_window_started_at TIMESTAMP WITH TIME ZONE;
+        """))
+        connection.execute(text("""
+            ALTER TABLE matches
+            ADD COLUMN IF NOT EXISTS ready_deadline_at TIMESTAMP WITH TIME ZONE;
+        """))
+        connection.execute(text("""
+            ALTER TABLE matches
+            ADD COLUMN IF NOT EXISTS creator_result_video VARCHAR(500);
+        """))
+        connection.execute(text("""
+            ALTER TABLE matches
+            ADD COLUMN IF NOT EXISTS opponent_result_video VARCHAR(500);
+        """))
+        connection.execute(text("""
+            ALTER TABLE matches
+            ADD COLUMN IF NOT EXISTS creator_result_video_uploaded_at TIMESTAMP WITH TIME ZONE;
+        """))
+        connection.execute(text("""
+            ALTER TABLE matches
+            ADD COLUMN IF NOT EXISTS opponent_result_video_uploaded_at TIMESTAMP WITH TIME ZONE;
+        """))
+
+        # Earlier SQLAlchemy-created databases can use a native enum. Convert
+        # only that column to VARCHAR before storing new target state values.
+        connection.execute(text("""
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'matches'
+                      AND column_name = 'status'
+                      AND data_type = 'USER-DEFINED'
+                ) THEN
+                    ALTER TABLE matches
+                    ALTER COLUMN status TYPE VARCHAR(30) USING status::text;
+                END IF;
+            END $$;
+        """))
+
+        known_legacy_statuses = tuple(LEGACY_MATCH_STATUS_MAPPING)
+        target_statuses = tuple(set(LEGACY_MATCH_STATUS_MAPPING.values()))
+        unknown_status_count = connection.execute(
+            text("""
+                SELECT COUNT(*)
+                FROM matches
+                WHERE status NOT IN :known_legacy_statuses
+                  AND status NOT IN :target_statuses
+            """).bindparams(
+                bindparam("known_legacy_statuses", expanding=True),
+                bindparam("target_statuses", expanding=True),
+            ),
+            {
+                "known_legacy_statuses": known_legacy_statuses,
+                "target_statuses": target_statuses,
+            },
+        ).scalar_one()
+        if unknown_status_count:
+            logger.warning(
+                "Arena V2 migration retained %s unrecognized match status row(s).",
+                unknown_status_count,
+            )
+
+        for legacy_status, target_status in LEGACY_MATCH_STATUS_MAPPING.items():
+            if legacy_status == target_status:
+                continue
+            connection.execute(
+                text("""
+                    UPDATE matches
+                    SET status = :target_status,
+                        updated_at = NOW()
+                    WHERE status = :legacy_status
+                """),
+                {"legacy_status": legacy_status, "target_status": target_status},
+            )
 
         # =========================
         # 1VS1 ARENA STATS

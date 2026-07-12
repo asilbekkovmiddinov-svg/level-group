@@ -4,7 +4,7 @@ from typing import Optional
 
 from pydantic import BaseModel
 
-from app.models.match import MatchResultType, MatchStatus
+from app.models.match import MatchGameType, MatchResultType, MatchStatus
 
 
 class MatchCreate(BaseModel):
@@ -45,10 +45,40 @@ class MatchCancel(BaseModel):
 class MatchResponse(BaseModel):
     id: int
 
+    game_type: MatchGameType
+    creator_display_name: str
+    opponent_display_name: str
+
+    efc_amount: Decimal
+    total_pool: Decimal
+    winner_reward: Decimal
+
+    status: MatchStatus
+    scheduled_at: datetime
+
+    ready_window_started_at: Optional[datetime] = None
+    ready_deadline_at: Optional[datetime] = None
+
+    creator_ready: bool
+    opponent_ready: bool
+    result_type: Optional[MatchResultType] = None
+    resolved_at: Optional[datetime] = None
+
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class MatchInternalResponse(BaseModel):
+    """Admin/internal-only representation. Never use for public endpoints."""
+
+    id: int
+    game_type: MatchGameType
     creator_telegram_id: int
     creator_username: Optional[str] = None
     creator_first_name: Optional[str] = None
-
     opponent_telegram_id: Optional[int] = None
     opponent_username: Optional[str] = None
     opponent_first_name: Optional[str] = None
@@ -57,17 +87,17 @@ class MatchResponse(BaseModel):
     total_pool: Decimal
     commission_amount: Decimal
     winner_reward: Decimal
-
     status: MatchStatus
     scheduled_at: datetime
 
-    ready_check_started_at: Optional[datetime] = None
-    ready_check_deadline_at: Optional[datetime] = None
-
+    ready_window_started_at: Optional[datetime] = None
+    ready_deadline_at: Optional[datetime] = None
     creator_ready: bool
     opponent_ready: bool
     creator_ready_at: Optional[datetime] = None
     opponent_ready_at: Optional[datetime] = None
+    creator_rules_accepted_at: Optional[datetime] = None
+    opponent_rules_accepted_at: Optional[datetime] = None
 
     room_code: Optional[str] = None
     room_code_created_by: Optional[int] = None
@@ -77,17 +107,20 @@ class MatchResponse(BaseModel):
     opponent_result_screenshot: Optional[str] = None
     creator_result_uploaded_at: Optional[datetime] = None
     opponent_result_uploaded_at: Optional[datetime] = None
+    creator_result_video: Optional[str] = None
+    opponent_result_video: Optional[str] = None
+    creator_result_video_uploaded_at: Optional[datetime] = None
+    opponent_result_video_uploaded_at: Optional[datetime] = None
+    creator_evidence_complete: bool
+    opponent_evidence_complete: bool
 
     winner_telegram_id: Optional[int] = None
     loser_telegram_id: Optional[int] = None
     result_type: Optional[MatchResultType] = None
-
     admin_telegram_id: Optional[int] = None
     admin_comment: Optional[str] = None
     resolved_at: Optional[datetime] = None
-
     cancel_reason: Optional[str] = None
-
     created_at: datetime
     updated_at: datetime
 

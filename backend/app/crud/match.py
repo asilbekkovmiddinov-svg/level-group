@@ -168,6 +168,7 @@ def get_due_scheduled_matches(db: Session, limit: int = 50) -> list[Match]:
     return (
         db.query(Match)
         .filter(Match.status == MatchStatus.SCHEDULED)
+        .filter(Match.ready_check_started_at.is_(None))
         .filter(Match.scheduled_at <= now)
         .order_by(Match.scheduled_at.asc())
         .limit(limit)
@@ -181,6 +182,7 @@ def get_expired_ready_matches(db: Session, limit: int = 50) -> list[Match]:
     return (
         db.query(Match)
         .filter(Match.status == MatchStatus.READY_CHECK)
+        .filter(Match.ready_check_started_at.is_not(None))
         .filter(Match.ready_check_deadline_at <= now)
         .order_by(Match.ready_check_deadline_at.asc())
         .limit(limit)
