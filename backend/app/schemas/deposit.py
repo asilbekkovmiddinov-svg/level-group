@@ -5,8 +5,14 @@ from typing import Optional
 
 
 class DepositCreate(BaseModel):
-    telegram_id: int
     amount: Decimal
+
+    class Config:
+        extra = "forbid"
+
+
+class InternalDepositCreate(DepositCreate):
+    telegram_id: int
 
 
 class DepositAdminAction(BaseModel):

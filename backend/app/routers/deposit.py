@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -17,6 +17,7 @@ from app.schemas.deposit import (
     DepositAdminAction,
     DepositReject,
 )
+from app.core.telegram_auth import TelegramUser, get_current_telegram_user
 
 router = APIRouter(prefix="/deposit", tags=["Deposit"])
 
@@ -36,12 +37,18 @@ def get_user_display(db: Session, telegram_id: int):
     return "Nomaʼlum"
 
 
-@router.post("/create")
-def create_deposit_request(data: DepositCreate, db: Session = Depends(get_db)):
-    deposit = create_deposit(db, data)
+@router.post("/create", status_code=status.HTTP_201_CREATED)
+def create_deposit_request(
+    data: DepositCreate,
+    current_user: TelegramUser = Depends(get_current_telegram_user),
+    db: Session = Depends(get_db),
+):
+    deposit = create_deposit(db, data, current_user.telegram_id)
 
     if deposit == "invalid_amount":
-        return {"message": "Deposit amount must be greater than zero"}
+        raise HTTPException(status_code=400, detail="Deposit amount must be greater than zero")
+    if deposit == "minimum_amount":
+        raise HTTPException(status_code=400, detail="Minimal deposit summasi 15 000 UZS")
 
     return {
         "message": "Deposit request created",

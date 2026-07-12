@@ -9,6 +9,8 @@ from app.crud.wallet import add_uzs_balance, get_wallet_for_update, to_decimal
 from app.models.deposit import Deposit
 from app.schemas.deposit import DepositCreate
 
+MIN_DEPOSIT_AMOUNT = Decimal("15000")
+
 
 def _deposit_for_update(db: Session, deposit_id: int):
     return db.query(Deposit).filter(Deposit.id == deposit_id).with_for_update().first()
@@ -22,12 +24,14 @@ def _processing_seconds(claimed_at, now: datetime) -> int:
     return max(0, int((now - claimed_at).total_seconds()))
 
 
-def create_deposit(db: Session, data: DepositCreate):
+def create_deposit(db: Session, data: DepositCreate, telegram_id: int):
     amount = to_decimal(data.amount)
     if amount is None:
         return "invalid_amount"
+    if amount < MIN_DEPOSIT_AMOUNT:
+        return "minimum_amount"
 
-    deposit = Deposit(telegram_id=data.telegram_id, amount=amount, status="PENDING")
+    deposit = Deposit(telegram_id=telegram_id, amount=amount, status="PENDING")
     db.add(deposit)
     db.commit()
     db.refresh(deposit)

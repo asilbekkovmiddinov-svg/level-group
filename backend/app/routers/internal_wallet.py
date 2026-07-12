@@ -9,7 +9,9 @@ from app.core.database import get_db
 from app.crud.user import get_user
 from app.crud.wallet import get_wallet
 from app.crud.withdraw import create_withdraw
+from app.crud.deposit import create_deposit
 from app.schemas.withdraw import InternalWithdrawCreate
+from app.schemas.deposit import InternalDepositCreate
 
 
 router = APIRouter(prefix="/internal", tags=["Internal"])
@@ -87,3 +89,17 @@ def internal_create_withdraw(
         "created_at": withdraw.created_at,
         "message": "Pul yechish so‘rovi qabul qilindi. To‘lov 24 soat ichida yuboriladi.",
     }
+
+
+@router.post("/deposit/create", status_code=status.HTTP_201_CREATED)
+def internal_create_deposit(
+    data: InternalDepositCreate,
+    _: None = Depends(require_internal_api_key),
+    db: Session = Depends(get_db),
+):
+    deposit = create_deposit(db, data, data.telegram_id)
+    if deposit == "invalid_amount":
+        raise HTTPException(status_code=400, detail="Deposit amount must be greater than zero")
+    if deposit == "minimum_amount":
+        raise HTTPException(status_code=400, detail="Minimal deposit summasi 15 000 UZS")
+    return {"message": "Deposit request created", "deposit_id": deposit.id, "telegram_id": deposit.telegram_id, "amount": float(deposit.amount), "status": deposit.status}
