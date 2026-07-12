@@ -3,6 +3,8 @@ from datetime import datetime, timezone
 
 from app.services.object_storage import StorageOperationError
 from app.services.telegram_notifications import (TelegramNotificationNetworkError, TelegramNotificationPermanentError, TelegramNotificationRateLimitError, TelegramNotificationTemporaryError, TelegramNotificationTimeoutError)
+from app.core.config import RECEIPT_NOTIFICATION_MAX_ATTEMPTS, RECEIPT_NOTIFICATION_STALE_SECONDS
+from app.models.deposit import Deposit
 
 class DepositNotificationNotFoundError(RuntimeError): pass
 class DepositReceiptMissingError(RuntimeError): pass
@@ -34,3 +36,21 @@ def is_notification_sending_stale(status: str, last_attempt_at: datetime | None,
 
 def attempts_exceeded(attempts: int, max_attempts: int) -> bool:
     return attempts >= max_attempts
+
+def start_deposit_receipt_notification(db, deposit_id: int, now: datetime | None = None) -> DepositReceiptNotificationResult:
+    now = now or datetime.now(timezone.utc)
+    try:
+        deposit = db.query(Deposit).filter(Deposit.id == deposit_id).with_for_update().first()
+        if not deposit: raise DepositNotificationNotFoundError("Deposit not found")
+        if not deposit.receipt_object_key: raise DepositReceiptMissingError("Receipt missing")
+        state = deposit.receipt_notification_status
+        if state == "SENT": raise DepositNotificationAlreadySentError("Notification already sent")
+        if state == "SENDING" and not is_notification_sending_stale(state, deposit.receipt_notification_last_attempt_at, now, RECEIPT_NOTIFICATION_STALE_SECONDS): raise DepositNotificationInProgressError("Notification in progress")
+        if state not in {"PENDING", "FAILED", "SENDING"}: raise DepositNotificationStateError("Invalid notification state")
+        if attempts_exceeded(deposit.receipt_notification_attempts, RECEIPT_NOTIFICATION_MAX_ATTEMPTS): raise DepositNotificationAttemptsExceededError("Notification attempts exceeded")
+        deposit.receipt_notification_status = "SENDING"; deposit.receipt_notification_attempts += 1; deposit.receipt_notification_last_attempt_at = now; deposit.receipt_notification_last_error = None; deposit.receipt_notification_sent_at = None; deposit.receipt_notification_message_id = None
+        db.commit()
+        return DepositReceiptNotificationResult(deposit.id, "SENDING", deposit.receipt_notification_attempts, None, None, True)
+    except Exception:
+        db.rollback()
+        raise
