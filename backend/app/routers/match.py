@@ -7,6 +7,7 @@ from app.core.arena_internal_auth import require_arena_internal_api_key
 from app.core.telegram_auth import TelegramUser, get_current_telegram_user
 from app.crud import match as match_crud
 from app.models.match import MatchStatus
+from app.services.arena_state_machine import ArenaTransitionError
 from app.schemas.match import (
     MatchAccept,
     MatchAdminResolve,
@@ -31,6 +32,8 @@ router = APIRouter(prefix="/matches", tags=["1vs1 Arena"])
 
 def _raise_match_error(error: ValueError) -> None:
     message = str(error)
+    if isinstance(error, ArenaTransitionError):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=message)
     if "topilmadi" in message:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=message)
     if "ishtirokchisi emassiz" in message:

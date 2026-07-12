@@ -236,7 +236,7 @@ def test_join_rules_timestamp_is_written_by_service(monkeypatch):
         def refresh(self, value):
             return None
 
-    monkeypatch.setattr(match_crud, "get_match", lambda *_: match)
+    monkeypatch.setattr(match_crud, "get_match_for_update", lambda *_: match)
     monkeypatch.setattr(match_crud, "_lock_efc", lambda **_: None)
 
     updated = match_crud.accept_match(

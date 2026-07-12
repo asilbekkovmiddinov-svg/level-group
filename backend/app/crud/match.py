@@ -7,6 +7,12 @@ from sqlalchemy.orm import Session
 from app.models.match import Match, MatchGameType, MatchResultType, MatchStats, MatchStatus
 from app.models.wallet import Wallet
 from app.models.transaction import Transaction
+from app.services.arena_state_machine import (
+    ArenaAction,
+    ensure_action_allowed,
+    ensure_evidence_not_repeated,
+    ensure_ready_not_repeated,
+)
 
 
 MATCH_COMMISSION_PERCENT = Decimal("5.00")
@@ -132,6 +138,15 @@ def get_match(db: Session, match_id: int) -> Optional[Match]:
     return db.query(Match).filter(Match.id == match_id).first()
 
 
+def get_match_for_update(db: Session, match_id: int) -> Optional[Match]:
+    return (
+        db.query(Match)
+        .filter(Match.id == match_id)
+        .with_for_update()
+        .first()
+    )
+
+
 def is_match_participant(match: Match, telegram_id: int) -> bool:
     return telegram_id in (match.creator_telegram_id, match.opponent_telegram_id)
 
@@ -251,13 +266,12 @@ def accept_match(
     opponent_telegram_id: int,
     rules_accepted: bool = False,
 ) -> Match:
-    match = get_match(db, match_id)
+    match = get_match_for_update(db, match_id)
 
     if not match:
         raise ValueError("Match topilmadi")
 
-    if match.status != MatchStatus.WAITING_PLAYER:
-        raise ValueError("Bu matchni qabul qilib bo‘lmaydi")
+    ensure_action_allowed(match, ArenaAction.ACCEPT)
 
     if match.creator_telegram_id == opponent_telegram_id:
         raise ValueError("O‘zingiz yaratgan matchni qabul qila olmaysiz")
@@ -287,13 +301,12 @@ def accept_match(
 
 
 def start_ready_check(db: Session, match_id: int) -> Match:
-    match = get_match(db, match_id)
+    match = get_match_for_update(db, match_id)
 
     if not match:
         raise ValueError("Match topilmadi")
 
-    if match.status != MatchStatus.SCHEDULED:
-        raise ValueError("Ready check faqat SCHEDULED match uchun ochiladi")
+    ensure_action_allowed(match, ArenaAction.START_READY_CHECK)
 
     now = datetime.utcnow()
 
@@ -309,13 +322,12 @@ def start_ready_check(db: Session, match_id: int) -> Match:
 
 
 def set_player_ready(db: Session, match_id: int, telegram_id: int) -> Match:
-    match = get_match(db, match_id)
+    match = get_match_for_update(db, match_id)
 
     if not match:
         raise ValueError("Match topilmadi")
 
-    if match.status != MatchStatus.READY_CHECK:
-        raise ValueError("Hozir ready bosish vaqti emas")
+    ensure_ready_not_repeated(match, telegram_id)
 
     now = datetime.utcnow()
 
@@ -343,13 +355,12 @@ def set_player_ready(db: Session, match_id: int, telegram_id: int) -> Match:
 
 
 def finish_ready_check(db: Session, match_id: int) -> Match:
-    match = get_match(db, match_id)
+    match = get_match_for_update(db, match_id)
 
     if not match:
         raise ValueError("Match topilmadi")
 
-    if match.status != MatchStatus.READY_CHECK:
-        raise ValueError("Bu match READY_CHECK holatida emas")
+    ensure_action_allowed(match, ArenaAction.FINISH_READY_CHECK)
 
     now = datetime.utcnow()
 
@@ -390,13 +401,12 @@ def create_room_code(
     telegram_id: int,
     room_code: str,
 ) -> Match:
-    match = get_match(db, match_id)
+    match = get_match_for_update(db, match_id)
 
     if not match:
         raise ValueError("Match topilmadi")
 
-    if match.status != MatchStatus.WAITING_ROOM_CODE:
-        raise ValueError("Room Code yozish vaqti emas")
+    ensure_action_allowed(match, ArenaAction.CREATE_ROOM_CODE)
 
     if telegram_id not in [match.creator_telegram_id, match.opponent_telegram_id]:
         raise ValueError("Siz bu match ishtirokchisi emassiz")
@@ -432,13 +442,12 @@ def upload_result_screenshot(
     telegram_id: int,
     screenshot_file_id: str,
 ) -> Match:
-    match = get_match(db, match_id)
+    match = get_match_for_update(db, match_id)
 
     if not match:
         raise ValueError("Match topilmadi")
 
-    if match.status not in [MatchStatus.ROOM_CREATED, MatchStatus.MATCH_STARTED]:
-        raise ValueError("Screenshot yuborish vaqti emas")
+    ensure_evidence_not_repeated(match, telegram_id)
 
     if telegram_id not in [match.creator_telegram_id, match.opponent_telegram_id]:
         raise ValueError("Siz bu match ishtirokchisi emassiz")
@@ -524,17 +533,12 @@ def resolve_match(
     winner_telegram_id: int,
     admin_comment: Optional[str] = None,
 ) -> Match:
-    match = get_match(db, match_id)
+    match = get_match_for_update(db, match_id)
 
     if not match:
         raise ValueError("Match topilmadi")
 
-    if match.status not in [
-        MatchStatus.WAITING_ADMIN,
-        MatchStatus.TECHNICAL_WIN,
-        MatchStatus.MATCH_STARTED,
-    ]:
-        raise ValueError("Bu matchni yakunlab bo‘lmaydi")
+    ensure_action_allowed(match, ArenaAction.RESOLVE)
 
     if not match.opponent_telegram_id:
         raise ValueError("Matchda ikkinchi ishtirokchi yo‘q")
@@ -599,13 +603,12 @@ def cancel_match(
     cancel_reason: str,
     admin_telegram_id: Optional[int] = None,
 ) -> Match:
-    match = get_match(db, match_id)
+    match = get_match_for_update(db, match_id)
 
     if not match:
         raise ValueError("Match topilmadi")
 
-    if match.status in [MatchStatus.COMPLETED, MatchStatus.CANCELLED]:
-        raise ValueError("Bu match allaqachon yakunlangan")
+    ensure_action_allowed(match, ArenaAction.CANCEL)
 
     _unlock_efc(
         db=db,
