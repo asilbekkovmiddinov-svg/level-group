@@ -1,5 +1,6 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
+from app.core.config import RECEIPT_NOTIFICATION_STALE_SECONDS
 from app.models.deposit import Deposit
 from app.services.deposit_notifications import start_deposit_receipt_notification
 
@@ -44,3 +45,45 @@ def test_pending_receipt_notification_starts():
     assert db.query_result.deposit.receipt_notification_message_id is None
     assert db.commit_count == 1 and db.rollback_count == 0
     assert result.status == "SENDING" and result.attempts == 1 and result.message_id is None and result.sent_at is None
+
+
+def test_failed_receipt_notification_retries_and_clears_previous_delivery_data():
+    deposit = FakeDeposit()
+    deposit.receipt_notification_status = "FAILED"
+    deposit.receipt_notification_attempts = 2
+    deposit.receipt_notification_last_error = "temporary failure"
+    deposit.receipt_notification_sent_at = datetime(2025, 12, 31, tzinfo=timezone.utc)
+    deposit.receipt_notification_message_id = "previous-message"
+    db = FakeSession(deposit)
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+    result = start_deposit_receipt_notification(db, deposit.id, now=now)
+
+    assert deposit.receipt_notification_status == "SENDING"
+    assert deposit.receipt_notification_attempts == 3
+    assert deposit.receipt_notification_last_attempt_at == now
+    assert deposit.receipt_notification_last_error is None
+    assert deposit.receipt_notification_sent_at is None
+    assert deposit.receipt_notification_message_id is None
+    assert db.commit_count == 1 and db.rollback_count == 0
+    assert result.status == "SENDING" and result.attempts == 3
+
+
+def test_stale_sending_receipt_notification_starts_new_attempt():
+    deposit = FakeDeposit()
+    deposit.receipt_notification_status = "SENDING"
+    deposit.receipt_notification_attempts = 1
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    deposit.receipt_notification_last_attempt_at = now - timedelta(seconds=RECEIPT_NOTIFICATION_STALE_SECONDS)
+    db = FakeSession(deposit)
+
+    result = start_deposit_receipt_notification(db, deposit.id, now=now)
+
+    assert deposit.receipt_notification_status == "SENDING"
+    assert deposit.receipt_notification_attempts == 2
+    assert deposit.receipt_notification_last_attempt_at == now
+    assert deposit.receipt_notification_last_error is None
+    assert deposit.receipt_notification_sent_at is None
+    assert deposit.receipt_notification_message_id is None
+    assert db.commit_count == 1 and db.rollback_count == 0
+    assert result.status == "SENDING" and result.attempts == 2
