@@ -11,6 +11,7 @@ class User(Base):
 
     username = Column(String(100), nullable=True)
     first_name = Column(String(100), nullable=False)
+    last_name = Column(String(100), nullable=True)
     language = Column(String(10), default="uz")
 
     is_banned = Column(Boolean, default=False)

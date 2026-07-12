@@ -12,7 +12,13 @@ from app.crud.withdraw import create_withdraw
 from app.crud.deposit import create_deposit
 from app.schemas.withdraw import InternalWithdrawCreate
 from app.schemas.deposit import InternalDepositCreate
+from app.schemas.user import InternalUserRegister
 from app.models.deposit import Deposit
+from app.services.internal_users import (
+    InternalUserServiceError,
+    mark_internal_user_seen,
+    register_internal_user,
+)
 from app.services.object_storage import StorageOperationError, generate_presigned_get_url
 from app.services.deposit_notifications import (
     DepositNotificationAlreadySentError,
@@ -40,6 +46,44 @@ def require_internal_api_key(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Internal service access is forbidden",
         )
+
+
+@router.post("/users/register", status_code=status.HTTP_201_CREATED)
+def internal_register_user(
+    data: InternalUserRegister,
+    _: None = Depends(require_internal_api_key),
+    db: Session = Depends(get_db),
+):
+    try:
+        result = register_internal_user(db, data)
+    except InternalUserServiceError:
+        raise HTTPException(500, "Internal user registration failed")
+    return {
+        "success": True,
+        "data": {
+            "telegram_id": result.telegram_id,
+            "created": result.created,
+            "wallet_created": result.wallet_created,
+        },
+        "message": None,
+    }
+
+
+@router.post("/users/{telegram_id}/seen")
+def internal_user_seen(
+    telegram_id: int,
+    _: None = Depends(require_internal_api_key),
+    db: Session = Depends(get_db),
+):
+    if telegram_id <= 0:
+        raise HTTPException(400, "Invalid Telegram ID")
+    try:
+        updated = mark_internal_user_seen(db, telegram_id)
+    except InternalUserServiceError:
+        raise HTTPException(500, "Internal user activity update failed")
+    if not updated:
+        raise HTTPException(404, "User not found")
+    return {"success": True, "data": {"telegram_id": telegram_id}, "message": None}
 
 
 @router.get("/wallet/{telegram_id}")
