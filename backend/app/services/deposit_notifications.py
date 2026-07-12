@@ -102,7 +102,18 @@ def send_deposit_receipt_notification(db, deposit_id: int, now: datetime | None 
         user = db.query(User).filter(User.telegram_id == deposit.telegram_id).first()
         receipt = download_object_bytes(deposit.receipt_object_key)
         extension = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}[receipt.content_type]
-        telegram = send_deposit_receipt_photo(receipt.content, receipt.content_type, f"receipt.{extension}", _caption(deposit, user))
+        telegram = send_deposit_receipt_photo(
+            receipt.content,
+            receipt.content_type,
+            f"receipt.{extension}",
+            _caption(deposit, user),
+            reply_markup={
+                "inline_keyboard": [[{
+                    "text": "🙋 Qabul qilish",
+                    "callback_data": f"claim_deposit_{deposit.id}",
+                }]],
+            },
+        )
     except (DepositReceiptMissingError, StorageOperationError, TelegramNotificationConfigError, TelegramNotificationTimeoutError, TelegramNotificationNetworkError, TelegramNotificationRateLimitError, TelegramNotificationTemporaryError, TelegramNotificationPermanentError, TelegramNotificationResponseError) as error:
         return _finalize_failed(db, deposit_id, started.attempts, error)
     try:

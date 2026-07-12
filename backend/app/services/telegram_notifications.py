@@ -30,10 +30,14 @@ def _multipart(fields, filename, content_type, content):
     chunks += [f"--{boundary}\r\nContent-Disposition: form-data; name=\"photo\"; filename=\"{filename}\"\r\nContent-Type: {content_type}\r\n\r\n".encode(), content, f"\r\n--{boundary}--\r\n".encode()]
     return boundary, b"".join(chunks)
 
-def send_deposit_receipt_photo(receipt_bytes: bytes, content_type: str, filename: str, caption: str, chat_id: int | str | None = None) -> TelegramPhotoResult:
+def send_deposit_receipt_photo(receipt_bytes: bytes, content_type: str, filename: str, caption: str, chat_id: int | str | None = None, reply_markup: dict | None = None) -> TelegramPhotoResult:
     if not config.TELEGRAM_BOT_TOKEN or not (chat_id or config.ADMIN_DEPOSIT_CHANNEL_ID): raise TelegramNotificationConfigError("Telegram notification is not configured")
     if content_type not in {"image/jpeg", "image/png", "image/webp"} or not receipt_bytes: raise TelegramNotificationPermanentError("Invalid receipt image")
-    target = chat_id or config.ADMIN_DEPOSIT_CHANNEL_ID; boundary, body = _multipart({"chat_id": target, "caption": caption[:CAPTION_LIMIT]}, filename, content_type, receipt_bytes)
+    target = chat_id or config.ADMIN_DEPOSIT_CHANNEL_ID
+    fields = {"chat_id": target, "caption": caption[:CAPTION_LIMIT]}
+    if reply_markup:
+        fields["reply_markup"] = json.dumps(reply_markup, separators=(",", ":"))
+    boundary, body = _multipart(fields, filename, content_type, receipt_bytes)
     request = urllib.request.Request(f"{config.TELEGRAM_API_BASE_URL.rstrip('/')}/bot{config.TELEGRAM_BOT_TOKEN}/sendPhoto", data=body, headers={"Content-Type": f"multipart/form-data; boundary={boundary}"}, method="POST")
     try:
         with urllib.request.urlopen(request, timeout=config.TELEGRAM_NOTIFICATION_TIMEOUT_SECONDS) as response: data = json.loads(response.read())
