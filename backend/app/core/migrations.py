@@ -178,6 +178,24 @@ def run_migrations():
         connection.execute(text("""
             ALTER TABLE deposits ADD COLUMN IF NOT EXISTS receipt_uploaded_at TIMESTAMP WITH TIME ZONE;
         """))
+        connection.execute(text("""
+            ALTER TABLE deposits ADD COLUMN IF NOT EXISTS receipt_notification_status VARCHAR(20) NOT NULL DEFAULT 'PENDING';
+        """))
+        connection.execute(text("""
+            ALTER TABLE deposits ADD COLUMN IF NOT EXISTS receipt_notification_sent_at TIMESTAMP WITH TIME ZONE;
+        """))
+        connection.execute(text("""
+            ALTER TABLE deposits ADD COLUMN IF NOT EXISTS receipt_notification_message_id VARCHAR(100);
+        """))
+        connection.execute(text("""
+            ALTER TABLE deposits ADD COLUMN IF NOT EXISTS receipt_notification_attempts INTEGER NOT NULL DEFAULT 0;
+        """))
+        connection.execute(text("""
+            ALTER TABLE deposits ADD COLUMN IF NOT EXISTS receipt_notification_last_error VARCHAR(255);
+        """))
+        connection.execute(text("""
+            ALTER TABLE deposits ADD COLUMN IF NOT EXISTS receipt_notification_last_attempt_at TIMESTAMP WITH TIME ZONE;
+        """))
 
         # =========================
         # PRODUCTS

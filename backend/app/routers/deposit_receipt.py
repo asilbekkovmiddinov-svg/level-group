@@ -46,7 +46,7 @@ async def upload_deposit_receipt(deposit_id: int, file: UploadFile = File(...), 
     except StorageOperationError:
         raise HTTPException(500, "Receipt upload failed")
     try:
-        deposit.receipt_object_key = new_key; deposit.receipt_content_type = content_type; deposit.receipt_size = len(content); deposit.receipt_uploaded_at = datetime.now(timezone.utc)
+        deposit.receipt_object_key = new_key; deposit.receipt_content_type = content_type; deposit.receipt_size = len(content); deposit.receipt_uploaded_at = datetime.now(timezone.utc); deposit.receipt_notification_status = "PENDING"; deposit.receipt_notification_attempts = 0; deposit.receipt_notification_sent_at = None; deposit.receipt_notification_message_id = None; deposit.receipt_notification_last_error = None; deposit.receipt_notification_last_attempt_at = None
         db.commit(); db.refresh(deposit)
     except SQLAlchemyError:
         db.rollback()
