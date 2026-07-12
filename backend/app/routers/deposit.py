@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -17,8 +17,21 @@ from app.schemas.deposit import (
     DepositAdminAction,
     DepositReject,
 )
+from app.core.telegram_auth import TelegramUser, get_current_telegram_user
+from app.routers.internal_wallet import require_internal_api_key
 
 router = APIRouter(prefix="/deposit", tags=["Deposit"])
+
+
+def deposit_response(deposit):
+    return {
+        "deposit_id": deposit.id, "telegram_id": deposit.telegram_id,
+        "amount": float(deposit.amount), "status": deposit.status,
+        "receipt_uploaded": bool(deposit.receipt_object_key),
+        "receipt_content_type": deposit.receipt_content_type,
+        "receipt_size": deposit.receipt_size,
+        "receipt_uploaded_at": deposit.receipt_uploaded_at,
+    }
 
 
 def get_user_display(db: Session, telegram_id: int):
@@ -36,47 +49,63 @@ def get_user_display(db: Session, telegram_id: int):
     return "Nomaʼlum"
 
 
-@router.post("/create")
-def create_deposit_request(data: DepositCreate, db: Session = Depends(get_db)):
-    deposit = create_deposit(db, data)
+@router.post("/create", status_code=status.HTTP_201_CREATED)
+def create_deposit_request(
+    data: DepositCreate,
+    current_user: TelegramUser = Depends(get_current_telegram_user),
+    db: Session = Depends(get_db),
+):
+    deposit = create_deposit(db, data, current_user.telegram_id)
 
-    return {
-        "message": "Deposit request created",
-        "deposit_id": deposit.id,
-        "telegram_id": deposit.telegram_id,
-        "amount": float(deposit.amount),
-        "status": deposit.status,
-    }
+    if deposit == "invalid_amount":
+        raise HTTPException(status_code=400, detail="Deposit amount must be greater than zero")
+    if deposit == "minimum_amount":
+        raise HTTPException(status_code=400, detail="Minimal deposit summasi 15 000 UZS")
+
+    return {"message": "Deposit request created", **deposit_response(deposit)}
 
 
 @router.get("/all")
-def all_deposits(db: Session = Depends(get_db)):
-    return get_deposits(db)
+def all_deposits(
+    _: None = Depends(require_internal_api_key),
+    db: Session = Depends(get_db),
+):
+    return [deposit_response(deposit) for deposit in get_deposits(db)]
 
 
 @router.get("/pending")
-def pending_deposits(db: Session = Depends(get_db)):
-    return get_pending_deposits(db)
+def pending_deposits(
+    _: None = Depends(require_internal_api_key),
+    db: Session = Depends(get_db),
+):
+    return [deposit_response(deposit) for deposit in get_pending_deposits(db)]
 
 
 @router.get("/claimed")
-def claimed_deposits(db: Session = Depends(get_db)):
-    return get_claimed_deposits(db)
+def claimed_deposits(
+    _: None = Depends(require_internal_api_key),
+    db: Session = Depends(get_db),
+):
+    return [deposit_response(deposit) for deposit in get_claimed_deposits(db)]
 
 
 @router.post("/{deposit_id}/claim")
 def claim_deposit_request(
     deposit_id: int,
     data: DepositAdminAction,
+    _: None = Depends(require_internal_api_key),
     db: Session = Depends(get_db),
 ):
     deposit = claim_deposit(db, deposit_id, data.admin_id)
 
     if not deposit:
-        return {"message": "Deposit not found"}
+        raise HTTPException(status_code=404, detail="Deposit not found")
 
     if deposit == "already_claimed":
-        return {"message": "Deposit already claimed"}
+        raise HTTPException(status_code=409, detail="Deposit is not pending")
+
+    if deposit == "operation_failed":
+        raise HTTPException(status_code=500, detail="Deposit claim failed")
 
     return {
         "message": "Deposit claimed",
@@ -90,18 +119,22 @@ def claim_deposit_request(
 def approve_deposit_request(
     deposit_id: int,
     data: DepositAdminAction,
+    _: None = Depends(require_internal_api_key),
     db: Session = Depends(get_db),
 ):
     deposit = approve_deposit(db, deposit_id, data.admin_id)
 
     if not deposit:
-        return {"message": "Deposit not found"}
+        raise HTTPException(status_code=404, detail="Deposit not found")
 
     if deposit == "invalid_status":
-        return {"message": "Invalid deposit status"}
+        raise HTTPException(status_code=409, detail="Deposit must be claimed")
 
     if deposit == "wallet_not_found":
-        return {"message": "Wallet not found"}
+        raise HTTPException(status_code=404, detail="Wallet not found")
+
+    if deposit == "operation_failed":
+        raise HTTPException(status_code=500, detail="Deposit approve failed")
 
     username = get_user_display(db, deposit.telegram_id)
 
@@ -112,12 +145,8 @@ def approve_deposit_request(
         "username": username,
         "amount": float(deposit.amount),
         "status": deposit.status,
-        "completed_by": (
-            getattr(deposit, "completed_by", None)
-            or getattr(deposit, "approved_by", None)
-            or getattr(deposit, "claimed_by", None)
-            or data.admin_id
-        ),
+        "approved_by": getattr(deposit, "approved_by", None),
+        "approved_at": getattr(deposit, "approved_at", None),
         "processing_seconds": getattr(deposit, "processing_seconds", 0),
     }
 
@@ -126,6 +155,7 @@ def approve_deposit_request(
 def reject_deposit_request(
     deposit_id: int,
     data: DepositReject,
+    _: None = Depends(require_internal_api_key),
     db: Session = Depends(get_db),
 ):
     deposit = reject_deposit(
@@ -136,10 +166,13 @@ def reject_deposit_request(
     )
 
     if not deposit:
-        return {"message": "Deposit not found"}
+        raise HTTPException(status_code=404, detail="Deposit not found")
 
     if deposit == "invalid_status":
-        return {"message": "Invalid deposit status"}
+        raise HTTPException(status_code=409, detail="Deposit must be claimed")
+
+    if deposit == "operation_failed":
+        raise HTTPException(status_code=500, detail="Deposit reject failed")
 
     username = get_user_display(db, deposit.telegram_id)
 

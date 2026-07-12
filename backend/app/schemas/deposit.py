@@ -1,10 +1,18 @@
+from decimal import Decimal
+
 from pydantic import BaseModel
 from typing import Optional
 
 
 class DepositCreate(BaseModel):
+    amount: Decimal
+
+    class Config:
+        extra = "forbid"
+
+
+class InternalDepositCreate(DepositCreate):
     telegram_id: int
-    amount: float
 
 
 class DepositAdminAction(BaseModel):

@@ -1,10 +1,16 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.crud.wallet import get_wallet, get_or_create_wallet, add_efc
-from app.crud.transaction import create_transaction
+from app.core.telegram_auth import TelegramUser, get_current_telegram_user
+from app.crud.wallet import get_wallet
 from app.schemas.wallet import AddEFC
+from app.routers.internal_wallet import require_internal_api_key
+from app.services.wallet_service import (
+    InvalidWalletAmountError,
+    WalletOperationFailedError,
+    add_efc_with_transaction,
+)
 
 router = APIRouter(
     prefix="/wallet",
@@ -12,12 +18,12 @@ router = APIRouter(
 )
 
 
-@router.get("/{telegram_id}")
+@router.get("")
 def wallet_info(
-    telegram_id: int,
+    current_user: TelegramUser = Depends(get_current_telegram_user),
     db: Session = Depends(get_db),
 ):
-    wallet = get_wallet(db, telegram_id)
+    wallet = get_wallet(db, current_user.telegram_id)
 
     if not wallet:
         return {"message": "Wallet not found"}
@@ -31,40 +37,29 @@ def wallet_info(
     }
 
 
-@router.post("/add-efc")
+@router.post("/add-efc", include_in_schema=False)
 def add_efc_balance(
     data: AddEFC,
+    _: None = Depends(require_internal_api_key),
     db: Session = Depends(get_db),
 ):
-    wallet = get_or_create_wallet(db, data.telegram_id)
-    balance_before = wallet.efc_balance
-
-    updated_wallet = add_efc(
-        db=db,
-        telegram_id=data.telegram_id,
-        amount=data.amount,
-    )
-
-    if not updated_wallet:
-        return {"message": "Wallet not found"}
-
-    balance_after = updated_wallet.efc_balance
-
-    create_transaction(
-        db=db,
-        telegram_id=data.telegram_id,
-        currency="EFC",
-        amount=data.amount,
-        balance_before=balance_before,
-        balance_after=balance_after,
-        type="ADMIN_ADD_EFC",
-        description="Admin tomonidan EFC qo‘shildi",
-    )
+    try:
+        updated_wallet = add_efc_with_transaction(
+            db=db,
+            telegram_id=data.telegram_id,
+            amount=data.amount,
+            transaction_type="ADMIN_ADD_EFC",
+            description="Admin tomonidan EFC qo‘shildi",
+        )
+    except InvalidWalletAmountError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error))
+    except WalletOperationFailedError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error))
 
     return {
         "message": "EFC added successfully",
         "telegram_id": data.telegram_id,
         "amount": float(data.amount),
-        "balance_before": float(balance_before),
-        "balance_after": float(balance_after),
+        "balance_before": float(updated_wallet.efc_balance - data.amount),
+        "balance_after": float(updated_wallet.efc_balance),
     }

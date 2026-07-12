@@ -40,13 +40,24 @@ class Deposit(Base):
     )
     # PENDING
     # CLAIMED
-    # COMPLETED
+    # APPROVED
     # REJECTED
 
     card_number = Column(
         String(50),
         nullable=True
     )
+
+    receipt_object_key = Column(String(500), nullable=True)
+    receipt_content_type = Column(String(100), nullable=True)
+    receipt_size = Column(Integer, nullable=True)
+    receipt_uploaded_at = Column(DateTime(timezone=True), nullable=True)
+    receipt_notification_status = Column(String(20), nullable=False, default="PENDING")
+    receipt_notification_sent_at = Column(DateTime(timezone=True), nullable=True)
+    receipt_notification_message_id = Column(String(100), nullable=True)
+    receipt_notification_attempts = Column(Integer, nullable=False, default=0)
+    receipt_notification_last_error = Column(String(255), nullable=True)
+    receipt_notification_last_attempt_at = Column(DateTime(timezone=True), nullable=True)
 
     claimed_by = Column(
         BigInteger,
@@ -64,6 +75,16 @@ class Deposit(Base):
     )
 
     completed_at = Column(
+        DateTime(timezone=True),
+        nullable=True
+    )
+
+    approved_by = Column(
+        BigInteger,
+        nullable=True
+    )
+
+    approved_at = Column(
         DateTime(timezone=True),
         nullable=True
     )
