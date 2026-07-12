@@ -2,32 +2,39 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from app.models.match import MatchGameType, MatchResultType, MatchStatus
 
 
 class MatchCreate(BaseModel):
-    creator_telegram_id: int
-    efc_amount: Decimal
+    model_config = ConfigDict(extra="forbid")
+
+    game_type: MatchGameType = MatchGameType.EFOOTBALL
+    stake_efc: Decimal
     scheduled_at: datetime
+    rules_accepted: bool
 
 
 class MatchAccept(BaseModel):
-    opponent_telegram_id: int
+    model_config = ConfigDict(extra="forbid")
+
+    rules_accepted: bool
 
 
 class MatchReady(BaseModel):
-    telegram_id: int
+    model_config = ConfigDict(extra="forbid")
 
 
 class MatchRoomCodeCreate(BaseModel):
-    telegram_id: int
+    model_config = ConfigDict(extra="forbid")
+
     room_code: str
 
 
 class MatchScreenshotUpload(BaseModel):
-    telegram_id: int
+    model_config = ConfigDict(extra="forbid")
+
     screenshot_file_id: str
 
 
@@ -38,7 +45,8 @@ class MatchAdminResolve(BaseModel):
 
 
 class MatchCancel(BaseModel):
-    admin_telegram_id: Optional[int] = None
+    model_config = ConfigDict(extra="forbid")
+
     cancel_reason: str
 
 
@@ -128,13 +136,24 @@ class MatchInternalResponse(BaseModel):
         from_attributes = True
 
 
+class MatchParticipantResponse(MatchResponse):
+    """Authenticated detail response; room code is set only for a participant."""
+
+    room_code: Optional[str] = None
+
+
 class MatchListResponse(BaseModel):
     matches: list[MatchResponse]
 
 
+class MatchInternalListResponse(BaseModel):
+    """Internal worker/admin collection; do not expose through public routes."""
+
+    matches: list[MatchInternalResponse]
+
+
 class MatchStatsResponse(BaseModel):
     id: int
-    telegram_id: int
 
     total_matches: int
     wins: int

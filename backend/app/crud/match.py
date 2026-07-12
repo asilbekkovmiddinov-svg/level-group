@@ -4,7 +4,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from app.models.match import Match, MatchResultType, MatchStats, MatchStatus
+from app.models.match import Match, MatchGameType, MatchResultType, MatchStats, MatchStatus
 from app.models.wallet import Wallet
 from app.models.transaction import Transaction
 
@@ -132,6 +132,10 @@ def get_match(db: Session, match_id: int) -> Optional[Match]:
     return db.query(Match).filter(Match.id == match_id).first()
 
 
+def is_match_participant(match: Match, telegram_id: int) -> bool:
+    return telegram_id in (match.creator_telegram_id, match.opponent_telegram_id)
+
+
 def get_open_matches(db: Session, skip: int = 0, limit: int = 20) -> list[Match]:
     return (
         db.query(Match)
@@ -195,6 +199,8 @@ def create_match(
     creator_telegram_id: int,
     efc_amount: Decimal,
     scheduled_at: datetime,
+    game_type: MatchGameType = MatchGameType.EFOOTBALL,
+    rules_accepted: bool = False,
 ) -> Match:
     efc_amount = _to_decimal(efc_amount)
 
@@ -205,6 +211,9 @@ def create_match(
 
     if efc_amount <= 0:
         raise ValueError("EFC miqdori 0 dan katta bo‘lishi kerak")
+
+    if not rules_accepted:
+        raise ValueError("Match qoidalarini qabul qilish majburiy")
 
     if scheduled_at <= now_uz:
         raise ValueError("Match vaqti hozirgi vaqtdan keyin bo‘lishi kerak")
@@ -223,8 +232,10 @@ def create_match(
         total_pool=total_pool,
         commission_amount=commission_amount,
         winner_reward=winner_reward,
+        game_type=game_type,
         status=MatchStatus.WAITING_PLAYER,
         scheduled_at=scheduled_at,
+        creator_rules_accepted_at=datetime.now(timezone.utc),
     )
 
     db.add(match)
@@ -234,7 +245,12 @@ def create_match(
     return match
 
 
-def accept_match(db: Session, match_id: int, opponent_telegram_id: int) -> Match:
+def accept_match(
+    db: Session,
+    match_id: int,
+    opponent_telegram_id: int,
+    rules_accepted: bool = False,
+) -> Match:
     match = get_match(db, match_id)
 
     if not match:
@@ -245,6 +261,9 @@ def accept_match(db: Session, match_id: int, opponent_telegram_id: int) -> Match
 
     if match.creator_telegram_id == opponent_telegram_id:
         raise ValueError("O‘zingiz yaratgan matchni qabul qila olmaysiz")
+
+    if not rules_accepted:
+        raise ValueError("Match qoidalarini qabul qilish majburiy")
 
     if match.scheduled_at <= datetime.utcnow():
         raise ValueError("Match vaqti o‘tib ketgan")
@@ -257,6 +276,7 @@ def accept_match(db: Session, match_id: int, opponent_telegram_id: int) -> Match
     )
 
     match.opponent_telegram_id = opponent_telegram_id
+    match.opponent_rules_accepted_at = datetime.now(timezone.utc)
     match.status = MatchStatus.SCHEDULED
     match.updated_at = datetime.utcnow()
 
