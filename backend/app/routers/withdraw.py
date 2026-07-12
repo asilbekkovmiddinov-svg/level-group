@@ -13,6 +13,7 @@ from app.crud.withdraw import (
 )
 from app.schemas.withdraw import WithdrawCreate
 from app.core.telegram_auth import TelegramUser, get_current_telegram_user
+from app.routers.internal_wallet import require_internal_api_key
 
 router = APIRouter(
     prefix="/withdraw",
@@ -66,20 +67,25 @@ def create_withdraw_request(
 
 
 @router.post("/{withdraw_id}/claim")
-def claim_withdraw_request(withdraw_id: int, admin_id: int, db: Session = Depends(get_db)):
+def claim_withdraw_request(
+    withdraw_id: int,
+    admin_id: int,
+    _: None = Depends(require_internal_api_key),
+    db: Session = Depends(get_db),
+):
     withdraw = claim_withdraw(db, withdraw_id, admin_id)
 
     if withdraw == "already_claimed":
-        return {"message": "Withdraw already claimed"}
+        raise HTTPException(status_code=409, detail="Withdraw is already claimed")
 
     if withdraw == "not_pending":
-        return {"message": "Withdraw is not pending"}
+        raise HTTPException(status_code=409, detail="Withdraw is not pending")
 
     if withdraw == "operation_failed":
-        return {"message": "Withdraw claim failed"}
+        raise HTTPException(status_code=500, detail="Withdraw claim failed")
 
     if not withdraw:
-        return {"message": "Withdraw topilmadi"}
+        raise HTTPException(status_code=404, detail="Withdraw not found")
 
     response = withdraw_response(withdraw)
     response["message"] = "Withdraw claimed"
@@ -87,47 +93,61 @@ def claim_withdraw_request(withdraw_id: int, admin_id: int, db: Session = Depend
 
 
 @router.get("/all")
-def all_withdraws(db: Session = Depends(get_db)):
+def all_withdraws(
+    _: None = Depends(require_internal_api_key),
+    db: Session = Depends(get_db),
+):
     return get_withdraws(db)
 
 
 @router.get("/pending")
-def pending_withdraws(db: Session = Depends(get_db)):
+def pending_withdraws(
+    _: None = Depends(require_internal_api_key),
+    db: Session = Depends(get_db),
+):
     return get_pending_withdraws(db)
 
 
 @router.get("/completed")
-def completed_withdraws(db: Session = Depends(get_db)):
+def completed_withdraws(
+    _: None = Depends(require_internal_api_key),
+    db: Session = Depends(get_db),
+):
     return get_completed_withdraws(db)
 
 
 @router.post("/approve/{withdraw_id}")
-def approve_withdraw_request(withdraw_id: int, admin_id: int, db: Session = Depends(get_db)):
+def approve_withdraw_request(
+    withdraw_id: int,
+    admin_id: int,
+    _: None = Depends(require_internal_api_key),
+    db: Session = Depends(get_db),
+):
     withdraw = approve_withdraw(db, withdraw_id, admin_id)
 
     if withdraw == "not_owner":
-        return {"message": "Withdraw boshqa admin tomonidan qabul qilingan"}
+        raise HTTPException(status_code=409, detail="Withdraw is claimed by another admin")
 
     if withdraw == "locked":
-        return {"message": "Locked balans yetarli emas"}
+        raise HTTPException(status_code=409, detail="Locked balance is insufficient")
 
     if withdraw == "approved":
-        return {"message": "Withdraw oldin tasdiqlangan"}
+        raise HTTPException(status_code=409, detail="Withdraw is already approved")
 
     if withdraw == "rejected":
-        return {"message": "Withdraw oldin rad etilgan"}
+        raise HTTPException(status_code=409, detail="Withdraw is already rejected")
 
     if withdraw == "not_claimed":
-        return {"message": "Withdraw avval claim qilinishi kerak"}
+        raise HTTPException(status_code=409, detail="Withdraw must be claimed first")
 
     if withdraw == "invalid_amount":
-        return {"message": "Withdraw summasi noto‘g‘ri"}
+        raise HTTPException(status_code=409, detail="Withdraw amount is invalid")
 
     if withdraw == "operation_failed":
-        return {"message": "Withdraw approve failed"}
+        raise HTTPException(status_code=500, detail="Withdraw approve failed")
 
     if not withdraw:
-        return {"message": "Withdraw topilmadi"}
+        raise HTTPException(status_code=404, detail="Withdraw not found")
 
     response = withdraw_response(withdraw)
     response["message"] = "Withdraw tasdiqlandi"
@@ -135,32 +155,37 @@ def approve_withdraw_request(withdraw_id: int, admin_id: int, db: Session = Depe
 
 
 @router.post("/reject/{withdraw_id}")
-def reject_withdraw_request(withdraw_id: int, admin_id: int, db: Session = Depends(get_db)):
+def reject_withdraw_request(
+    withdraw_id: int,
+    admin_id: int,
+    _: None = Depends(require_internal_api_key),
+    db: Session = Depends(get_db),
+):
     withdraw = reject_withdraw(db, withdraw_id, admin_id)
 
     if withdraw == "not_owner":
-        return {"message": "Withdraw boshqa admin tomonidan qabul qilingan"}
+        raise HTTPException(status_code=409, detail="Withdraw is claimed by another admin")
 
     if withdraw == "locked":
-        return {"message": "Locked balans yetarli emas"}
+        raise HTTPException(status_code=409, detail="Locked balance is insufficient")
 
     if withdraw == "approved":
-        return {"message": "Withdraw oldin tasdiqlangan"}
+        raise HTTPException(status_code=409, detail="Withdraw is already approved")
 
     if withdraw == "rejected":
-        return {"message": "Withdraw oldin rad etilgan"}
+        raise HTTPException(status_code=409, detail="Withdraw is already rejected")
 
     if withdraw == "not_claimed":
-        return {"message": "Withdraw avval claim qilinishi kerak"}
+        raise HTTPException(status_code=409, detail="Withdraw must be claimed first")
 
     if withdraw == "invalid_amount":
-        return {"message": "Withdraw summasi noto‘g‘ri"}
+        raise HTTPException(status_code=409, detail="Withdraw amount is invalid")
 
     if withdraw == "operation_failed":
-        return {"message": "Withdraw reject failed"}
+        raise HTTPException(status_code=500, detail="Withdraw reject failed")
 
     if not withdraw:
-        return {"message": "Withdraw topilmadi"}
+        raise HTTPException(status_code=404, detail="Withdraw not found")
 
     response = withdraw_response(withdraw)
     response["message"] = "Withdraw rad etildi, pul balansga qaytarildi"
