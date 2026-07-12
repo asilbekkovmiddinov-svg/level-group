@@ -3,6 +3,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.arena_internal_auth import require_arena_internal_api_key
 from app.core.telegram_auth import TelegramUser, get_current_telegram_user
 from app.crud import match as match_crud
 from app.models.match import MatchStatus
@@ -105,6 +106,7 @@ def get_open_matches(
 @router.get("/worker/due-scheduled", response_model=MatchInternalListResponse)
 def get_due_scheduled_matches(
     limit: int = Query(default=50, ge=1, le=100),
+    _: None = Depends(require_arena_internal_api_key),
     db: Session = Depends(get_db),
 ):
     return {"matches": match_crud.get_due_scheduled_matches(db=db, limit=limit)}
@@ -113,6 +115,7 @@ def get_due_scheduled_matches(
 @router.get("/worker/expired-ready", response_model=MatchInternalListResponse)
 def get_expired_ready_matches(
     limit: int = Query(default=50, ge=1, le=100),
+    _: None = Depends(require_arena_internal_api_key),
     db: Session = Depends(get_db),
 ):
     return {"matches": match_crud.get_expired_ready_matches(db=db, limit=limit)}
@@ -194,7 +197,11 @@ def accept_match(
 
 
 @router.post("/{match_id}/start-ready-check", response_model=MatchInternalResponse)
-def start_ready_check(match_id: int, db: Session = Depends(get_db)):
+def start_ready_check(
+    match_id: int,
+    _: None = Depends(require_arena_internal_api_key),
+    db: Session = Depends(get_db),
+):
     # Legacy worker route; it is intentionally not a user-facing API.
     try:
         return match_crud.start_ready_check(db=db, match_id=match_id)
@@ -224,7 +231,11 @@ def set_player_ready(
 
 
 @router.post("/{match_id}/finish-ready-check", response_model=MatchInternalResponse)
-def finish_ready_check(match_id: int, db: Session = Depends(get_db)):
+def finish_ready_check(
+    match_id: int,
+    _: None = Depends(require_arena_internal_api_key),
+    db: Session = Depends(get_db),
+):
     # Legacy worker route; it is intentionally not a user-facing API.
     try:
         return match_crud.finish_ready_check(db=db, match_id=match_id)
@@ -280,6 +291,7 @@ def upload_result_screenshot(
 def resolve_match(
     match_id: int,
     payload: MatchAdminResolve,
+    _: None = Depends(require_arena_internal_api_key),
     db: Session = Depends(get_db),
 ):
     # Legacy admin/internal route. It is moved behind internal auth in 18B-3.
