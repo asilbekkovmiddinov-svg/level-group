@@ -18,5 +18,5 @@ jobs:
           cache-dependency-path: backend/requirements.txt
       - run: python -m pip install --upgrade pip
       - run: pip install -r backend/requirements.txt
-      - run: PYTHONPATH=backend pytest backend/tests/test_deposit_notifications.py -q
+      - run: PYTHONPATH=backend pytest backend/tests -q
       - run: python -m compileall -q backend
