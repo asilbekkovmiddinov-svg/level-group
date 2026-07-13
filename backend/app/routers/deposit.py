@@ -2,6 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.config import (
+    DEPOSIT_BANK_NAME,
+    DEPOSIT_CARD_HOLDER,
+    DEPOSIT_CARD_NUMBER,
+)
 from app.models.user import User
 from app.crud.deposit import (
     create_deposit,
@@ -34,6 +39,30 @@ def deposit_response(deposit):
     }
 
 
+def deposit_payment_details():
+    details = {
+        "card_number": (DEPOSIT_CARD_NUMBER or "").strip(),
+        "card_holder": (DEPOSIT_CARD_HOLDER or "").strip(),
+        "bank_name": (DEPOSIT_BANK_NAME or "").strip(),
+    }
+    if not all(details.values()):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Deposit payment details are not configured",
+        )
+    return details
+
+
+def deposit_create_response(deposit):
+    payment_details = deposit_payment_details()
+    return {
+        "message": "Deposit request created",
+        **deposit_response(deposit),
+        **payment_details,
+        "payment_details": payment_details,
+    }
+
+
 def get_user_display(db: Session, telegram_id: int):
     user = db.query(User).filter(User.telegram_id == telegram_id).first()
 
@@ -62,7 +91,7 @@ def create_deposit_request(
     if deposit == "minimum_amount":
         raise HTTPException(status_code=400, detail="Minimal deposit summasi 15 000 UZS")
 
-    return {"message": "Deposit request created", **deposit_response(deposit)}
+    return deposit_create_response(deposit)
 
 
 @router.get("/all")
