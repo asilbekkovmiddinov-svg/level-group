@@ -8,6 +8,10 @@ from starlette.datastructures import Headers
 
 from app.core.telegram_auth import get_current_telegram_user
 from app.routers import deposit_receipt
+from app.services.object_storage import (
+    StorageConfigurationError,
+    StorageOperationError,
+)
 
 
 class FakeQuery:
@@ -101,3 +105,53 @@ def test_evidence_upload_keeps_pending_status_guard(monkeypatch):
     assert error.value.status_code == 400
     assert "pending" in error.value.detail
     assert uploaded is False
+
+
+@pytest.mark.parametrize(
+    ("storage_error", "expected_status", "expected_log"),
+    [
+        (
+            StorageConfigurationError("missing S3_BUCKET_NAME"),
+            503,
+            "receipt storage configuration failed",
+        ),
+        (
+            StorageOperationError("put_object failed"),
+            502,
+            "receipt object upload failed",
+        ),
+    ],
+)
+def test_evidence_upload_logs_storage_traceback(
+    monkeypatch,
+    caplog,
+    storage_error,
+    expected_status,
+    expected_log,
+):
+    deposit = SimpleNamespace(
+        id=7,
+        telegram_id=123,
+        status="PENDING",
+        receipt_object_key=None,
+    )
+
+    def fail_upload(*_args, **_kwargs):
+        raise storage_error
+
+    monkeypatch.setattr(deposit_receipt, "upload_object", fail_upload)
+
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(
+            deposit_receipt.upload_deposit_receipt(
+                deposit_id=7,
+                file=receipt_file(),
+                current_user=SimpleNamespace(telegram_id=123),
+                db=FakeSession(deposit),
+            )
+        )
+
+    assert error.value.status_code == expected_status
+    records = [record for record in caplog.records if expected_log in record.message]
+    assert len(records) == 1
+    assert records[0].exc_info is not None

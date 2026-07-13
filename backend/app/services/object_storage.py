@@ -29,15 +29,25 @@ MAX_RECEIPT_DOWNLOAD_SIZE = 5 * 1024 * 1024
 RECEIPT_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 
 
+def missing_storage_settings() -> tuple[str, ...]:
+    settings = {
+        "S3_ENDPOINT_URL": config.S3_ENDPOINT_URL,
+        "S3_ACCESS_KEY_ID": config.S3_ACCESS_KEY_ID,
+        "S3_SECRET_ACCESS_KEY": config.S3_SECRET_ACCESS_KEY,
+        "S3_BUCKET_NAME": config.S3_BUCKET_NAME,
+    }
+    missing = [name for name, value in settings.items() if not value]
+    if config.S3_PRESIGNED_URL_TTL_SECONDS <= 0:
+        missing.append("S3_PRESIGNED_URL_TTL_SECONDS")
+    return tuple(missing)
+
+
 def validate_storage_config() -> None:
-    required = (
-        config.S3_ENDPOINT_URL,
-        config.S3_ACCESS_KEY_ID,
-        config.S3_SECRET_ACCESS_KEY,
-        config.S3_BUCKET_NAME,
-    )
-    if not all(required) or config.S3_PRESIGNED_URL_TTL_SECONDS <= 0:
-        raise StorageConfigurationError("Private object storage is not configured")
+    missing = missing_storage_settings()
+    if missing:
+        raise StorageConfigurationError(
+            f"Private object storage is not configured; missing: {', '.join(missing)}"
+        )
 
 
 @lru_cache(maxsize=1)
@@ -64,6 +74,8 @@ def upload_object(object_key: str, content: bytes, content_type: str) -> None:
             Body=content,
             ContentType=content_type,
         )
+    except StorageConfigurationError:
+        raise
     except Exception as error:
         raise StorageOperationError("Object upload failed") from error
 
