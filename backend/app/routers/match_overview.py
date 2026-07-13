@@ -5,12 +5,16 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.telegram_auth import TelegramUser, get_current_telegram_user
 
 router = APIRouter(prefix="/matches", tags=["1vs1 Arena Overview"])
 
 
 @router.get("/overview")
-def get_match_overview(db: Session = Depends(get_db)):
+def get_match_overview(
+    _: TelegramUser = Depends(get_current_telegram_user),
+    db: Session = Depends(get_db),
+):
     now = datetime.utcnow()
     today_start = datetime(now.year, now.month, now.day)
     online_limit = now - timedelta(minutes=5)
