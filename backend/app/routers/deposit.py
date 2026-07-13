@@ -23,6 +23,7 @@ from app.schemas.deposit import (
     DepositReject,
 )
 from app.core.telegram_auth import TelegramUser, get_current_telegram_user
+from app.core.timezone import format_tashkent_datetime
 from app.routers.internal_wallet import require_internal_api_key
 
 router = APIRouter(prefix="/deposit", tags=["Deposit"])
@@ -35,7 +36,12 @@ def deposit_response(deposit):
         "receipt_uploaded": bool(deposit.receipt_object_key),
         "receipt_content_type": deposit.receipt_content_type,
         "receipt_size": deposit.receipt_size,
-        "receipt_uploaded_at": deposit.receipt_uploaded_at,
+        "created_at": format_tashkent_datetime(getattr(deposit, "created_at", None)),
+        "receipt_at": format_tashkent_datetime(deposit.receipt_uploaded_at),
+        "receipt_uploaded_at": format_tashkent_datetime(deposit.receipt_uploaded_at),
+        "approved_at": format_tashkent_datetime(getattr(deposit, "approved_at", None)),
+        "rejected_at": format_tashkent_datetime(getattr(deposit, "rejected_at", None)),
+        "processing_seconds": getattr(deposit, "processing_seconds", None),
     }
 
 
@@ -175,7 +181,7 @@ def approve_deposit_request(
         "amount": float(deposit.amount),
         "status": deposit.status,
         "approved_by": getattr(deposit, "approved_by", None),
-        "approved_at": getattr(deposit, "approved_at", None),
+        "approved_at": format_tashkent_datetime(getattr(deposit, "approved_at", None)),
         "processing_seconds": getattr(deposit, "processing_seconds", 0),
     }
 
@@ -214,5 +220,6 @@ def reject_deposit_request(
         "status": deposit.status,
         "rejected_by": getattr(deposit, "rejected_by", data.admin_id),
         "reason": getattr(deposit, "reject_reason", data.reason),
+        "rejected_at": format_tashkent_datetime(getattr(deposit, "rejected_at", None)),
         "processing_seconds": getattr(deposit, "processing_seconds", 0),
     }
