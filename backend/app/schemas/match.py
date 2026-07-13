@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.models.match import (
     MatchAdminDecision,
@@ -48,6 +48,13 @@ class MatchScreenshotUpload(BaseModel):
         if not self.screenshot_file_id and not self.video_file_id:
             raise ValueError("Screenshot yoki video file_id talab qilinadi")
         return self
+
+
+class MatchInternalEvidenceUpload(MatchScreenshotUpload):
+    """Trusted Bot evidence payload; never expose as a user-facing contract."""
+
+    match_id: int = Field(gt=0)
+    telegram_id: int = Field(gt=0)
 
 
 class MatchAdminResolve(BaseModel):

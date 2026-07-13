@@ -15,6 +15,7 @@ from app.schemas.match import (
     MatchCreate,
     MatchGuideResponse,
     MatchInternalResponse,
+    MatchInternalEvidenceUpload,
     MatchInternalListResponse,
     MatchListResponse,
     MatchLeaderboardResponse,
@@ -292,6 +293,28 @@ def upload_result_screenshot(
     except SQLAlchemyError:
         db.rollback()
         raise HTTPException(status_code=500, detail="Screenshot saqlanmadi")
+
+
+@router.post("/internal/evidence", response_model=MatchInternalResponse)
+def upload_internal_match_evidence(
+    payload: MatchInternalEvidenceUpload,
+    _: None = Depends(require_arena_internal_api_key),
+    db: Session = Depends(get_db),
+):
+    """Store Bot-delivered evidence using the existing locked lifecycle."""
+    try:
+        return match_crud.upload_result_screenshot(
+            db=db,
+            match_id=payload.match_id,
+            telegram_id=payload.telegram_id,
+            screenshot_file_id=payload.screenshot_file_id,
+            video_file_id=payload.video_file_id,
+        )
+    except ValueError as error:
+        _raise_match_error(error)
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Evidence saqlanmadi")
 
 
 @router.post("/{match_id}/resolve", response_model=MatchInternalResponse)

@@ -20,6 +20,7 @@ INTERNAL_ENDPOINTS = {
     ("/matches/{match_id}/start-ready-check", "POST"),
     ("/matches/{match_id}/finish-ready-check", "POST"),
     ("/matches/{match_id}/resolve", "POST"),
+    ("/matches/internal/evidence", "POST"),
 }
 
 
