@@ -36,7 +36,10 @@ def _raise_match_error(error: ValueError) -> None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=message)
     if "topilmadi" in message:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=message)
-    if "ishtirokchisi emassiz" in message:
+    if (
+        "ishtirokchisi emassiz" in message
+        or "Faqat match yaratuvchisi" in message
+    ):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=message)
     if any(
         marker in message

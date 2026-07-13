@@ -424,8 +424,8 @@ def create_room_code(
 
     ensure_action_allowed(match, ArenaAction.CREATE_ROOM_CODE)
 
-    if telegram_id not in [match.creator_telegram_id, match.opponent_telegram_id]:
-        raise ValueError("Siz bu match ishtirokchisi emassiz")
+    if telegram_id != match.creator_telegram_id:
+        raise ValueError("Faqat match yaratuvchisi Room Code kirita oladi")
 
     if match.room_code:
         raise ValueError("Room Code allaqachon yozilgan, uni o‘zgartirib bo‘lmaydi")
