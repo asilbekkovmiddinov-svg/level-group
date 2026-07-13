@@ -13,6 +13,10 @@ class FakeDeposit:
     receipt_content_type = None
     receipt_size = None
     receipt_uploaded_at = None
+    created_at = None
+    approved_at = None
+    rejected_at = None
+    processing_seconds = None
 
 
 def configure_payment_details(monkeypatch):
