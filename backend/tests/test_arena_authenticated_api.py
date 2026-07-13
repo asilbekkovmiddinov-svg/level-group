@@ -181,6 +181,21 @@ def test_join_ready_and_cancel_use_verified_participant_identity(client, monkeyp
     )
     assert client.post("/matches/42/ready", json={}, headers=headers(9999)).status_code == 403
 
+    evidence = {}
+    monkeypatch.setattr(
+        match_router.match_crud,
+        "upload_result_screenshot",
+        lambda **kwargs: evidence.update(kwargs) or match,
+    )
+    assert client.post(
+        "/matches/42/screenshot",
+        json={"screenshot_file_id": "photo", "video_file_id": "video"},
+        headers=headers(1001),
+    ).status_code == 200
+    assert evidence["telegram_id"] == 1001
+    assert evidence["screenshot_file_id"] == "photo"
+    assert evidence["video_file_id"] == "video"
+
     monkeypatch.setattr(match_router.match_crud, "get_match", lambda **_: match)
     assert client.post(
         "/matches/42/cancel",

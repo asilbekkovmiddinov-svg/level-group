@@ -456,28 +456,47 @@ def upload_result_screenshot(
     db: Session,
     match_id: int,
     telegram_id: int,
-    screenshot_file_id: str,
+    screenshot_file_id: Optional[str] = None,
+    video_file_id: Optional[str] = None,
 ) -> Match:
     match = get_match_for_update(db, match_id)
 
     if not match:
         raise ValueError("Match topilmadi")
 
-    ensure_evidence_not_repeated(match, telegram_id)
-
     if telegram_id not in [match.creator_telegram_id, match.opponent_telegram_id]:
         raise ValueError("Siz bu match ishtirokchisi emassiz")
 
+    if not screenshot_file_id and not video_file_id:
+        raise ValueError("Screenshot yoki video file_id talab qilinadi")
+
+    ensure_evidence_not_repeated(
+        match,
+        telegram_id,
+        screenshot_submitted=bool(screenshot_file_id),
+        video_submitted=bool(video_file_id),
+    )
+
     now = datetime.utcnow()
+    now_aware = datetime.now(timezone.utc)
 
     if telegram_id == match.creator_telegram_id:
-        match.creator_result_screenshot = screenshot_file_id
-        match.creator_result_uploaded_at = now
+        if screenshot_file_id:
+            match.creator_result_screenshot = screenshot_file_id
+            match.creator_result_uploaded_at = now
+        if video_file_id:
+            match.creator_result_video = video_file_id
+            match.creator_result_video_uploaded_at = now_aware
     else:
-        match.opponent_result_screenshot = screenshot_file_id
-        match.opponent_result_uploaded_at = now
+        if screenshot_file_id:
+            match.opponent_result_screenshot = screenshot_file_id
+            match.opponent_result_uploaded_at = now
+        if video_file_id:
+            match.opponent_result_video = video_file_id
+            match.opponent_result_video_uploaded_at = now_aware
 
-    match.status = MatchStatus.WAITING_ADMIN
+    if match.creator_evidence_complete and match.opponent_evidence_complete:
+        match.status = MatchStatus.WAITING_ADMIN
     match.updated_at = now
 
     db.commit()

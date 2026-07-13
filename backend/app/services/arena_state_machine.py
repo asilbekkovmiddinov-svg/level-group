@@ -24,11 +24,7 @@ ALLOWED_ACTION_STATUSES = {
     ArenaAction.MARK_READY: {MatchStatus.WAITING_READY},
     ArenaAction.FINISH_READY_CHECK: {MatchStatus.WAITING_READY},
     ArenaAction.CREATE_ROOM_CODE: {MatchStatus.ROOM_READY},
-    ArenaAction.UPLOAD_EVIDENCE: {
-        MatchStatus.ROOM_CREATED,
-        MatchStatus.PLAYING,
-        MatchStatus.WAITING_ADMIN,
-    },
+    ArenaAction.UPLOAD_EVIDENCE: {MatchStatus.PLAYING},
     ArenaAction.RESOLVE: {
         MatchStatus.WAITING_ADMIN,
         MatchStatus.TECHNICAL_REVIEW,
@@ -68,9 +64,21 @@ def ensure_ready_not_repeated(match: Match, telegram_id: int) -> None:
         raise ArenaTransitionError("Opponent is already ready")
 
 
-def ensure_evidence_not_repeated(match: Match, telegram_id: int) -> None:
+def ensure_evidence_not_repeated(
+    match: Match,
+    telegram_id: int,
+    *,
+    screenshot_submitted: bool = True,
+    video_submitted: bool = False,
+) -> None:
     ensure_action_allowed(match, ArenaAction.UPLOAD_EVIDENCE)
-    if telegram_id == match.creator_telegram_id and match.creator_result_screenshot:
-        raise ArenaTransitionError("Creator screenshot has already been submitted")
-    if telegram_id == match.opponent_telegram_id and match.opponent_result_screenshot:
-        raise ArenaTransitionError("Opponent screenshot has already been submitted")
+    if telegram_id == match.creator_telegram_id:
+        if screenshot_submitted and match.creator_result_screenshot:
+            raise ArenaTransitionError("Creator screenshot has already been submitted")
+        if video_submitted and match.creator_result_video:
+            raise ArenaTransitionError("Creator video has already been submitted")
+    elif telegram_id == match.opponent_telegram_id:
+        if screenshot_submitted and match.opponent_result_screenshot:
+            raise ArenaTransitionError("Opponent screenshot has already been submitted")
+        if video_submitted and match.opponent_result_video:
+            raise ArenaTransitionError("Opponent video has already been submitted")

@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from app.models.match import MatchGameType, MatchResultType, MatchStatus
 
@@ -35,7 +35,14 @@ class MatchRoomCodeCreate(BaseModel):
 class MatchScreenshotUpload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    screenshot_file_id: str
+    screenshot_file_id: Optional[str] = None
+    video_file_id: Optional[str] = None
+
+    @model_validator(mode="after")
+    def require_evidence(self):
+        if not self.screenshot_file_id and not self.video_file_id:
+            raise ValueError("Screenshot yoki video file_id talab qilinadi")
+        return self
 
 
 class MatchAdminResolve(BaseModel):

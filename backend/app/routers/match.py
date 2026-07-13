@@ -284,6 +284,7 @@ def upload_result_screenshot(
             match_id=match_id,
             telegram_id=current_user.telegram_id,
             screenshot_file_id=payload.screenshot_file_id,
+            video_file_id=payload.video_file_id,
         )
         return _participant_response(match, current_user.telegram_id)
     except ValueError as error:
