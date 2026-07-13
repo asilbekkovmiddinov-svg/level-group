@@ -9,7 +9,12 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.telegram_auth import TelegramUser, get_current_telegram_user
 from app.models.deposit import Deposit
-from app.services.object_storage import (\n    StorageConfigurationError,\n    StorageOperationError,\n    delete_object,\n    upload_object,\n)
+from app.services.object_storage import (
+    StorageConfigurationError,
+    StorageOperationError,
+    delete_object,
+    upload_object,
+)
 from app.services.deposit_notifications import send_deposit_receipt_notification
 
 router = APIRouter(tags=["Deposits"])
