@@ -13,6 +13,7 @@ from app.crud.withdraw import (
 )
 from app.schemas.withdraw import WithdrawCreate
 from app.core.telegram_auth import TelegramUser, get_current_telegram_user
+from app.core.timezone import format_tashkent_datetime
 from app.routers.internal_wallet import require_internal_api_key
 
 router = APIRouter(
@@ -30,13 +31,13 @@ def withdraw_response(withdraw):
         "card_holder": withdraw.card_holder,
         "bank_name": withdraw.bank_name,
         "status": withdraw.status,
-        "created_at": withdraw.created_at,
+        "created_at": format_tashkent_datetime(withdraw.created_at),
         "claimed_by": withdraw.claimed_by,
-        "claimed_at": withdraw.claimed_at,
+        "claimed_at": format_tashkent_datetime(withdraw.claimed_at),
         "approved_by": withdraw.approved_by,
-        "approved_at": withdraw.approved_at,
+        "approved_at": format_tashkent_datetime(withdraw.approved_at),
         "rejected_by": withdraw.rejected_by,
-        "rejected_at": withdraw.rejected_at,
+        "rejected_at": format_tashkent_datetime(withdraw.rejected_at),
         "reject_reason": withdraw.reject_reason,
         "processing_seconds": withdraw.processing_seconds,
     }
