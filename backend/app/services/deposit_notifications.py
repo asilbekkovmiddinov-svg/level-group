@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from app.services.object_storage import StorageObjectNotFoundError, StorageOperationError
 from app.services.telegram_notifications import (TelegramNotificationConfigError, TelegramNotificationNetworkError, TelegramNotificationPermanentError, TelegramNotificationRateLimitError, TelegramNotificationResponseError, TelegramNotificationTemporaryError, TelegramNotificationTimeoutError)
 from app.core.config import RECEIPT_NOTIFICATION_MAX_ATTEMPTS, RECEIPT_NOTIFICATION_STALE_SECONDS
+from app.core.timezone import format_tashkent_datetime
 from app.models.deposit import Deposit
 from app.models.user import User
 from app.services.object_storage import download_object_bytes
@@ -73,8 +74,9 @@ def _caption(deposit, user) -> str:
     full_name = clean(user.first_name) if user else "—"
     return (f"💳 YANGI DEPOSIT RECEIPT\n\nID: #{deposit.id}\nTelegram ID: {deposit.telegram_id}\n"
             f"Username: {username}\nF.I.Sh: {full_name}\nSumma: {deposit.amount} UZS\n"
-            f"Status: {clean(deposit.status)}\nYaratilgan: {clean(deposit.created_at)}\n"
-            f"Receipt: {clean(deposit.receipt_uploaded_at)}")[:1024]
+            f"Status: {clean(deposit.status)}\n"
+            f"Yaratilgan: {clean(format_tashkent_datetime(deposit.created_at))}\n"
+            f"Receipt: {clean(format_tashkent_datetime(deposit.receipt_uploaded_at))}")[:1024]
 
 def _finalize_failed(db, deposit_id: int, attempt: int, error: Exception):
     classification = classify_notification_error(error)
