@@ -13,7 +13,7 @@ from app.models.deposit import Deposit
 from app.services.object_storage import StorageOperationError, delete_object, upload_object
 from app.services.deposit_notifications import send_deposit_receipt_notification
 
-router = APIRouter(prefix="/deposits", tags=["Deposits"])
+router = APIRouter(tags=["Deposits"])
 logger = logging.getLogger(__name__)
 MAX_RECEIPT_SIZE = 5 * 1024 * 1024
 SIGNATURES = {"jpg": (b"\xff\xd8\xff", "image/jpeg"), "jpeg": (b"\xff\xd8\xff", "image/jpeg"), "png": (b"\x89PNG\r\n\x1a\n", "image/png"), "webp": (b"RIFF", "image/webp")}
@@ -31,7 +31,8 @@ def validate_receipt(upload: UploadFile, content: bytes):
         raise HTTPException(400, "Invalid receipt image")
     return ext, content_type
 
-@router.post("/{deposit_id}/receipt")
+@router.post("/deposits/{deposit_id}/receipt")
+@router.post("/deposit/{deposit_id}/evidence")
 async def upload_deposit_receipt(deposit_id: int, file: UploadFile = File(...), current_user: TelegramUser = Depends(get_current_telegram_user), db: Session = Depends(get_db)):
     content = await file.read(MAX_RECEIPT_SIZE + 1)
     ext, content_type = validate_receipt(file, content)
