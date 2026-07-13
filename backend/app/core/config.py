@@ -16,6 +16,12 @@ TELEGRAM_INIT_DATA_MAX_AGE_SECONDS = int(
 # internal wallet operations. It must never be exposed to the Mini App.
 INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY")
 
+# Public payment requisites returned only to authenticated MiniApp users when
+# they create a deposit. Values must be configured by the deployment.
+DEPOSIT_CARD_NUMBER = os.getenv("DEPOSIT_CARD_NUMBER")
+DEPOSIT_CARD_HOLDER = os.getenv("DEPOSIT_CARD_HOLDER")
+DEPOSIT_BANK_NAME = os.getenv("DEPOSIT_BANK_NAME")
+
 S3_ENDPOINT_URL = os.getenv("S3_ENDPOINT_URL")
 S3_ACCESS_KEY_ID = os.getenv("S3_ACCESS_KEY_ID")
 S3_SECRET_ACCESS_KEY = os.getenv("S3_SECRET_ACCESS_KEY")
