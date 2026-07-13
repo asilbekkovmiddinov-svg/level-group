@@ -4,7 +4,12 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from app.models.match import MatchGameType, MatchResultType, MatchStatus
+from app.models.match import (
+    MatchAdminDecision,
+    MatchGameType,
+    MatchResultType,
+    MatchStatus,
+)
 
 
 class MatchCreate(BaseModel):
@@ -47,7 +52,8 @@ class MatchScreenshotUpload(BaseModel):
 
 class MatchAdminResolve(BaseModel):
     admin_telegram_id: int
-    winner_telegram_id: int
+    winner_telegram_id: Optional[int] = None
+    decision: Optional[MatchAdminDecision] = None
     admin_comment: Optional[str] = None
 
 

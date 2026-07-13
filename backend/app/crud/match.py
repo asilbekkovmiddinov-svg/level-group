@@ -4,7 +4,16 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from app.models.match import Match, MatchGameType, MatchResultType, MatchStats, MatchStatus
+from app.crud.transaction import create_transaction
+from app.crud.wallet import add_efc_balance, confirm_locked_efc, unlock_efc_balance
+from app.models.match import (
+    Match,
+    MatchAdminDecision,
+    MatchGameType,
+    MatchResultType,
+    MatchStats,
+    MatchStatus,
+)
 from app.models.wallet import Wallet
 from app.models.transaction import Transaction
 from app.services.arena_state_machine import (
@@ -65,73 +74,63 @@ def _lock_efc(db: Session, telegram_id: int, amount: Decimal, description: str) 
 
 
 def _unlock_efc(db: Session, telegram_id: int, amount: Decimal, description: str) -> None:
-    wallet = _get_wallet(db, telegram_id)
     amount = _to_decimal(amount)
-
-    if _to_decimal(wallet.locked_efc) < amount:
+    wallet = unlock_efc_balance(db, telegram_id, amount)
+    if wallet is None:
         raise ValueError("Locked EFC yetarli emas")
 
-    balance_before = _to_decimal(wallet.efc_balance)
-
-    wallet.locked_efc = _to_decimal(wallet.locked_efc) - amount
-    wallet.efc_balance = _to_decimal(wallet.efc_balance) + amount
-
-    transaction = Transaction(
+    balance_after = _to_decimal(wallet.efc_balance)
+    create_transaction(
+        db=db,
         telegram_id=telegram_id,
         currency="EFC",
         amount=amount,
-        balance_before=balance_before,
-        balance_after=wallet.efc_balance,
+        balance_before=balance_after - amount,
+        balance_after=balance_after,
         type="MATCH_UNLOCK",
-        status="SUCCESS",
         description=description,
+        commit=False,
     )
-    db.add(transaction)
 
 
 def _take_locked_efc(db: Session, telegram_id: int, amount: Decimal, description: str) -> None:
-    wallet = _get_wallet(db, telegram_id)
     amount = _to_decimal(amount)
-
-    if _to_decimal(wallet.locked_efc) < amount:
+    wallet = confirm_locked_efc(db, telegram_id, amount)
+    if wallet is None:
         raise ValueError("Locked EFC yetarli emas")
 
-    balance_before = _to_decimal(wallet.efc_balance)
-
-    wallet.locked_efc = _to_decimal(wallet.locked_efc) - amount
-
-    transaction = Transaction(
+    balance_after = _to_decimal(wallet.efc_balance)
+    create_transaction(
+        db=db,
         telegram_id=telegram_id,
         currency="EFC",
         amount=amount,
-        balance_before=balance_before,
-        balance_after=wallet.efc_balance,
+        balance_before=balance_after,
+        balance_after=balance_after,
         type="MATCH_SPEND",
-        status="SUCCESS",
         description=description,
+        commit=False,
     )
-    db.add(transaction)
 
 
 def _add_efc(db: Session, telegram_id: int, amount: Decimal, description: str) -> None:
-    wallet = _get_wallet(db, telegram_id)
     amount = _to_decimal(amount)
+    wallet = add_efc_balance(db, telegram_id, amount)
+    if wallet is None:
+        raise ValueError("EFC mukofotini qo‘shib bo‘lmadi")
 
-    balance_before = _to_decimal(wallet.efc_balance)
-
-    wallet.efc_balance = _to_decimal(wallet.efc_balance) + amount
-
-    transaction = Transaction(
+    balance_after = _to_decimal(wallet.efc_balance)
+    create_transaction(
+        db=db,
         telegram_id=telegram_id,
         currency="EFC",
         amount=amount,
-        balance_before=balance_before,
-        balance_after=wallet.efc_balance,
+        balance_before=balance_after - amount,
+        balance_after=balance_after,
         type="MATCH_REWARD",
-        status="SUCCESS",
         description=description,
+        commit=False,
     )
-    db.add(transaction)
 
 
 def get_match(db: Session, match_id: int) -> Optional[Match]:
@@ -565,8 +564,9 @@ def resolve_match(
     db: Session,
     match_id: int,
     admin_telegram_id: int,
-    winner_telegram_id: int,
+    winner_telegram_id: Optional[int] = None,
     admin_comment: Optional[str] = None,
+    decision: Optional[MatchAdminDecision] = None,
 ) -> Match:
     match = get_match_for_update(db, match_id)
 
@@ -579,6 +579,78 @@ def resolve_match(
         raise ValueError("Matchda ikkinchi ishtirokchi yo‘q")
 
     players = [match.creator_telegram_id, match.opponent_telegram_id]
+
+    if decision is None:
+        if winner_telegram_id not in players:
+            raise ValueError("G‘olib match ishtirokchisi bo‘lishi kerak")
+        decision = (
+            MatchAdminDecision.TECHNICAL_WIN
+            if match.status == MatchStatus.TECHNICAL_REVIEW
+            else MatchAdminDecision.PLAYER_1_WIN
+            if winner_telegram_id == match.creator_telegram_id
+            else MatchAdminDecision.PLAYER_2_WIN
+        )
+
+    if decision == MatchAdminDecision.CANCEL:
+        if winner_telegram_id is not None:
+            raise ValueError("Cancel qarorida g‘olib ko‘rsatilmaydi")
+        return cancel_match(
+            db=db,
+            match_id=match.id,
+            cancel_reason=admin_comment or "Admin qarori bilan bekor qilindi",
+            admin_telegram_id=admin_telegram_id,
+        )
+
+    now = datetime.utcnow()
+
+    if decision == MatchAdminDecision.REFUND:
+        if winner_telegram_id is not None:
+            raise ValueError("Refund qarorida g‘olib ko‘rsatilmaydi")
+        _unlock_efc(
+            db=db,
+            telegram_id=match.creator_telegram_id,
+            amount=match.efc_amount,
+            description="1vs1 Arena admin refund",
+        )
+        _unlock_efc(
+            db=db,
+            telegram_id=match.opponent_telegram_id,
+            amount=match.efc_amount,
+            description="1vs1 Arena admin refund",
+        )
+        match.winner_telegram_id = None
+        match.loser_telegram_id = None
+        match.result_type = MatchResultType.REFUND
+        match.admin_telegram_id = admin_telegram_id
+        match.admin_comment = admin_comment
+        match.status = MatchStatus.COMPLETED
+        match.resolved_at = now
+        match.updated_at = now
+        db.commit()
+        db.refresh(match)
+        return match
+
+    if decision == MatchAdminDecision.PLAYER_1_WIN:
+        expected_winner = match.creator_telegram_id
+    elif decision == MatchAdminDecision.PLAYER_2_WIN:
+        expected_winner = match.opponent_telegram_id
+    elif decision == MatchAdminDecision.TECHNICAL_WIN:
+        expected_winner = winner_telegram_id
+        if expected_winner is None:
+            if match.creator_ready != match.opponent_ready:
+                expected_winner = (
+                    match.creator_telegram_id
+                    if match.creator_ready
+                    else match.opponent_telegram_id
+                )
+            else:
+                raise ValueError("Technical Win uchun g‘olib ko‘rsatilishi kerak")
+    else:
+        raise ValueError("Noma’lum admin qarori")
+
+    if winner_telegram_id is not None and winner_telegram_id != expected_winner:
+        raise ValueError("Admin qarori va g‘olib bir-biriga mos emas")
+    winner_telegram_id = expected_winner
 
     if winner_telegram_id not in players:
         raise ValueError("G‘olib match ishtirokchisi bo‘lishi kerak")
@@ -611,13 +683,11 @@ def resolve_match(
     _update_winner_stats(db, winner_telegram_id, match.winner_reward)
     _update_loser_stats(db, loser_telegram_id, match.efc_amount)
 
-    now = datetime.utcnow()
-
     match.winner_telegram_id = winner_telegram_id
     match.loser_telegram_id = loser_telegram_id
     match.result_type = (
         MatchResultType.TECHNICAL
-        if match.status == MatchStatus.TECHNICAL_WIN
+        if decision == MatchAdminDecision.TECHNICAL_WIN
         else MatchResultType.NORMAL
     )
     match.admin_telegram_id = admin_telegram_id

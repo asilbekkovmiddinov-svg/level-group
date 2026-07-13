@@ -308,10 +308,14 @@ def resolve_match(
             match_id=match_id,
             admin_telegram_id=payload.admin_telegram_id,
             winner_telegram_id=payload.winner_telegram_id,
+            decision=payload.decision,
             admin_comment=payload.admin_comment,
         )
     except ValueError as error:
         _raise_match_error(error)
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Admin qarorini saqlab bo‘lmadi")
 
 
 @router.post("/{match_id}/cancel", response_model=MatchParticipantResponse)

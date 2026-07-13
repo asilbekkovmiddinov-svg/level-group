@@ -67,7 +67,16 @@ def map_legacy_match_status(value: str) -> str | None:
 class MatchResultType(str, Enum):
     NORMAL = "NORMAL"
     TECHNICAL = "TECHNICAL"
+    REFUND = "REFUND"
     CANCELLED = "CANCELLED"
+
+
+class MatchAdminDecision(str, Enum):
+    PLAYER_1_WIN = "PLAYER_1_WIN"
+    PLAYER_2_WIN = "PLAYER_2_WIN"
+    TECHNICAL_WIN = "TECHNICAL_WIN"
+    REFUND = "REFUND"
+    CANCEL = "CANCEL"
 
 
 class Match(Base):
