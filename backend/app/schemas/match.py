@@ -160,6 +160,8 @@ class MatchParticipantResponse(MatchResponse):
     """Authenticated detail response; room code is set only for a participant."""
 
     room_code: Optional[str] = None
+    my_screenshot_uploaded: bool = False
+    my_video_uploaded: bool = False
 
 
 class MatchListResponse(BaseModel):

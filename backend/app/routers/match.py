@@ -59,8 +59,11 @@ def _raise_match_error(error: ValueError) -> None:
 
 def _participant_response(match, telegram_id: int) -> MatchParticipantResponse:
     response = MatchParticipantResponse.model_validate(match)
+    is_creator = telegram_id == match.creator_telegram_id
+    is_opponent = telegram_id == match.opponent_telegram_id
+    is_participant = is_creator or is_opponent
     room_code_visible = (
-        match_crud.is_match_participant(match, telegram_id)
+        is_participant
         and match.status
         in {
             MatchStatus.ROOM_READY,
@@ -69,7 +72,29 @@ def _participant_response(match, telegram_id: int) -> MatchParticipantResponse:
         }
     )
     return response.model_copy(
-        update={"room_code": match.room_code if room_code_visible else None}
+        update={
+            "room_code": match.room_code if room_code_visible else None,
+            "my_screenshot_uploaded": bool(
+                getattr(
+                    match,
+                    "creator_result_screenshot"
+                    if is_creator
+                    else "opponent_result_screenshot",
+                    None,
+                )
+            )
+            if is_participant
+            else False,
+            "my_video_uploaded": bool(
+                getattr(
+                    match,
+                    "creator_result_video" if is_creator else "opponent_result_video",
+                    None,
+                )
+            )
+            if is_participant
+            else False,
+        }
     )
 
 

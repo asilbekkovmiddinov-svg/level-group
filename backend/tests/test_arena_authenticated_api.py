@@ -16,7 +16,13 @@ from app.core import telegram_auth
 from app.core.telegram_auth import TelegramUser, verify_init_data
 from app.models.match import MatchGameType, MatchStatus
 from app.routers import match as match_router
-from app.schemas.match import MatchAccept, MatchCreate, MatchReady, MatchRoomCodeCreate
+from app.schemas.match import (
+    MatchAccept,
+    MatchCreate,
+    MatchReady,
+    MatchResponse,
+    MatchRoomCodeCreate,
+)
 
 
 FIXED_NOW = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
@@ -53,6 +59,10 @@ def fake_match(status=MatchStatus.WAITING_PLAYER):
         creator_ready=False,
         opponent_ready=False,
         room_code="private-room",
+        creator_result_screenshot=None,
+        creator_result_video=None,
+        opponent_result_screenshot=None,
+        opponent_result_video=None,
         result_type=None,
         resolved_at=None,
         created_at=FIXED_NOW,
@@ -149,6 +159,50 @@ def test_user_endpoints_require_auth_and_detail_hides_private_fields(client, mon
     participant = client.get("/matches/42", headers=headers(1001))
     assert participant.status_code == 200
     assert participant.json()["room_code"] == "private-room"
+
+
+def test_participant_evidence_progress_is_user_specific_and_private(client, monkeypatch):
+    match = fake_match(status=MatchStatus.PLAYING)
+    match.creator_result_screenshot = "creator-photo-file-id"
+    match.creator_result_video = None
+    match.opponent_result_screenshot = None
+    match.opponent_result_video = "opponent-video-file-id"
+    monkeypatch.setattr(match_router.match_crud, "get_match", lambda **_: match)
+
+    creator = client.get("/matches/42", headers=headers(1001))
+    assert creator.status_code == 200
+    assert creator.json()["my_screenshot_uploaded"] is True
+    assert creator.json()["my_video_uploaded"] is False
+
+    opponent = client.get("/matches/42", headers=headers(2002))
+    assert opponent.status_code == 200
+    assert opponent.json()["my_screenshot_uploaded"] is False
+    assert opponent.json()["my_video_uploaded"] is True
+
+    outsider = client.get("/matches/42", headers=headers(9999))
+    assert outsider.status_code == 200
+    assert outsider.json()["my_screenshot_uploaded"] is False
+    assert outsider.json()["my_video_uploaded"] is False
+
+    for payload in (creator.json(), opponent.json(), outsider.json()):
+        serialized = str(payload)
+        assert "creator-photo-file-id" not in serialized
+        assert "opponent-video-file-id" not in serialized
+        for field in (
+            "creator_result_screenshot",
+            "creator_result_video",
+            "opponent_result_screenshot",
+            "opponent_result_video",
+            "creator_telegram_id",
+            "opponent_telegram_id",
+        ):
+            assert field not in payload
+
+    public_payload = MatchResponse.model_validate(match).model_dump()
+    assert "my_screenshot_uploaded" not in public_payload
+    assert "my_video_uploaded" not in public_payload
+    assert "creator_result_screenshot" not in public_payload
+    assert "opponent_result_video" not in public_payload
 
 
 def test_join_ready_and_cancel_use_verified_participant_identity(client, monkeypatch):
