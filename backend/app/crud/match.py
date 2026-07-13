@@ -182,13 +182,14 @@ def get_user_matches(
 
 
 def get_due_scheduled_matches(db: Session, limit: int = 50) -> list[Match]:
-    now = datetime.utcnow()
+    now = datetime.utcnow() + timedelta(hours=5)
+    ready_window_opens_at = now + timedelta(minutes=READY_WINDOW_MINUTES)
 
     return (
         db.query(Match)
         .filter(Match.status == MatchStatus.SCHEDULED)
         .filter(Match.ready_check_started_at.is_(None))
-        .filter(Match.scheduled_at <= now)
+        .filter(Match.scheduled_at <= ready_window_opens_at)
         .order_by(Match.scheduled_at.asc())
         .limit(limit)
         .all()
@@ -300,7 +301,11 @@ def accept_match(
     return match
 
 
-def start_ready_check(db: Session, match_id: int) -> Match:
+def start_ready_check(
+    db: Session,
+    match_id: int,
+    now: Optional[datetime] = None,
+) -> Match:
     match = get_match_for_update(db, match_id)
 
     if not match:
@@ -308,11 +313,18 @@ def start_ready_check(db: Session, match_id: int) -> Match:
 
     ensure_action_allowed(match, ArenaAction.START_READY_CHECK)
 
-    now = datetime.utcnow()
+    now = now or datetime.utcnow()
+    scheduled_at_utc = match.scheduled_at - timedelta(hours=5)
+    window_opens_at = scheduled_at_utc - timedelta(minutes=READY_WINDOW_MINUTES)
+
+    if now < window_opens_at:
+        raise ValueError("Ready oynasi hali ochilmagan")
 
     match.status = MatchStatus.READY_CHECK
     match.ready_check_started_at = now
-    match.ready_check_deadline_at = now + timedelta(minutes=READY_WINDOW_MINUTES)
+    match.ready_check_deadline_at = scheduled_at_utc
+    match.ready_window_started_at = now.replace(tzinfo=timezone.utc)
+    match.ready_deadline_at = scheduled_at_utc.replace(tzinfo=timezone.utc)
     match.updated_at = now
 
     db.commit()
@@ -343,9 +355,6 @@ def set_player_ready(db: Session, match_id: int, telegram_id: int) -> Match:
     else:
         raise ValueError("Siz bu match ishtirokchisi emassiz")
 
-    if match.creator_ready and match.opponent_ready:
-        match.status = MatchStatus.WAITING_ROOM_CODE
-
     match.updated_at = now
 
     db.commit()
@@ -354,7 +363,11 @@ def set_player_ready(db: Session, match_id: int, telegram_id: int) -> Match:
     return match
 
 
-def finish_ready_check(db: Session, match_id: int) -> Match:
+def finish_ready_check(
+    db: Session,
+    match_id: int,
+    now: Optional[datetime] = None,
+) -> Match:
     match = get_match_for_update(db, match_id)
 
     if not match:
@@ -362,30 +375,33 @@ def finish_ready_check(db: Session, match_id: int) -> Match:
 
     ensure_action_allowed(match, ArenaAction.FINISH_READY_CHECK)
 
-    now = datetime.utcnow()
+    now = now or datetime.utcnow()
 
     if match.ready_check_deadline_at and now < match.ready_check_deadline_at:
         raise ValueError("Ready check muddati hali tugamagan")
 
     if match.creator_ready and match.opponent_ready:
         match.status = MatchStatus.WAITING_ROOM_CODE
-    elif match.creator_ready and not match.opponent_ready:
+    elif match.creator_ready or match.opponent_ready:
         match.status = MatchStatus.TECHNICAL_WIN
-        match.winner_telegram_id = match.creator_telegram_id
-        match.loser_telegram_id = match.opponent_telegram_id
-        match.result_type = MatchResultType.TECHNICAL
-    elif match.opponent_ready and not match.creator_ready:
-        match.status = MatchStatus.TECHNICAL_WIN
-        match.winner_telegram_id = match.opponent_telegram_id
-        match.loser_telegram_id = match.creator_telegram_id
-        match.result_type = MatchResultType.TECHNICAL
     else:
-        cancel_match(
+        _unlock_efc(
             db=db,
-            match_id=match.id,
-            cancel_reason="Ikkala foydalanuvchi ham 5 daqiqa ichida tayyor bosmadi",
+            telegram_id=match.creator_telegram_id,
+            amount=match.efc_amount,
+            description="1vs1 Arena ready muddati tugadi, EFC unlock qilindi",
         )
-        return get_match(db, match.id)
+        if match.opponent_telegram_id:
+            _unlock_efc(
+                db=db,
+                telegram_id=match.opponent_telegram_id,
+                amount=match.efc_amount,
+                description="1vs1 Arena ready muddati tugadi, EFC unlock qilindi",
+            )
+        match.status = MatchStatus.CANCELLED
+        match.result_type = MatchResultType.CANCELLED
+        match.cancel_reason = "Ikkala foydalanuvchi ham ready bosmadi"
+        match.resolved_at = now
 
     match.updated_at = now
 
