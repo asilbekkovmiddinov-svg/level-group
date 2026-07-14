@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.core.database import SessionLocal, get_db
 from app.core.telegram_auth import TelegramUser, get_current_telegram_user
@@ -17,6 +18,8 @@ from app.services.object_storage import (
 )
 from app.services.deposit_notifications import send_deposit_receipt_notification
 from app.services.telegram_notifications import disable_admin_message_actions
+from app.models.receipt_orphan import ReceiptOrphan
+from app.core.observability import enforce_rate_limit, increment
 
 router = APIRouter(tags=["Deposits"])
 logger = logging.getLogger(__name__)
@@ -60,11 +63,13 @@ async def upload_deposit_receipt(deposit_id: int, background_tasks: BackgroundTa
         raise HTTPException(404, "Deposit not found")
     if deposit.status != "PENDING":
         raise HTTPException(400, "Receipt can only be changed while deposit is pending")
+    enforce_rate_limit(current_user.telegram_id, "receipt_upload", 5)
     new_key = f"receipts/deposits/{deposit.id}/{uuid4()}.{ext}"
     old_key = deposit.receipt_object_key
     old_message_id = getattr(deposit, "receipt_notification_message_id", None)
     try:
-        upload_object(new_key, content, content_type)
+        await run_in_threadpool(upload_object, new_key, content, content_type)
+        increment("receipt_upload_success_total")
     except StorageConfigurationError as error:
         logger.exception(
             "receipt storage configuration failed",
@@ -96,20 +101,25 @@ async def upload_deposit_receipt(deposit_id: int, background_tasks: BackgroundTa
         raise HTTPException(500, "Receipt update failed") from error
     if old_key:
         try:
-            delete_object(old_key)
+            await run_in_threadpool(delete_object, old_key)
         except (StorageConfigurationError, StorageOperationError):
             logger.exception(
                 "previous receipt object cleanup failed",
                 extra={"deposit_id": deposit.id},
             )
+            db.add(ReceiptOrphan(object_key=old_key, last_error="Object delete failed"))
+            try: db.commit()
+            except Exception: db.rollback()
+            background_tasks.add_task(cleanup_receipt_orphans)
     if old_message_id:
         try:
             disable_admin_message_actions(old_message_id)
         except Exception:
             logger.exception("replaced receipt notification could not be edited", extra={"deposit_id": deposit.id})
     try:
-        notification = send_deposit_receipt_notification(db, deposit.id)
+        notification = await run_in_threadpool(send_notification_with_session, deposit.id)
         notification_status = notification.status
+        increment(f"receipt_notification_{notification_status.lower()}_total")
     except Exception:
         logger.exception(
             "receipt notification did not start",
@@ -127,5 +137,28 @@ def retry_deposit_notification(deposit_id: int):
         send_deposit_receipt_notification(db, deposit_id)
     except Exception:
         logger.exception("queued receipt notification retry failed", extra={"deposit_id": deposit_id})
+    finally:
+        db.close()
+
+
+def send_notification_with_session(deposit_id: int):
+    db = SessionLocal()
+    try: return send_deposit_receipt_notification(db, deposit_id)
+    finally: db.close()
+
+
+def cleanup_receipt_orphans(limit: int = 50):
+    db = SessionLocal()
+    try:
+        for orphan in db.query(ReceiptOrphan).order_by(ReceiptOrphan.id).limit(limit).all():
+            try:
+                delete_object(orphan.object_key)
+                db.delete(orphan); increment("receipt_orphan_cleanup_success_total")
+            except Exception:
+                orphan.attempts += 1; orphan.last_error = "Object delete failed"
+                increment("receipt_orphan_cleanup_failed_total")
+        db.commit()
+    except Exception:
+        db.rollback(); logger.exception("receipt orphan cleanup worker failed")
     finally:
         db.close()

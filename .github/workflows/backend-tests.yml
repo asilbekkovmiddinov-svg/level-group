@@ -2,15 +2,23 @@ name: Backend tests
 
 on:
   push:
-    branches: [codex/telegram-initdata-auth]
-  pull_request:
     branches: [main]
+  pull_request:
+  workflow_dispatch:
 
 jobs:
   backend-tests:
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: sqlite:///./ci.db
+      INTERNAL_API_KEY: ci-internal-key
+      S3_ENDPOINT_URL: https://storage.example
+      S3_ACCESS_KEY_ID: ci-access
+      S3_SECRET_ACCESS_KEY: ci-secret
+      S3_BUCKET_NAME: ci-bucket
+      DEPOSIT_CARD_NUMBER: "8600000000000000"
+      DEPOSIT_CARD_HOLDER: CI TEST
+      DEPOSIT_BANK_NAME: CI BANK
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

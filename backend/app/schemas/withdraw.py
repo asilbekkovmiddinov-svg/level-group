@@ -1,16 +1,15 @@
 from decimal import Decimal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class WithdrawCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     amount: Decimal
     card_number: str
     card_holder: str
     bank_name: str
 
-    class Config:
-        extra = "forbid"
 
 
 class InternalWithdrawCreate(WithdrawCreate):

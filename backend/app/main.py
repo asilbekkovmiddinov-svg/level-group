@@ -1,6 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.core.runtime import validate_startup_settings
+validate_startup_settings()
+
 from app.core.database import create_tables, SessionLocal
 from app.core.migrations import run_migrations
 from app.core.seed_products import seed_products
@@ -23,12 +26,15 @@ from app.routers.match_overview import router as match_overview_router
 from app.routers.internal_wallet import router as internal_wallet_router
 from app.routers.deposit_receipt import router as deposit_receipt_router
 from app.routers.health import router as health_router
+from app.core.observability import configure_logging, correlation_middleware
 
 
+configure_logging()
 app = FastAPI(
     title="LEVEL_GROUP API",
     version="1.0.0",
 )
+app.middleware("http")(correlation_middleware)
 
 app.add_middleware(
     CORSMiddleware,
