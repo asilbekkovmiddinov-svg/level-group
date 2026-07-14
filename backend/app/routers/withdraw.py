@@ -1,6 +1,7 @@
 import logging
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -51,9 +52,10 @@ def withdraw_response(withdraw):
 def create_withdraw_request(
     data: WithdrawCreate,
     current_user: TelegramUser = Depends(get_current_telegram_user),
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
     db: Session = Depends(get_db),
 ):
-    withdraw = create_withdraw(db, data, current_user.telegram_id)
+    withdraw = create_withdraw(db, data, current_user.telegram_id, idempotency_key)
 
     if withdraw == "insufficient":
         raise HTTPException(status_code=400, detail="Balans yetarli emas")
@@ -63,17 +65,22 @@ def create_withdraw_request(
         raise HTTPException(status_code=400, detail="Withdraw amount must be greater than zero")
     if withdraw == "operation_failed":
         raise HTTPException(status_code=500, detail="Withdraw request failed")
+    if withdraw == "idempotency_conflict":
+        raise HTTPException(status_code=409, detail="Idempotency key payload mismatch")
     if withdraw == "wallet_not_found" or not withdraw:
         raise HTTPException(status_code=404, detail="Wallet topilmadi")
 
     response = withdraw_response(withdraw)
-    try:
-        notification = send_withdraw_notification(db, withdraw.id)
-        response["notification_status"] = notification.status
-    except Exception:
-        db.rollback()
-        logger.exception("Withdraw %s admin notification failed unexpectedly", withdraw.id)
-        response["notification_status"] = "FAILED"
+    if withdraw.notification_status in {"SENT", "SENDING"}:
+        response["notification_status"] = withdraw.notification_status
+    else:
+        try:
+            notification = send_withdraw_notification(db, withdraw.id)
+            response["notification_status"] = notification.status
+        except Exception:
+            db.rollback()
+            logger.exception("Withdraw %s admin notification failed unexpectedly", withdraw.id)
+            response["notification_status"] = "FAILED"
     response["message"] = "Pul yechish so‘rovi qabul qilindi. To‘lov 24 soat ichida yuboriladi."
     return response
 

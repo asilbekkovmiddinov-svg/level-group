@@ -5,7 +5,8 @@ from sqlalchemy import (
     String,
     Numeric,
     DateTime,
-    ForeignKey
+    ForeignKey,
+    UniqueConstraint,
 )
 from sqlalchemy.sql import func
 
@@ -14,6 +15,7 @@ from app.core.database import Base
 
 class Deposit(Base):
     __tablename__ = "deposits"
+    __table_args__ = (UniqueConstraint("telegram_id", "idempotency_key", name="uq_deposit_user_idempotency"),)
 
     id = Column(
         Integer,
@@ -52,6 +54,10 @@ class Deposit(Base):
     receipt_content_type = Column(String(100), nullable=True)
     receipt_size = Column(Integer, nullable=True)
     receipt_uploaded_at = Column(DateTime(timezone=True), nullable=True)
+    receipt_revision = Column(Integer, nullable=False, default=0)
+    claimed_receipt_revision = Column(Integer, nullable=True)
+    idempotency_key = Column(String(128), nullable=True)
+    request_fingerprint = Column(String(64), nullable=True)
     receipt_notification_status = Column(String(20), nullable=False, default="PENDING")
     receipt_notification_sent_at = Column(DateTime(timezone=True), nullable=True)
     receipt_notification_message_id = Column(String(100), nullable=True)

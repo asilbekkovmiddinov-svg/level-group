@@ -55,5 +55,5 @@ def user_seen(
     return {
         "success": True,
         "message": "User last seen updated",
-        "telegram_id": user.telegram_id,
+        "telegram_id": current_user.telegram_id,
     }

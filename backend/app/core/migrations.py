@@ -23,6 +23,17 @@ def run_migrations():
 
         connection.execute(text("""
             ALTER TABLE withdraws
+            ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(128),
+            ADD COLUMN IF NOT EXISTS request_fingerprint VARCHAR(64);
+        """))
+        connection.execute(text("""
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_withdraw_user_idempotency
+            ON withdraws (telegram_id, idempotency_key)
+            WHERE idempotency_key IS NOT NULL;
+        """))
+
+        connection.execute(text("""
+            ALTER TABLE withdraws
             ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMP WITH TIME ZONE;
         """))
 
@@ -216,6 +227,18 @@ def run_migrations():
         """))
         connection.execute(text("""
             ALTER TABLE deposits ADD COLUMN IF NOT EXISTS receipt_notification_last_attempt_at TIMESTAMP WITH TIME ZONE;
+        """))
+        connection.execute(text("""
+            ALTER TABLE deposits
+            ADD COLUMN IF NOT EXISTS receipt_revision INTEGER NOT NULL DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS claimed_receipt_revision INTEGER,
+            ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(128),
+            ADD COLUMN IF NOT EXISTS request_fingerprint VARCHAR(64);
+        """))
+        connection.execute(text("""
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_deposit_user_idempotency
+            ON deposits (telegram_id, idempotency_key)
+            WHERE idempotency_key IS NOT NULL;
         """))
 
         # =========================

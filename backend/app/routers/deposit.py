@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -88,14 +90,19 @@ def get_user_display(db: Session, telegram_id: int):
 def create_deposit_request(
     data: DepositCreate,
     current_user: TelegramUser = Depends(get_current_telegram_user),
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
     db: Session = Depends(get_db),
 ):
-    deposit = create_deposit(db, data, current_user.telegram_id)
+    deposit = create_deposit(db, data, current_user.telegram_id, idempotency_key)
 
     if deposit == "invalid_amount":
         raise HTTPException(status_code=400, detail="Deposit amount must be greater than zero")
     if deposit == "minimum_amount":
         raise HTTPException(status_code=400, detail="Minimal deposit summasi 15 000 UZS")
+    if deposit == "idempotency_conflict":
+        raise HTTPException(status_code=409, detail="Idempotency key payload mismatch")
+    if deposit == "operation_failed":
+        raise HTTPException(status_code=500, detail="Deposit request failed")
 
     return deposit_create_response(deposit)
 
@@ -131,13 +138,15 @@ def claim_deposit_request(
     _: None = Depends(require_internal_api_key),
     db: Session = Depends(get_db),
 ):
-    deposit = claim_deposit(db, deposit_id, data.admin_id)
+    deposit = claim_deposit(db, deposit_id, data.admin_id, data.receipt_revision)
 
     if not deposit:
         raise HTTPException(status_code=404, detail="Deposit not found")
 
     if deposit == "already_claimed":
         raise HTTPException(status_code=409, detail="Deposit is not pending")
+    if deposit == "receipt_replaced":
+        raise HTTPException(status_code=409, detail="Deposit receipt was replaced")
 
     if deposit == "operation_failed":
         raise HTTPException(status_code=500, detail="Deposit claim failed")
@@ -164,6 +173,10 @@ def approve_deposit_request(
 
     if deposit == "invalid_status":
         raise HTTPException(status_code=409, detail="Deposit must be claimed")
+    if deposit == "not_owner":
+        raise HTTPException(status_code=409, detail="Deposit is claimed by another admin")
+    if deposit == "receipt_replaced":
+        raise HTTPException(status_code=409, detail="Deposit receipt was replaced")
 
     if deposit == "wallet_not_found":
         raise HTTPException(status_code=404, detail="Wallet not found")
@@ -205,6 +218,10 @@ def reject_deposit_request(
 
     if deposit == "invalid_status":
         raise HTTPException(status_code=409, detail="Deposit must be claimed")
+    if deposit == "not_owner":
+        raise HTTPException(status_code=409, detail="Deposit is claimed by another admin")
+    if deposit == "receipt_replaced":
+        raise HTTPException(status_code=409, detail="Deposit receipt was replaced")
 
     if deposit == "operation_failed":
         raise HTTPException(status_code=500, detail="Deposit reject failed")

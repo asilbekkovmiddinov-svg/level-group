@@ -51,6 +51,26 @@ def send_admin_message(text: str, reply_markup: dict | None = None, chat_id: int
         raise TelegramNotificationResponseError("Telegram response is invalid")
     return TelegramPhotoResult(message_id=data["result"]["message_id"], chat_id=data["result"].get("chat", {}).get("id", target))
 
+def disable_admin_message_actions(message_id: str, chat_id: int | str | None = None) -> None:
+    if not config.TELEGRAM_BOT_TOKEN or not (chat_id or config.ADMIN_DEPOSIT_CHANNEL_ID):
+        raise TelegramNotificationConfigError("Telegram notification is not configured")
+    payload = {
+        "chat_id": chat_id or config.ADMIN_DEPOSIT_CHANNEL_ID,
+        "message_id": int(message_id),
+        "reply_markup": {"inline_keyboard": []},
+    }
+    request = urllib.request.Request(
+        f"{config.TELEGRAM_API_BASE_URL.rstrip('/')}/bot{config.TELEGRAM_BOT_TOKEN}/editMessageReplyMarkup",
+        data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"}, method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=config.TELEGRAM_NOTIFICATION_TIMEOUT_SECONDS) as response:
+            data = json.loads(response.read())
+    except Exception as error:
+        raise TelegramNotificationTemporaryError("Telegram message update failed") from error
+    if not isinstance(data, dict) or not data.get("ok"):
+        raise TelegramNotificationResponseError("Telegram response is invalid")
+
 def _multipart(fields, filename, content_type, content):
     boundary = f"----LevelGroup{uuid4().hex}"; chunks = []
     for name, value in fields.items(): chunks.append(f"--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n".encode())

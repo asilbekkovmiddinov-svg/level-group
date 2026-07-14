@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from decimal import Decimal
+from hashlib import sha256
 
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -23,18 +24,34 @@ def _processing_seconds(created_at, now: datetime) -> int:
     if created_at.tzinfo is None:
         now = now.replace(tzinfo=None)
     return max(0, int((now - created_at).total_seconds()))
-def create_withdraw(db: Session, data: WithdrawCreate, telegram_id: int):
+def create_withdraw(db: Session, data: WithdrawCreate, telegram_id: int, idempotency_key: str | None = None):
     amount = to_decimal(data.amount)
     if amount is None:
         return "invalid_amount"
     if amount < MIN_WITHDRAW_AMOUNT:
         return "minimum_amount"
+    fingerprint = sha256(
+        f"{amount:.2f}|{data.card_number}|{data.card_holder}|{data.bank_name}".encode()
+    ).hexdigest()
 
     try:
         with db.begin():
             wallet = get_wallet_for_update(db, telegram_id)
             if not wallet:
                 return "wallet_not_found"
+            if idempotency_key:
+                replay = db.query(Withdraw).filter(
+                    Withdraw.telegram_id == telegram_id,
+                    Withdraw.idempotency_key == idempotency_key,
+                ).first()
+                if replay:
+                    return replay if replay.request_fingerprint == fingerprint else "idempotency_conflict"
+            active = db.query(Withdraw).filter(
+                Withdraw.telegram_id == telegram_id,
+                Withdraw.status.in_(("PENDING", "CLAIMED")),
+            ).order_by(Withdraw.id.desc()).first()
+            if active:
+                return active
             if Decimal(str(wallet.uzs_balance)) < amount:
                 return "insufficient"
 
@@ -49,6 +66,8 @@ def create_withdraw(db: Session, data: WithdrawCreate, telegram_id: int):
                 card_holder=data.card_holder,
                 bank_name=data.bank_name,
                 status="PENDING",
+                idempotency_key=idempotency_key,
+                request_fingerprint=fingerprint,
             )
             db.add(withdraw)
             db.flush()
