@@ -15,6 +15,7 @@ class ArenaAction(str, Enum):
     CREATE_ROOM_CODE = "CREATE_ROOM_CODE"
     UPLOAD_EVIDENCE = "UPLOAD_EVIDENCE"
     RESOLVE = "RESOLVE"
+    PARTICIPANT_CANCEL = "PARTICIPANT_CANCEL"
     CANCEL = "CANCEL"
 
 
@@ -28,6 +29,12 @@ ALLOWED_ACTION_STATUSES = {
     ArenaAction.RESOLVE: {
         MatchStatus.WAITING_ADMIN,
         MatchStatus.TECHNICAL_REVIEW,
+    },
+    ArenaAction.PARTICIPANT_CANCEL: {
+        MatchStatus.WAITING_PLAYER,
+        MatchStatus.WAITING_READY,
+        MatchStatus.ROOM_READY,
+        MatchStatus.ROOM_CREATED,
     },
     ArenaAction.CANCEL: {
         MatchStatus.WAITING_PLAYER,

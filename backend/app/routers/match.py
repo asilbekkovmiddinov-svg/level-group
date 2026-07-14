@@ -383,6 +383,7 @@ def cancel_match(
             db=db,
             match_id=match_id,
             cancel_reason=payload.cancel_reason,
+            participant_telegram_id=current_user.telegram_id,
         )
         return _participant_response(match, current_user.telegram_id)
     except ValueError as error:

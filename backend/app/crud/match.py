@@ -5,7 +5,12 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from app.crud.transaction import create_transaction
-from app.crud.wallet import add_efc_balance, confirm_locked_efc, unlock_efc_balance
+from app.crud.wallet import (
+    add_efc_balance,
+    confirm_locked_efc,
+    get_wallet_for_update,
+    unlock_efc_balance,
+)
 from app.models.match import (
     Match,
     MatchAdminDecision,
@@ -42,7 +47,7 @@ def _calculate_match_money(efc_amount: Decimal) -> tuple[Decimal, Decimal, Decim
 
 
 def _get_wallet(db: Session, telegram_id: int) -> Wallet:
-    wallet = db.query(Wallet).filter(Wallet.telegram_id == telegram_id).first()
+    wallet = get_wallet_for_update(db, telegram_id)
     if not wallet:
         raise ValueError("Hamyon topilmadi")
     return wallet
@@ -707,13 +712,19 @@ def cancel_match(
     match_id: int,
     cancel_reason: str,
     admin_telegram_id: Optional[int] = None,
+    participant_telegram_id: Optional[int] = None,
 ) -> Match:
     match = get_match_for_update(db, match_id)
 
     if not match:
         raise ValueError("Match topilmadi")
 
-    ensure_action_allowed(match, ArenaAction.CANCEL)
+    if participant_telegram_id is not None:
+        if not is_match_participant(match, participant_telegram_id):
+            raise ValueError("Siz bu match ishtirokchisi emassiz")
+        ensure_action_allowed(match, ArenaAction.PARTICIPANT_CANCEL)
+    else:
+        ensure_action_allowed(match, ArenaAction.CANCEL)
 
     _unlock_efc(
         db=db,

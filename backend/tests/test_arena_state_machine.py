@@ -24,6 +24,7 @@ def make_match(status, **overrides):
         "status": status,
         "creator_telegram_id": 1001,
         "opponent_telegram_id": 2002,
+        "efc_amount": 100,
         "creator_ready": False,
         "opponent_ready": False,
         "ready_check_started_at": None,
@@ -95,6 +96,7 @@ def test_mutating_match_query_uses_row_lock():
         (ArenaAction.UPLOAD_EVIDENCE, make_match(MatchStatus.PLAYING)),
         (ArenaAction.RESOLVE, make_match(MatchStatus.WAITING_ADMIN)),
         (ArenaAction.RESOLVE, make_match(MatchStatus.TECHNICAL_REVIEW)),
+        (ArenaAction.PARTICIPANT_CANCEL, make_match(MatchStatus.WAITING_PLAYER)),
         (ArenaAction.CANCEL, make_match(MatchStatus.WAITING_PLAYER)),
     ],
 )
@@ -197,6 +199,28 @@ def test_transition_errors_map_to_http_409():
     with pytest.raises(HTTPException) as error:
         match_router._raise_match_error(ArenaTransitionError("invalid transition"))
     assert error.value.status_code == 409
+
+
+@pytest.mark.parametrize(
+    "status",
+    [MatchStatus.PLAYING, MatchStatus.WAITING_ADMIN, MatchStatus.TECHNICAL_REVIEW],
+)
+def test_participant_cannot_cancel_after_game_starts_but_admin_can(monkeypatch, status):
+    match = make_match(status)
+    monkeypatch.setattr(match_crud, "get_match_for_update", lambda *_: match)
+    monkeypatch.setattr(match_crud, "_unlock_efc", lambda **_: None)
+
+    with pytest.raises(ArenaTransitionError):
+        match_crud.cancel_match(
+            FakeSession(), 42, "participant cancel", participant_telegram_id=1001
+        )
+
+    admin_db = FakeSession()
+    result = match_crud.cancel_match(
+        admin_db, 42, "admin cancel", admin_telegram_id=9001
+    )
+    assert result.status == MatchStatus.CANCELLED
+    assert admin_db.commit_count == 1
 
 
 def test_every_action_has_an_explicit_server_side_status_policy():
