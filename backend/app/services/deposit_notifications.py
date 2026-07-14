@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import logging
 
 from app.services.object_storage import StorageObjectNotFoundError, StorageOperationError
 from app.services.telegram_notifications import (TelegramNotificationConfigError, TelegramNotificationNetworkError, TelegramNotificationPermanentError, TelegramNotificationRateLimitError, TelegramNotificationResponseError, TelegramNotificationTemporaryError, TelegramNotificationTimeoutError)
@@ -9,6 +10,8 @@ from app.models.deposit import Deposit
 from app.models.user import User
 from app.services.object_storage import download_object_bytes
 from app.services.telegram_notifications import send_deposit_receipt_photo
+
+logger = logging.getLogger(__name__)
 
 class DepositNotificationNotFoundError(RuntimeError): pass
 class DepositReceiptMissingError(RuntimeError): pass
@@ -117,6 +120,16 @@ def send_deposit_receipt_notification(db, deposit_id: int, now: datetime | None 
             },
         )
     except (DepositReceiptMissingError, StorageOperationError, TelegramNotificationConfigError, TelegramNotificationTimeoutError, TelegramNotificationNetworkError, TelegramNotificationRateLimitError, TelegramNotificationTemporaryError, TelegramNotificationPermanentError, TelegramNotificationResponseError) as error:
+        classification = classify_notification_error(error)
+        logger.exception(
+            "deposit receipt notification delivery failed",
+            extra={
+                "deposit_id": deposit_id,
+                "attempt": started.attempts,
+                "error_class": type(error).__name__,
+                "retryable": classification.retryable,
+            },
+        )
         return _finalize_failed(db, deposit_id, started.attempts, error)
     try:
         deposit = _locked_deposit(db, deposit_id)

@@ -16,11 +16,15 @@ _lock = Lock()
 
 class JsonFormatter(logging.Formatter):
     def format(self, record):
-        return json.dumps({
+        payload = {
             "timestamp": self.formatTime(record), "level": record.levelname,
             "logger": record.name, "message": record.getMessage(),
             "correlation_id": correlation_id.get(),
-        }, ensure_ascii=False)
+        }
+        if record.exc_info:
+            payload["exception_class"] = record.exc_info[0].__name__
+            payload["traceback"] = self.formatException(record.exc_info)
+        return json.dumps(payload, ensure_ascii=False)
 
 def configure_logging():
     handler = logging.StreamHandler(); handler.setFormatter(JsonFormatter())
