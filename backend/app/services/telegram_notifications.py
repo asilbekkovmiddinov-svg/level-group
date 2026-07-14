@@ -25,9 +25,9 @@ class TelegramPhotoResult:
     chat_id: int | str
 
 def send_admin_message(text: str, reply_markup: dict | None = None, chat_id: int | str | None = None) -> TelegramPhotoResult:
-    if not config.TELEGRAM_BOT_TOKEN or not (chat_id or config.ADMIN_DEPOSIT_CHANNEL_ID):
+    if not config.TELEGRAM_BOT_TOKEN or not (chat_id or config.NEW_ORDERS_CHANNEL_ID):
         raise TelegramNotificationConfigError("Telegram notification is not configured")
-    target = chat_id or config.ADMIN_DEPOSIT_CHANNEL_ID
+    target = chat_id or config.NEW_ORDERS_CHANNEL_ID
     payload = {"chat_id": target, "text": text}
     if reply_markup:
         payload["reply_markup"] = reply_markup
@@ -52,10 +52,10 @@ def send_admin_message(text: str, reply_markup: dict | None = None, chat_id: int
     return TelegramPhotoResult(message_id=data["result"]["message_id"], chat_id=data["result"].get("chat", {}).get("id", target))
 
 def disable_admin_message_actions(message_id: str, chat_id: int | str | None = None) -> None:
-    if not config.TELEGRAM_BOT_TOKEN or not (chat_id or config.ADMIN_DEPOSIT_CHANNEL_ID):
+    if not config.TELEGRAM_BOT_TOKEN or not (chat_id or config.NEW_ORDERS_CHANNEL_ID):
         raise TelegramNotificationConfigError("Telegram notification is not configured")
     payload = {
-        "chat_id": chat_id or config.ADMIN_DEPOSIT_CHANNEL_ID,
+        "chat_id": chat_id or config.NEW_ORDERS_CHANNEL_ID,
         "message_id": int(message_id),
         "reply_markup": {"inline_keyboard": []},
     }
@@ -78,9 +78,9 @@ def _multipart(fields, filename, content_type, content):
     return boundary, b"".join(chunks)
 
 def send_deposit_receipt_photo(receipt_bytes: bytes, content_type: str, filename: str, caption: str, chat_id: int | str | None = None, reply_markup: dict | None = None) -> TelegramPhotoResult:
-    if not config.TELEGRAM_BOT_TOKEN or not (chat_id or config.ADMIN_DEPOSIT_CHANNEL_ID): raise TelegramNotificationConfigError("Telegram notification is not configured")
+    if not config.TELEGRAM_BOT_TOKEN or not (chat_id or config.NEW_ORDERS_CHANNEL_ID): raise TelegramNotificationConfigError("Telegram notification is not configured")
     if content_type not in {"image/jpeg", "image/png", "image/webp"} or not receipt_bytes: raise TelegramNotificationPermanentError("Invalid receipt image")
-    target = chat_id or config.ADMIN_DEPOSIT_CHANNEL_ID
+    target = chat_id or config.NEW_ORDERS_CHANNEL_ID
     fields = {"chat_id": target, "caption": caption[:CAPTION_LIMIT]}
     if reply_markup:
         fields["reply_markup"] = json.dumps(reply_markup, separators=(",", ":"))
