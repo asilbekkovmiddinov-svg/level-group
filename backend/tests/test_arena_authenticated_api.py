@@ -73,6 +73,7 @@ def fake_match(status=MatchStatus.WAITING_PLAYER):
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.setattr(telegram_auth, "BOT_TOKEN", "test-token")
+    monkeypatch.setattr(match_router, "_notify_arena", lambda *_args, **_kwargs: None)
     app = FastAPI()
     app.include_router(match_router.router)
     app.dependency_overrides[get_db] = lambda: object()
@@ -129,11 +130,14 @@ def test_create_uses_verified_identity_and_requires_rules(client, monkeypatch):
         "scheduled_at": FIXED_NOW.isoformat(),
         "rules_accepted": True,
     }
-    response = client.post("/matches/", json=body, headers=headers(1001))
+    request_headers = headers(1001)
+    request_headers["Idempotency-Key"] = "arena-create-42"
+    response = client.post("/matches/", json=body, headers=request_headers)
 
     assert response.status_code == 200
     assert captured["creator_telegram_id"] == 1001
     assert captured["rules_accepted"] is True
+    assert captured["idempotency_key"] == "arena-create-42"
     assert "creator_telegram_id" not in response.json()
 
     body["rules_accepted"] = False
@@ -281,6 +285,8 @@ def test_rules_acceptance_timestamps_are_written_by_service(monkeypatch):
             return None
 
     monkeypatch.setattr(match_crud, "_lock_efc", lambda **_: None)
+    monkeypatch.setattr(match_crud, "_get_wallet", lambda *_: SimpleNamespace())
+    monkeypatch.setattr(match_crud, "_get_active_user_match", lambda *_: None)
     created = match_crud.create_match(
         Session(),
         creator_telegram_id=1001,

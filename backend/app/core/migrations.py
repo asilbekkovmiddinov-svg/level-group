@@ -388,6 +388,42 @@ def run_migrations():
             ALTER TABLE matches
             ADD COLUMN IF NOT EXISTS opponent_result_video_uploaded_at TIMESTAMP WITH TIME ZONE;
         """))
+        connection.execute(text("""
+            ALTER TABLE matches
+            ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(128),
+            ADD COLUMN IF NOT EXISTS request_fingerprint VARCHAR(64);
+        """))
+        connection.execute(text("""
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_match_creator_idempotency
+            ON matches (creator_telegram_id, idempotency_key)
+            WHERE idempotency_key IS NOT NULL;
+        """))
+
+        connection.execute(text("""
+            CREATE TABLE IF NOT EXISTS arena_notification_deliveries (
+                id SERIAL PRIMARY KEY,
+                match_id INTEGER NOT NULL REFERENCES matches(id),
+                event_type VARCHAR(32) NOT NULL,
+                recipient_telegram_id BIGINT NOT NULL,
+                dedup_key VARCHAR(255) NOT NULL UNIQUE,
+                status VARCHAR(16) NOT NULL DEFAULT 'PENDING',
+                attempts INTEGER NOT NULL DEFAULT 0,
+                message_id VARCHAR(64),
+                last_error TEXT,
+                last_attempt_at TIMESTAMP WITH TIME ZONE,
+                sent_at TIMESTAMP WITH TIME ZONE,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
+            );
+        """))
+        connection.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_arena_notification_deliveries_match_id
+            ON arena_notification_deliveries (match_id);
+        """))
+        connection.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_arena_notification_deliveries_status
+            ON arena_notification_deliveries (status);
+        """))
 
         # Earlier SQLAlchemy-created databases can use a native enum. Convert
         # only that column to VARCHAR before storing new target state values.

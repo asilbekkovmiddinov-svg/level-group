@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+import logging
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -8,6 +10,7 @@ from app.core.telegram_auth import TelegramUser, get_current_telegram_user
 from app.crud import match as match_crud
 from app.models.match import MatchStatus
 from app.services.arena_state_machine import ArenaTransitionError
+from app.services.arena_notifications import notify_arena_event
 from app.schemas.match import (
     MatchAccept,
     MatchAdminResolve,
@@ -29,6 +32,19 @@ from app.schemas.match import (
 
 
 router = APIRouter(prefix="/matches", tags=["1vs1 Arena"])
+logger = logging.getLogger(__name__)
+
+
+def _notify_arena(db: Session, match, event_type: str, actor_telegram_id: int | None = None) -> None:
+    try:
+        notify_arena_event(db, match, event_type, actor_telegram_id)
+    except Exception:
+        db.rollback()
+        logger.exception(
+            "arena_notification_dispatch_failed match_id=%s event_type=%s",
+            match.id,
+            event_type,
+        )
 
 
 def _raise_match_error(error: ValueError) -> None:
@@ -51,6 +67,8 @@ def _raise_match_error(error: ValueError) -> None:
             "Hozir ready",
             "yakunlangan",
             "O‘zingiz",
+            "Idempotency-Key",
+            "faol Arena match",
         )
     ):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=message)
@@ -101,6 +119,7 @@ def _participant_response(match, telegram_id: int) -> MatchParticipantResponse:
 @router.post("/", response_model=MatchParticipantResponse)
 def create_match(
     payload: MatchCreate,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     current_user: TelegramUser = Depends(get_current_telegram_user),
     db: Session = Depends(get_db),
 ):
@@ -114,7 +133,9 @@ def create_match(
             scheduled_at=payload.scheduled_at,
             game_type=payload.game_type,
             rules_accepted=payload.rules_accepted,
+            idempotency_key=idempotency_key,
         )
+        _notify_arena(db, match, "CREATE")
         return _participant_response(match, current_user.telegram_id)
     except ValueError as error:
         _raise_match_error(error)
@@ -220,6 +241,7 @@ def accept_match(
             opponent_telegram_id=current_user.telegram_id,
             rules_accepted=payload.rules_accepted,
         )
+        _notify_arena(db, match, "JOIN", current_user.telegram_id)
         return _participant_response(match, current_user.telegram_id)
     except ValueError as error:
         _raise_match_error(error)
@@ -254,6 +276,7 @@ def set_player_ready(
             match_id=match_id,
             telegram_id=current_user.telegram_id,
         )
+        _notify_arena(db, match, "READY", current_user.telegram_id)
         return _participant_response(match, current_user.telegram_id)
     except ValueError as error:
         _raise_match_error(error)
@@ -289,6 +312,7 @@ def create_room_code(
             telegram_id=current_user.telegram_id,
             room_code=payload.room_code,
         )
+        _notify_arena(db, match, "PLAYING")
         return _participant_response(match, current_user.telegram_id)
     except ValueError as error:
         _raise_match_error(error)
@@ -312,6 +336,7 @@ def upload_result_screenshot(
             screenshot_file_id=payload.screenshot_file_id,
             video_file_id=payload.video_file_id,
         )
+        _notify_arena(db, match, "EVIDENCE", current_user.telegram_id)
         return _participant_response(match, current_user.telegram_id)
     except ValueError as error:
         _raise_match_error(error)
@@ -328,13 +353,15 @@ def upload_internal_match_evidence(
 ):
     """Store Bot-delivered evidence using the existing locked lifecycle."""
     try:
-        return match_crud.upload_result_screenshot(
+        match = match_crud.upload_result_screenshot(
             db=db,
             match_id=payload.match_id,
             telegram_id=payload.telegram_id,
             screenshot_file_id=payload.screenshot_file_id,
             video_file_id=payload.video_file_id,
         )
+        _notify_arena(db, match, "EVIDENCE", payload.telegram_id)
+        return match
     except ValueError as error:
         _raise_match_error(error)
     except SQLAlchemyError:
@@ -351,7 +378,7 @@ def resolve_match(
 ):
     # Legacy admin/internal route. It is moved behind internal auth in 18B-3.
     try:
-        return match_crud.resolve_match(
+        match = match_crud.resolve_match(
             db=db,
             match_id=match_id,
             admin_telegram_id=payload.admin_telegram_id,
@@ -359,6 +386,8 @@ def resolve_match(
             decision=payload.decision,
             admin_comment=payload.admin_comment,
         )
+        _notify_arena(db, match, "RESOLVE")
+        return match
     except ValueError as error:
         _raise_match_error(error)
     except SQLAlchemyError:
@@ -385,6 +414,7 @@ def cancel_match(
             cancel_reason=payload.cancel_reason,
             participant_telegram_id=current_user.telegram_id,
         )
+        _notify_arena(db, match, "CANCEL", current_user.telegram_id)
         return _participant_response(match, current_user.telegram_id)
     except ValueError as error:
         _raise_match_error(error)

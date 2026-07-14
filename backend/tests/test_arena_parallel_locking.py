@@ -57,15 +57,26 @@ def test_parallel_create_serializes_creator_wallet_lock(monkeypatch):
         "get_wallet_for_update",
         lambda db, telegram_id: db.lock_wallet(telegram_id),
     )
+    monkeypatch.setattr(match_crud, "_get_idempotent_match", lambda *_args: None)
+    monkeypatch.setattr(
+        match_crud,
+        "_get_active_user_match",
+        lambda db, telegram_id: (
+            SimpleNamespace(creator_telegram_id=telegram_id)
+            if db.wallets[telegram_id].locked_efc > 0
+            else None
+        ),
+    )
 
     def create():
         db = LockedSession(wallet_locks={1001: wallet_lock}, wallets={1001: wallet})
         sessions.append(db)
         barrier.wait()
         try:
-            return match_crud.create_match(
+            result = match_crud.create_match(
                 db, 1001, Decimal("80"), datetime(2030, 1, 1), rules_accepted=True
             )
+            return result
         except ValueError as error:
             db.rollback()
             return str(error)
@@ -74,7 +85,7 @@ def test_parallel_create_serializes_creator_wallet_lock(monkeypatch):
         results = list(pool.map(lambda _: create(), range(2)))
 
     assert sum(not isinstance(result, str) for result in results) == 1
-    assert results.count("EFC balans yetarli emas") == 1
+    assert results.count("Foydalanuvchida faol Arena match mavjud") == 1
     assert wallet.efc_balance == Decimal("20")
     assert wallet.locked_efc == Decimal("80")
     assert sum(db.commits for db in sessions) == 1

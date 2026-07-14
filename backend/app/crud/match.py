@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+import hashlib
+import json
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -53,8 +55,14 @@ def _get_wallet(db: Session, telegram_id: int) -> Wallet:
     return wallet
 
 
-def _lock_efc(db: Session, telegram_id: int, amount: Decimal, description: str) -> None:
-    wallet = _get_wallet(db, telegram_id)
+def _lock_efc(
+    db: Session,
+    telegram_id: int,
+    amount: Decimal,
+    description: str,
+    wallet: Wallet | None = None,
+) -> None:
+    wallet = wallet or _get_wallet(db, telegram_id)
     amount = _to_decimal(amount)
 
     if _to_decimal(wallet.efc_balance) < amount:
@@ -151,6 +159,51 @@ def get_match_for_update(db: Session, match_id: int) -> Optional[Match]:
     )
 
 
+def _get_idempotent_match(
+    db: Session,
+    creator_telegram_id: int,
+    idempotency_key: str,
+) -> Optional[Match]:
+    return (
+        db.query(Match)
+        .filter(Match.creator_telegram_id == creator_telegram_id)
+        .filter(Match.idempotency_key == idempotency_key)
+        .first()
+    )
+
+
+def _get_active_user_match(db: Session, telegram_id: int) -> Optional[Match]:
+    return (
+        db.query(Match)
+        .filter(
+            (Match.creator_telegram_id == telegram_id)
+            | (Match.opponent_telegram_id == telegram_id)
+        )
+        .filter(Match.status.notin_((MatchStatus.COMPLETED, MatchStatus.CANCELLED)))
+        .order_by(Match.id.desc())
+        .first()
+    )
+
+
+def _create_request_fingerprint(
+    efc_amount: Decimal,
+    scheduled_at: datetime,
+    game_type: MatchGameType,
+    rules_accepted: bool,
+) -> str:
+    canonical = json.dumps(
+        {
+            "efc_amount": format(efc_amount.normalize(), "f"),
+            "scheduled_at": scheduled_at.isoformat(timespec="microseconds"),
+            "game_type": game_type.value,
+            "rules_accepted": rules_accepted,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def is_match_participant(match: Match, telegram_id: int) -> bool:
     return telegram_id in (match.creator_telegram_id, match.opponent_telegram_id)
 
@@ -221,6 +274,7 @@ def create_match(
     scheduled_at: datetime,
     game_type: MatchGameType = MatchGameType.EFOOTBALL,
     rules_accepted: bool = False,
+    idempotency_key: str | None = None,
 ) -> Match:
     efc_amount = _to_decimal(efc_amount)
 
@@ -237,6 +291,32 @@ def create_match(
 
     if scheduled_at <= now_uz:
         raise ValueError("Match vaqti hozirgi vaqtdan keyin bo‘lishi kerak")
+
+    idempotency_key = idempotency_key.strip() if idempotency_key else None
+    if idempotency_key and len(idempotency_key) > 128:
+        raise ValueError("Idempotency-Key 128 belgidan oshmasligi kerak")
+
+    request_fingerprint = _create_request_fingerprint(
+        efc_amount,
+        scheduled_at,
+        game_type,
+        rules_accepted,
+    )
+
+    # The creator wallet row is the per-user serialization point. Replay and
+    # active-match checks therefore run under the same lock as the EFC lock.
+    wallet = _get_wallet(db, creator_telegram_id)
+
+    if idempotency_key:
+        replay = _get_idempotent_match(db, creator_telegram_id, idempotency_key)
+        if replay:
+            if replay.request_fingerprint != request_fingerprint:
+                raise ValueError("Idempotency-Key boshqa request uchun ishlatilgan")
+            return replay
+
+    if _get_active_user_match(db, creator_telegram_id):
+        raise ValueError("Foydalanuvchida faol Arena match mavjud")
+
     total_pool, commission_amount, winner_reward = _calculate_match_money(efc_amount)
 
     _lock_efc(
@@ -244,6 +324,7 @@ def create_match(
         telegram_id=creator_telegram_id,
         amount=efc_amount,
         description="1vs1 Arena e’lon yaratildi, EFC locked qilindi",
+        wallet=wallet,
     )
 
     match = Match(
@@ -256,6 +337,8 @@ def create_match(
         status=MatchStatus.WAITING_PLAYER,
         scheduled_at=scheduled_at,
         creator_rules_accepted_at=datetime.now(timezone.utc),
+        idempotency_key=idempotency_key,
+        request_fingerprint=request_fingerprint,
     )
 
     db.add(match)
