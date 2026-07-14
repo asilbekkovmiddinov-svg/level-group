@@ -4,6 +4,8 @@ from app.models.deposit import Deposit
 from app.services.deposit_notifications import start_deposit_receipt_notification
 from app.services.deposit_notifications import DepositNotificationAlreadySentError, DepositNotificationAttemptsExceededError, DepositNotificationInProgressError, DepositNotificationNotFoundError, DepositNotificationStateError, DepositReceiptMissingError
 from app.services.deposit_notifications import _caption
+from app.services import deposit_notifications
+from app.services.telegram_notifications import TelegramNotificationNetworkError
 
 
 class FakeDeposit:
@@ -95,3 +97,35 @@ def test_receipt_notification_callback_is_bound_to_revision():
     assert "claim_deposit_7_3" in str({
         "callback_data": f"claim_deposit_{deposit.id}_{deposit.receipt_revision}"
     })
+
+
+def test_delivery_failure_is_logged_before_failed_state_is_finalized(monkeypatch, caplog):
+    started = deposit_notifications.DepositReceiptNotificationResult(7, "SENDING", 2, None, None, True)
+    finalized = deposit_notifications.DepositReceiptNotificationResult(7, "FAILED", 2, None, None, True)
+    deposit = FakeDeposit("SENDING", attempts=2)
+    deposit.telegram_id = 42
+    user = object()
+
+    class NotificationQuery:
+        def __init__(self, result): self.result = result
+        def filter(self, *_): return self
+        def first(self): return self.result
+
+    class NotificationSession:
+        def query(self, model):
+            return NotificationQuery(user if model.__name__ == "User" else deposit)
+
+    monkeypatch.setattr(deposit_notifications, "start_deposit_receipt_notification", lambda *_args, **_kwargs: started)
+    monkeypatch.setattr(deposit_notifications, "download_object_bytes", lambda *_args: (_ for _ in ()).throw(TelegramNotificationNetworkError("network unavailable")))
+    monkeypatch.setattr(deposit_notifications, "_finalize_failed", lambda *_args, **_kwargs: finalized)
+
+    with caplog.at_level("ERROR", logger=deposit_notifications.__name__):
+        result = deposit_notifications.send_deposit_receipt_notification(NotificationSession(), 7)
+
+    assert result is finalized
+    record = next(record for record in caplog.records if record.message == "deposit receipt notification delivery failed")
+    assert record.exc_info is not None
+    assert record.deposit_id == 7
+    assert record.attempt == 2
+    assert record.error_class == "TelegramNotificationNetworkError"
+    assert record.retryable is True
