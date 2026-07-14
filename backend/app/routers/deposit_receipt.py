@@ -3,10 +3,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import SessionLocal, get_db
 from app.core.telegram_auth import TelegramUser, get_current_telegram_user
 from app.models.deposit import Deposit
 from app.services.object_storage import (
@@ -16,6 +16,7 @@ from app.services.object_storage import (
     upload_object,
 )
 from app.services.deposit_notifications import send_deposit_receipt_notification
+from app.services.telegram_notifications import disable_admin_message_actions
 
 router = APIRouter(tags=["Deposits"])
 logger = logging.getLogger(__name__)
@@ -37,7 +38,7 @@ def validate_receipt(upload: UploadFile, content: bytes):
 
 @router.post("/deposits/{deposit_id}/receipt")
 @router.post("/deposit/{deposit_id}/evidence")
-async def upload_deposit_receipt(deposit_id: int, file: UploadFile = File(...), current_user: TelegramUser = Depends(get_current_telegram_user), db: Session = Depends(get_db)):
+async def upload_deposit_receipt(deposit_id: int, background_tasks: BackgroundTasks, file: UploadFile = File(...), current_user: TelegramUser = Depends(get_current_telegram_user), db: Session = Depends(get_db)):
     try:
         content = await file.read(MAX_RECEIPT_SIZE + 1)
     except Exception as error:
@@ -61,6 +62,7 @@ async def upload_deposit_receipt(deposit_id: int, file: UploadFile = File(...), 
         raise HTTPException(400, "Receipt can only be changed while deposit is pending")
     new_key = f"receipts/deposits/{deposit.id}/{uuid4()}.{ext}"
     old_key = deposit.receipt_object_key
+    old_message_id = getattr(deposit, "receipt_notification_message_id", None)
     try:
         upload_object(new_key, content, content_type)
     except StorageConfigurationError as error:
@@ -76,7 +78,7 @@ async def upload_deposit_receipt(deposit_id: int, file: UploadFile = File(...), 
         )
         raise HTTPException(502, "Receipt storage upload failed") from error
     try:
-        deposit.receipt_object_key = new_key; deposit.receipt_content_type = content_type; deposit.receipt_size = len(content); deposit.receipt_uploaded_at = datetime.now(timezone.utc); deposit.receipt_notification_status = "PENDING"; deposit.receipt_notification_attempts = 0; deposit.receipt_notification_sent_at = None; deposit.receipt_notification_message_id = None; deposit.receipt_notification_last_error = None; deposit.receipt_notification_last_attempt_at = None
+        deposit.receipt_object_key = new_key; deposit.receipt_content_type = content_type; deposit.receipt_size = len(content); deposit.receipt_uploaded_at = datetime.now(timezone.utc); deposit.receipt_revision = (getattr(deposit, "receipt_revision", 0) or 0) + 1; deposit.receipt_notification_status = "PENDING"; deposit.receipt_notification_attempts = 0; deposit.receipt_notification_sent_at = None; deposit.receipt_notification_message_id = None; deposit.receipt_notification_last_error = None; deposit.receipt_notification_last_attempt_at = None
         db.commit(); db.refresh(deposit)
     except Exception as error:
         db.rollback()
@@ -100,6 +102,11 @@ async def upload_deposit_receipt(deposit_id: int, file: UploadFile = File(...), 
                 "previous receipt object cleanup failed",
                 extra={"deposit_id": deposit.id},
             )
+    if old_message_id:
+        try:
+            disable_admin_message_actions(old_message_id)
+        except Exception:
+            logger.exception("replaced receipt notification could not be edited", extra={"deposit_id": deposit.id})
     try:
         notification = send_deposit_receipt_notification(db, deposit.id)
         notification_status = notification.status
@@ -109,4 +116,16 @@ async def upload_deposit_receipt(deposit_id: int, file: UploadFile = File(...), 
             extra={"deposit_id": deposit.id},
         )
         notification_status = deposit.receipt_notification_status
+    if notification_status == "FAILED":
+        background_tasks.add_task(retry_deposit_notification, deposit.id)
     return {**receipt_metadata(deposit), "notification_status": notification_status}
+
+
+def retry_deposit_notification(deposit_id: int):
+    db = SessionLocal()
+    try:
+        send_deposit_receipt_notification(db, deposit_id)
+    except Exception:
+        logger.exception("queued receipt notification retry failed", extra={"deposit_id": deposit_id})
+    finally:
+        db.close()

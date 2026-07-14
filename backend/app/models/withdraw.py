@@ -6,6 +6,7 @@ from sqlalchemy import (
     String,
     DateTime,
     ForeignKey,
+    UniqueConstraint,
 )
 from sqlalchemy.sql import func
 
@@ -14,6 +15,7 @@ from app.core.database import Base
 
 class Withdraw(Base):
     __tablename__ = "withdraws"
+    __table_args__ = (UniqueConstraint("telegram_id", "idempotency_key", name="uq_withdraw_user_idempotency"),)
 
     id = Column(Integer, primary_key=True, index=True)
 
@@ -67,6 +69,8 @@ class Withdraw(Base):
     notification_attempts = Column(Integer, nullable=False, default=0)
     notification_last_error = Column(String(255), nullable=True)
     notification_last_attempt_at = Column(DateTime(timezone=True), nullable=True)
+    idempotency_key = Column(String(128), nullable=True)
+    request_fingerprint = Column(String(64), nullable=True)
 
     created_at = Column(
         DateTime(timezone=True),

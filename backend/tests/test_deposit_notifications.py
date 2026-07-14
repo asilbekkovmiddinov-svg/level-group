@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from app.models.deposit import Deposit
 from app.services.deposit_notifications import start_deposit_receipt_notification
 from app.services.deposit_notifications import DepositNotificationAlreadySentError, DepositNotificationAttemptsExceededError, DepositNotificationInProgressError, DepositNotificationNotFoundError, DepositNotificationStateError, DepositReceiptMissingError
+from app.services.deposit_notifications import _caption
 
 
 class FakeDeposit:
@@ -14,6 +15,7 @@ class FakeDeposit:
     receipt_notification_last_error = "old"
     receipt_notification_sent_at = datetime(2020, 1, 1, tzinfo=timezone.utc)
     receipt_notification_message_id = "old"
+    receipt_revision = 3
 
     def __init__(self, status="PENDING", attempts=0, receipt=True, last_attempt_at=None):
         self.id = 7; self.receipt_object_key = "private" if receipt else None; self.receipt_notification_status = status; self.receipt_notification_attempts = attempts; self.receipt_notification_last_attempt_at = last_attempt_at; self.receipt_notification_last_error = "old"; self.receipt_notification_sent_at = datetime(2020, 1, 1, tzinfo=timezone.utc); self.receipt_notification_message_id = "old"
@@ -84,3 +86,12 @@ def test_commit_failure_rolls_back_fake_state():
     except RuntimeError: pass
     else: assert False
     assert db.rollback_count == 1 and deposit.receipt_notification_status == "PENDING" and deposit.receipt_notification_attempts == 0
+
+
+def test_receipt_notification_callback_is_bound_to_revision():
+    deposit = FakeDeposit()
+    deposit.telegram_id = 42; deposit.amount = 15000; deposit.status = "PENDING"
+    deposit.created_at = None; deposit.receipt_uploaded_at = None
+    assert "claim_deposit_7_3" in str({
+        "callback_data": f"claim_deposit_{deposit.id}_{deposit.receipt_revision}"
+    })

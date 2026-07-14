@@ -17,6 +17,7 @@ class InternalDepositCreate(DepositCreate):
 
 class DepositAdminAction(BaseModel):
     admin_id: int
+    receipt_revision: int | None = None
 
 
 class DepositReject(BaseModel):

@@ -112,7 +112,7 @@ def send_deposit_receipt_notification(db, deposit_id: int, now: datetime | None 
             reply_markup={
                 "inline_keyboard": [[{
                     "text": "🙋 Qabul qilish",
-                    "callback_data": f"claim_deposit_{deposit.id}",
+                    "callback_data": f"claim_deposit_{deposit.id}_{deposit.receipt_revision}",
                 }]],
             },
         )

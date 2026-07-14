@@ -3,7 +3,7 @@ from io import BytesIO
 from types import SimpleNamespace
 
 import pytest
-from fastapi import HTTPException, UploadFile
+from fastapi import BackgroundTasks, HTTPException, UploadFile
 from starlette.datastructures import Headers
 
 from app.core.telegram_auth import get_current_telegram_user
@@ -71,6 +71,7 @@ def test_evidence_upload_hides_other_users_deposit(monkeypatch):
         asyncio.run(
             deposit_receipt.upload_deposit_receipt(
                 deposit_id=7,
+                background_tasks=BackgroundTasks(),
                 file=receipt_file(),
                 current_user=SimpleNamespace(telegram_id=123),
                 db=FakeSession(deposit),
@@ -96,6 +97,7 @@ def test_evidence_upload_keeps_pending_status_guard(monkeypatch):
         asyncio.run(
             deposit_receipt.upload_deposit_receipt(
                 deposit_id=7,
+                background_tasks=BackgroundTasks(),
                 file=receipt_file(),
                 current_user=SimpleNamespace(telegram_id=123),
                 db=FakeSession(deposit),
@@ -145,6 +147,7 @@ def test_evidence_upload_logs_storage_traceback(
         asyncio.run(
             deposit_receipt.upload_deposit_receipt(
                 deposit_id=7,
+                background_tasks=BackgroundTasks(),
                 file=receipt_file(),
                 current_user=SimpleNamespace(telegram_id=123),
                 db=FakeSession(deposit),
