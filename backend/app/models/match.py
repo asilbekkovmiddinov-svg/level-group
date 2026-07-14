@@ -152,10 +152,10 @@ class Match(Base):
         server_default=MatchGameType.EFOOTBALL.value,
     )
 
-    scheduled_at = Column(DateTime, nullable=False, index=True)
+    scheduled_at = Column(DateTime(timezone=True), nullable=False, index=True)
 
-    ready_check_started_at = Column(DateTime, nullable=True)
-    ready_check_deadline_at = Column(DateTime, nullable=True)
+    ready_check_started_at = Column(DateTime(timezone=True), nullable=True)
+    ready_check_deadline_at = Column(DateTime(timezone=True), nullable=True)
 
     # Target-ready timestamps. The existing ready-check fields remain during
     # the compatibility period and will be retired only after the flow moves.
@@ -176,13 +176,13 @@ class Match(Base):
 
     room_code = Column(String(64), nullable=True)
     room_code_created_by = Column(BigInteger, nullable=True)
-    room_code_created_at = Column(DateTime, nullable=True)
+    room_code_created_at = Column(DateTime(timezone=True), nullable=True)
 
     creator_result_screenshot = Column(String(500), nullable=True)
     opponent_result_screenshot = Column(String(500), nullable=True)
 
-    creator_result_uploaded_at = Column(DateTime, nullable=True)
-    opponent_result_uploaded_at = Column(DateTime, nullable=True)
+    creator_result_uploaded_at = Column(DateTime(timezone=True), nullable=True)
+    opponent_result_uploaded_at = Column(DateTime(timezone=True), nullable=True)
 
     creator_result_video = Column(String(500), nullable=True)
     opponent_result_video = Column(String(500), nullable=True)
@@ -215,16 +215,19 @@ class Match(Base):
 
     admin_telegram_id = Column(BigInteger, nullable=True)
     admin_comment = Column(String(255), nullable=True)
-    resolved_at = Column(DateTime, nullable=True)
+    resolved_at = Column(DateTime(timezone=True), nullable=True)
 
     cancel_reason = Column(String(255), nullable=True)
+    timeout_deadline_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    timeout_processed_at = Column(DateTime(timezone=True), nullable=True)
+    timeout_reason = Column(String(64), nullable=True)
 
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(
-        DateTime,
+        DateTime(timezone=True),
         nullable=False,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
     )
 
 
@@ -279,10 +282,10 @@ class MatchStats(Base):
 
     rating = Column(Integer, nullable=False, default=1000)
 
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(
-        DateTime,
+        DateTime(timezone=True),
         nullable=False,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
     )

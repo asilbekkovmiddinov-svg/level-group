@@ -11,6 +11,7 @@ from app.crud import match as match_crud
 from app.models.match import MatchStatus
 from app.services.arena_state_machine import ArenaTransitionError
 from app.services.arena_notifications import notify_arena_event
+from app.services.arena_timeouts import run_arena_timeout_worker
 from app.schemas.match import (
     MatchAccept,
     MatchAdminResolve,
@@ -28,6 +29,7 @@ from app.schemas.match import (
     MatchRoomCodeCreate,
     MatchScreenshotUpload,
     MatchStatsResponse,
+    ArenaTimeoutWorkerResponse,
 )
 
 
@@ -172,6 +174,15 @@ def get_expired_ready_matches(
     db: Session = Depends(get_db),
 ):
     return {"matches": match_crud.get_expired_ready_matches(db=db, limit=limit)}
+
+
+@router.post("/worker/timeouts/run", response_model=ArenaTimeoutWorkerResponse)
+def run_timeout_worker(
+    limit: int = Query(default=50, ge=1, le=200),
+    _: None = Depends(require_arena_internal_api_key),
+    db: Session = Depends(get_db),
+):
+    return run_arena_timeout_worker(db=db, limit=limit)
 
 
 @router.get("/me", response_model=MatchListResponse)

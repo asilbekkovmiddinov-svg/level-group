@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -8,7 +8,7 @@ from app.models.match import MatchResultType, MatchStatus
 from app.services.arena_state_machine import ArenaTransitionError
 
 
-FIXED_NOW = datetime(2026, 7, 13, 12, 0, 0)
+FIXED_NOW = datetime(2026, 7, 13, 12, 0, 0, tzinfo=timezone.utc)
 
 
 def make_match(**overrides):
@@ -18,7 +18,7 @@ def make_match(**overrides):
         "creator_telegram_id": 1001,
         "opponent_telegram_id": 2002,
         "efc_amount": 100,
-        "scheduled_at": FIXED_NOW + timedelta(hours=5),
+        "scheduled_at": FIXED_NOW,
         "ready_check_started_at": FIXED_NOW - timedelta(minutes=5),
         "ready_check_deadline_at": FIXED_NOW,
         "ready_window_started_at": None,
@@ -63,7 +63,7 @@ def test_ready_window_uses_scheduled_time_as_deadline(monkeypatch):
     match = make_match(
         ready_check_started_at=None,
         ready_check_deadline_at=None,
-        scheduled_at=FIXED_NOW + timedelta(hours=5),
+        scheduled_at=FIXED_NOW,
     )
     db = FakeSession()
     monkeypatch.setattr(match_crud, "get_match_for_update", lambda *_: match)
@@ -133,7 +133,7 @@ def test_marking_second_player_ready_does_not_finish_worker_lifecycle(monkeypatc
     match = make_match(
         creator_ready=True,
         opponent_ready=False,
-        ready_check_deadline_at=datetime.utcnow() + timedelta(minutes=1),
+        ready_check_deadline_at=datetime.now(timezone.utc) + timedelta(minutes=1),
     )
     db = FakeSession()
     monkeypatch.setattr(match_crud, "get_match_for_update", lambda *_: match)

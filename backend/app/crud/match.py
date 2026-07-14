@@ -29,6 +29,14 @@ from app.services.arena_state_machine import (
     ensure_evidence_not_repeated,
     ensure_ready_not_repeated,
 )
+from app.services.arena_time import (
+    ADMIN_REVIEW_TIMEOUT,
+    EVIDENCE_TIMEOUT,
+    ROOM_READY_TIMEOUT,
+    api_tashkent_to_utc,
+    ensure_utc,
+    utc_now,
+)
 
 
 MATCH_COMMISSION_PERCENT = Decimal("5.00")
@@ -239,7 +247,7 @@ def get_user_matches(
 
 
 def get_due_scheduled_matches(db: Session, limit: int = 50) -> list[Match]:
-    now = datetime.utcnow() + timedelta(hours=5)
+    now = utc_now()
     ready_window_opens_at = now + timedelta(minutes=READY_WINDOW_MINUTES)
 
     return (
@@ -254,7 +262,7 @@ def get_due_scheduled_matches(db: Session, limit: int = 50) -> list[Match]:
 
 
 def get_expired_ready_matches(db: Session, limit: int = 50) -> list[Match]:
-    now = datetime.utcnow()
+    now = utc_now()
 
     return (
         db.query(Match)
@@ -278,10 +286,8 @@ def create_match(
 ) -> Match:
     efc_amount = _to_decimal(efc_amount)
 
-    if scheduled_at.tzinfo is not None:
-        scheduled_at = scheduled_at.astimezone(timezone(timedelta(hours=5))).replace(tzinfo=None)
-
-    now_uz = datetime.utcnow() + timedelta(hours=5)
+    scheduled_at = api_tashkent_to_utc(scheduled_at)
+    now = utc_now()
 
     if efc_amount <= 0:
         raise ValueError("EFC miqdori 0 dan katta bo‘lishi kerak")
@@ -289,7 +295,7 @@ def create_match(
     if not rules_accepted:
         raise ValueError("Match qoidalarini qabul qilish majburiy")
 
-    if scheduled_at <= now_uz:
+    if scheduled_at <= now:
         raise ValueError("Match vaqti hozirgi vaqtdan keyin bo‘lishi kerak")
 
     idempotency_key = idempotency_key.strip() if idempotency_key else None
@@ -339,6 +345,7 @@ def create_match(
         creator_rules_accepted_at=datetime.now(timezone.utc),
         idempotency_key=idempotency_key,
         request_fingerprint=request_fingerprint,
+        timeout_deadline_at=scheduled_at,
     )
 
     db.add(match)
@@ -367,7 +374,7 @@ def accept_match(
     if not rules_accepted:
         raise ValueError("Match qoidalarini qabul qilish majburiy")
 
-    if match.scheduled_at <= datetime.utcnow():
+    if ensure_utc(match.scheduled_at) <= utc_now():
         raise ValueError("Match vaqti o‘tib ketgan")
 
     _lock_efc(
@@ -380,7 +387,8 @@ def accept_match(
     match.opponent_telegram_id = opponent_telegram_id
     match.opponent_rules_accepted_at = datetime.now(timezone.utc)
     match.status = MatchStatus.SCHEDULED
-    match.updated_at = datetime.utcnow()
+    match.timeout_deadline_at = None
+    match.updated_at = utc_now()
 
     db.commit()
     db.refresh(match)
@@ -400,8 +408,8 @@ def start_ready_check(
 
     ensure_action_allowed(match, ArenaAction.START_READY_CHECK)
 
-    now = now or datetime.utcnow()
-    scheduled_at_utc = match.scheduled_at - timedelta(hours=5)
+    now = ensure_utc(now) if now else utc_now()
+    scheduled_at_utc = ensure_utc(match.scheduled_at)
     window_opens_at = scheduled_at_utc - timedelta(minutes=READY_WINDOW_MINUTES)
 
     if now < window_opens_at:
@@ -410,8 +418,8 @@ def start_ready_check(
     match.status = MatchStatus.READY_CHECK
     match.ready_check_started_at = now
     match.ready_check_deadline_at = scheduled_at_utc
-    match.ready_window_started_at = now.replace(tzinfo=timezone.utc)
-    match.ready_deadline_at = scheduled_at_utc.replace(tzinfo=timezone.utc)
+    match.ready_window_started_at = now
+    match.ready_deadline_at = scheduled_at_utc
     match.updated_at = now
 
     db.commit()
@@ -428,9 +436,9 @@ def set_player_ready(db: Session, match_id: int, telegram_id: int) -> Match:
 
     ensure_ready_not_repeated(match, telegram_id)
 
-    now = datetime.utcnow()
+    now = utc_now()
 
-    if match.ready_check_deadline_at and now > match.ready_check_deadline_at:
+    if match.ready_check_deadline_at and now > ensure_utc(match.ready_check_deadline_at):
         raise ValueError("Ready vaqti tugagan")
 
     if telegram_id == match.creator_telegram_id:
@@ -462,15 +470,17 @@ def finish_ready_check(
 
     ensure_action_allowed(match, ArenaAction.FINISH_READY_CHECK)
 
-    now = now or datetime.utcnow()
+    now = ensure_utc(now) if now else utc_now()
 
-    if match.ready_check_deadline_at and now < match.ready_check_deadline_at:
+    if match.ready_check_deadline_at and now < ensure_utc(match.ready_check_deadline_at):
         raise ValueError("Ready check muddati hali tugamagan")
 
     if match.creator_ready and match.opponent_ready:
         match.status = MatchStatus.WAITING_ROOM_CODE
+        match.timeout_deadline_at = now + ROOM_READY_TIMEOUT
     elif match.creator_ready or match.opponent_ready:
         match.status = MatchStatus.TECHNICAL_WIN
+        match.timeout_deadline_at = None
     else:
         _unlock_efc(
             db=db,
@@ -489,6 +499,7 @@ def finish_ready_check(
         match.result_type = MatchResultType.CANCELLED
         match.cancel_reason = "Ikkala foydalanuvchi ham ready bosmadi"
         match.resolved_at = now
+        match.timeout_deadline_at = None
 
     match.updated_at = now
 
@@ -525,12 +536,13 @@ def create_room_code(
     if len(clean_code) > 64:
         raise ValueError("Room Code juda uzun")
 
-    now = datetime.utcnow()
+    now = utc_now()
 
     match.room_code = clean_code
     match.room_code_created_by = telegram_id
     match.room_code_created_at = now
     match.status = MatchStatus.MATCH_STARTED
+    match.timeout_deadline_at = now + EVIDENCE_TIMEOUT
     match.updated_at = now
 
     db.commit()
@@ -564,8 +576,7 @@ def upload_result_screenshot(
         video_submitted=bool(video_file_id),
     )
 
-    now = datetime.utcnow()
-    now_aware = datetime.now(timezone.utc)
+    now = utc_now()
 
     if telegram_id == match.creator_telegram_id:
         if screenshot_file_id:
@@ -573,17 +584,18 @@ def upload_result_screenshot(
             match.creator_result_uploaded_at = now
         if video_file_id:
             match.creator_result_video = video_file_id
-            match.creator_result_video_uploaded_at = now_aware
+            match.creator_result_video_uploaded_at = now
     else:
         if screenshot_file_id:
             match.opponent_result_screenshot = screenshot_file_id
             match.opponent_result_uploaded_at = now
         if video_file_id:
             match.opponent_result_video = video_file_id
-            match.opponent_result_video_uploaded_at = now_aware
+            match.opponent_result_video_uploaded_at = now
 
     if match.creator_evidence_complete and match.opponent_evidence_complete:
         match.status = MatchStatus.WAITING_ADMIN
+        match.timeout_deadline_at = now + ADMIN_REVIEW_TIMEOUT
     match.updated_at = now
 
     db.commit()
@@ -629,7 +641,7 @@ def _update_winner_stats(db: Session, telegram_id: int, reward: Decimal) -> None
         stats.win_rate = Decimal(stats.wins) * Decimal("100") / Decimal(stats.total_matches)
 
     stats.rating += 25
-    stats.updated_at = datetime.utcnow()
+    stats.updated_at = utc_now()
 
 
 def _update_loser_stats(db: Session, telegram_id: int, lost_amount: Decimal) -> None:
@@ -645,7 +657,7 @@ def _update_loser_stats(db: Session, telegram_id: int, lost_amount: Decimal) -> 
         stats.win_rate = Decimal(stats.wins) * Decimal("100") / Decimal(stats.total_matches)
 
     stats.rating = max(0, stats.rating - 15)
-    stats.updated_at = datetime.utcnow()
+    stats.updated_at = utc_now()
 
 
 def resolve_match(
@@ -689,7 +701,7 @@ def resolve_match(
             admin_telegram_id=admin_telegram_id,
         )
 
-    now = datetime.utcnow()
+    now = utc_now()
 
     if decision == MatchAdminDecision.REFUND:
         if winner_telegram_id is not None:
@@ -713,6 +725,7 @@ def resolve_match(
         match.admin_comment = admin_comment
         match.status = MatchStatus.COMPLETED
         match.resolved_at = now
+        match.timeout_deadline_at = None
         match.updated_at = now
         db.commit()
         db.refresh(match)
@@ -782,6 +795,7 @@ def resolve_match(
     match.admin_comment = admin_comment
     match.status = MatchStatus.COMPLETED
     match.resolved_at = now
+    match.timeout_deadline_at = None
     match.updated_at = now
 
     db.commit()
@@ -824,13 +838,14 @@ def cancel_match(
             description="1vs1 Arena match bekor qilindi",
         )
 
-    now = datetime.utcnow()
+    now = utc_now()
 
     match.status = MatchStatus.CANCELLED
     match.result_type = MatchResultType.CANCELLED
     match.cancel_reason = cancel_reason
     match.admin_telegram_id = admin_telegram_id
     match.resolved_at = now
+    match.timeout_deadline_at = None
     match.updated_at = now
 
     db.commit()
