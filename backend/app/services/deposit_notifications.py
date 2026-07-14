@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import logging
+import traceback
 
 from app.services.object_storage import StorageObjectNotFoundError, StorageOperationError
 from app.services.telegram_notifications import (TelegramNotificationConfigError, TelegramNotificationNetworkError, TelegramNotificationPermanentError, TelegramNotificationRateLimitError, TelegramNotificationResponseError, TelegramNotificationTemporaryError, TelegramNotificationTimeoutError)
@@ -122,7 +123,10 @@ def send_deposit_receipt_notification(db, deposit_id: int, now: datetime | None 
     except (DepositReceiptMissingError, StorageOperationError, TelegramNotificationConfigError, TelegramNotificationTimeoutError, TelegramNotificationNetworkError, TelegramNotificationRateLimitError, TelegramNotificationTemporaryError, TelegramNotificationPermanentError, TelegramNotificationResponseError) as error:
         classification = classify_notification_error(error)
         logger.exception(
-            "deposit receipt notification delivery failed",
+            "deposit receipt notification delivery failed\n"
+            f"exception_class={type(error).__name__}\n"
+            f"exception_message={error}\n"
+            f"traceback={traceback.format_exc()}",
             extra={
                 "deposit_id": deposit_id,
                 "attempt": started.attempts,

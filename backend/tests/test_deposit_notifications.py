@@ -123,8 +123,12 @@ def test_delivery_failure_is_logged_before_failed_state_is_finalized(monkeypatch
         result = deposit_notifications.send_deposit_receipt_notification(NotificationSession(), 7)
 
     assert result is finalized
-    record = next(record for record in caplog.records if record.message == "deposit receipt notification delivery failed")
+    record = next(record for record in caplog.records if record.message.startswith("deposit receipt notification delivery failed"))
     assert record.exc_info is not None
+    assert "exception_class=TelegramNotificationNetworkError" in record.message
+    assert "exception_message=network unavailable" in record.message
+    assert "traceback=Traceback (most recent call last)" in record.message
+    assert "TelegramNotificationNetworkError: network unavailable" in record.message
     assert record.deposit_id == 7
     assert record.attempt == 2
     assert record.error_class == "TelegramNotificationNetworkError"
