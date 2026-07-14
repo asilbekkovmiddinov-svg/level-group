@@ -61,6 +61,13 @@ class Withdraw(Base):
 
     processing_seconds = Column(Integer, nullable=True)
 
+    notification_status = Column(String(20), nullable=False, default="PENDING")
+    notification_sent_at = Column(DateTime(timezone=True), nullable=True)
+    notification_message_id = Column(String(100), nullable=True)
+    notification_attempts = Column(Integer, nullable=False, default=0)
+    notification_last_error = Column(String(255), nullable=True)
+    notification_last_attempt_at = Column(DateTime(timezone=True), nullable=True)
+
     created_at = Column(
         DateTime(timezone=True),
         server_default=func.now(),

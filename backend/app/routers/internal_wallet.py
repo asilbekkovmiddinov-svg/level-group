@@ -29,6 +29,14 @@ from app.services.deposit_notifications import (
     DepositReceiptMissingError,
     send_deposit_receipt_notification,
 )
+from app.services.withdraw_notifications import (
+    WithdrawNotificationAlreadySentError,
+    WithdrawNotificationAttemptsExceededError,
+    WithdrawNotificationInProgressError,
+    WithdrawNotificationNotFoundError,
+    WithdrawNotificationStateError,
+    send_withdraw_notification,
+)
 
 
 router = APIRouter(prefix="/internal", tags=["Internal"])
@@ -192,6 +200,38 @@ def send_deposit_receipt_notification_request(
         raise HTTPException(
             503 if result.retryable else 500,
             "Receipt notification delivery failed",
+        )
+
+    return {
+        "status": result.status,
+        "message_id": result.message_id,
+        "attempts": result.attempts,
+        "sent_at": result.sent_at,
+    }
+
+
+@router.post("/withdraws/{withdraw_id}/send-notification")
+def send_withdraw_notification_request(
+    withdraw_id: int,
+    _: None = Depends(require_internal_api_key),
+    db: Session = Depends(get_db),
+):
+    try:
+        result = send_withdraw_notification(db, withdraw_id)
+    except WithdrawNotificationNotFoundError:
+        raise HTTPException(404, "Withdraw not found")
+    except (
+        WithdrawNotificationAlreadySentError,
+        WithdrawNotificationInProgressError,
+        WithdrawNotificationAttemptsExceededError,
+        WithdrawNotificationStateError,
+    ):
+        raise HTTPException(409, "Withdraw notification cannot be started")
+
+    if result.status == "FAILED":
+        raise HTTPException(
+            503 if result.retryable else 500,
+            "Withdraw notification delivery failed",
         )
 
     return {

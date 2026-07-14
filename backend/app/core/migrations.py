@@ -71,6 +71,16 @@ def run_migrations():
             ADD COLUMN IF NOT EXISTS bank_name VARCHAR(120);
         """))
 
+        connection.execute(text("""
+            ALTER TABLE withdraws
+            ADD COLUMN IF NOT EXISTS notification_status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+            ADD COLUMN IF NOT EXISTS notification_sent_at TIMESTAMP WITH TIME ZONE,
+            ADD COLUMN IF NOT EXISTS notification_message_id VARCHAR(100),
+            ADD COLUMN IF NOT EXISTS notification_attempts INTEGER NOT NULL DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS notification_last_error VARCHAR(255),
+            ADD COLUMN IF NOT EXISTS notification_last_attempt_at TIMESTAMP WITH TIME ZONE;
+        """))
+
         # =========================
         # P2P ORDERS
         # =========================
