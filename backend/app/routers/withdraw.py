@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -15,11 +17,13 @@ from app.schemas.withdraw import WithdrawCreate
 from app.core.telegram_auth import TelegramUser, get_current_telegram_user
 from app.core.timezone import format_tashkent_datetime
 from app.routers.internal_wallet import require_internal_api_key
+from app.services.withdraw_notifications import send_withdraw_notification
 
 router = APIRouter(
     prefix="/withdraw",
     tags=["Withdraw"],
 )
+logger = logging.getLogger(__name__)
 
 
 def withdraw_response(withdraw):
@@ -63,6 +67,13 @@ def create_withdraw_request(
         raise HTTPException(status_code=404, detail="Wallet topilmadi")
 
     response = withdraw_response(withdraw)
+    try:
+        notification = send_withdraw_notification(db, withdraw.id)
+        response["notification_status"] = notification.status
+    except Exception:
+        db.rollback()
+        logger.exception("Withdraw %s admin notification failed unexpectedly", withdraw.id)
+        response["notification_status"] = "FAILED"
     response["message"] = "Pul yechish so‘rovi qabul qilindi. To‘lov 24 soat ichida yuboriladi."
     return response
 

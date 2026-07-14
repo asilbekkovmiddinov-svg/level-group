@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from app.core.database import get_db
+from app.routers.internal_wallet import require_internal_api_key
 
 router = APIRouter(
     prefix="/system",
@@ -11,7 +12,10 @@ router = APIRouter(
 
 
 @router.post("/migrate-orders")
-def migrate_orders(db: Session = Depends(get_db)):
+def migrate_orders(
+    _: None = Depends(require_internal_api_key),
+    db: Session = Depends(get_db),
+):
     queries = [
         "ALTER TABLE orders ADD COLUMN IF NOT EXISTS claimed_by BIGINT",
         "ALTER TABLE orders ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMP",
@@ -32,7 +36,10 @@ def migrate_orders(db: Session = Depends(get_db)):
         "message": "Orders table migrated successfully"
     }
 @router.post("/migrate-deposits")
-def migrate_deposits(db: Session = Depends(get_db)):
+def migrate_deposits(
+    _: None = Depends(require_internal_api_key),
+    db: Session = Depends(get_db),
+):
     queries = [
         "ALTER TABLE deposits ADD COLUMN IF NOT EXISTS claimed_by BIGINT",
         "ALTER TABLE deposits ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMP",
