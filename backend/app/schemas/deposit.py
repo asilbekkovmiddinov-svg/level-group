@@ -1,14 +1,12 @@
 from decimal import Decimal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional
 
 
 class DepositCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     amount: Decimal
-
-    class Config:
-        extra = "forbid"
 
 
 class InternalDepositCreate(DepositCreate):

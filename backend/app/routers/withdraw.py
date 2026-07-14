@@ -19,6 +19,7 @@ from app.core.telegram_auth import TelegramUser, get_current_telegram_user
 from app.core.timezone import format_tashkent_datetime
 from app.routers.internal_wallet import require_internal_api_key
 from app.services.withdraw_notifications import send_withdraw_notification
+from app.core.observability import enforce_rate_limit, increment
 
 router = APIRouter(
     prefix="/withdraw",
@@ -55,7 +56,9 @@ def create_withdraw_request(
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
     db: Session = Depends(get_db),
 ):
+    enforce_rate_limit(current_user.telegram_id, "withdraw_create", 3)
     withdraw = create_withdraw(db, data, current_user.telegram_id, idempotency_key)
+    increment("withdraw_create_total")
 
     if withdraw == "insufficient":
         raise HTTPException(status_code=400, detail="Balans yetarli emas")

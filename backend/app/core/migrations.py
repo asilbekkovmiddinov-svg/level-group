@@ -11,6 +11,13 @@ logger = logging.getLogger(__name__)
 
 def run_migrations():
     with engine.begin() as connection:
+        connection.execute(text("""
+            CREATE TABLE IF NOT EXISTS receipt_orphans (
+                id SERIAL PRIMARY KEY, object_key VARCHAR(500) NOT NULL UNIQUE,
+                attempts INTEGER NOT NULL DEFAULT 0, last_error VARCHAR(255),
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            );
+        """))
 
         # =========================
         # WITHDRAWS
