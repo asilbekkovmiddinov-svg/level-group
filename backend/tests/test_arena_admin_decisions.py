@@ -252,3 +252,23 @@ def test_arena_wallet_helpers_delegate_to_existing_wallet_services(monkeypatch):
     ]
     assert all(item["commit"] is False for item in transactions)
     assert all(isinstance(item["balance_after"], Decimal) for item in transactions)
+
+
+def test_arena_stake_lock_uses_wallet_row_lock(monkeypatch):
+    wallet = SimpleNamespace(efc_balance=Decimal("250"), locked_efc=Decimal("25"))
+    calls = []
+    added = []
+    db = SimpleNamespace(add=added.append)
+
+    monkeypatch.setattr(
+        match_crud,
+        "get_wallet_for_update",
+        lambda session, telegram_id: calls.append((session, telegram_id)) or wallet,
+    )
+
+    match_crud._lock_efc(db, 1001, Decimal("100"), "arena lock")
+
+    assert calls == [(db, 1001)]
+    assert wallet.efc_balance == Decimal("150")
+    assert wallet.locked_efc == Decimal("125")
+    assert len(added) == 1

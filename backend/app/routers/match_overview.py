@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import text
@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.telegram_auth import TelegramUser, get_current_telegram_user
+from app.services.arena_time import TASHKENT, utc_now
 
 router = APIRouter(prefix="/matches", tags=["1vs1 Arena Overview"])
 
@@ -15,8 +16,9 @@ def get_match_overview(
     _: TelegramUser = Depends(get_current_telegram_user),
     db: Session = Depends(get_db),
 ):
-    now = datetime.utcnow()
-    today_start = datetime(now.year, now.month, now.day)
+    now = utc_now()
+    local_now = now.astimezone(TASHKENT)
+    today_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(now.tzinfo)
     online_limit = now - timedelta(minutes=5)
 
     online_users = db.execute(

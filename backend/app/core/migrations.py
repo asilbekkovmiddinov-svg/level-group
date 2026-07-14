@@ -388,6 +388,94 @@ def run_migrations():
             ALTER TABLE matches
             ADD COLUMN IF NOT EXISTS opponent_result_video_uploaded_at TIMESTAMP WITH TIME ZONE;
         """))
+        connection.execute(text("""
+            ALTER TABLE matches
+            ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(128),
+            ADD COLUMN IF NOT EXISTS request_fingerprint VARCHAR(64);
+        """))
+        connection.execute(text("""
+            ALTER TABLE matches
+            ADD COLUMN IF NOT EXISTS timeout_deadline_at TIMESTAMP WITH TIME ZONE,
+            ADD COLUMN IF NOT EXISTS timeout_processed_at TIMESTAMP WITH TIME ZONE,
+            ADD COLUMN IF NOT EXISTS timeout_reason VARCHAR(64);
+        """))
+        connection.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_matches_timeout_deadline_at
+            ON matches (timeout_deadline_at);
+        """))
+        connection.execute(text("""
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_match_creator_idempotency
+            ON matches (creator_telegram_id, idempotency_key)
+            WHERE idempotency_key IS NOT NULL;
+        """))
+
+        connection.execute(text("""
+            CREATE TABLE IF NOT EXISTS arena_notification_deliveries (
+                id SERIAL PRIMARY KEY,
+                match_id INTEGER NOT NULL REFERENCES matches(id),
+                event_type VARCHAR(32) NOT NULL,
+                recipient_telegram_id BIGINT NOT NULL,
+                dedup_key VARCHAR(255) NOT NULL UNIQUE,
+                status VARCHAR(16) NOT NULL DEFAULT 'PENDING',
+                attempts INTEGER NOT NULL DEFAULT 0,
+                message_id VARCHAR(64),
+                last_error TEXT,
+                last_attempt_at TIMESTAMP WITH TIME ZONE,
+                sent_at TIMESTAMP WITH TIME ZONE,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
+            );
+        """))
+        connection.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_arena_notification_deliveries_match_id
+            ON arena_notification_deliveries (match_id);
+        """))
+        connection.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_arena_notification_deliveries_status
+            ON arena_notification_deliveries (status);
+        """))
+
+        # Normalize legacy SQLAlchemy-created timestamp columns. Public
+        # scheduled_at values were historically stored as Tashkent-naive;
+        # transition timestamps were historically UTC-naive.
+        connection.execute(text("""
+            DO $$
+            DECLARE target_column TEXT;
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'matches'
+                      AND column_name = 'scheduled_at'
+                      AND data_type = 'timestamp without time zone'
+                ) THEN
+                    ALTER TABLE matches
+                    ALTER COLUMN scheduled_at TYPE TIMESTAMP WITH TIME ZONE
+                    USING scheduled_at AT TIME ZONE 'Asia/Tashkent';
+                END IF;
+
+                FOREACH target_column IN ARRAY ARRAY[
+                    'ready_check_started_at', 'ready_check_deadline_at',
+                    'room_code_created_at', 'creator_result_uploaded_at',
+                    'opponent_result_uploaded_at', 'resolved_at',
+                    'created_at', 'updated_at'
+                ] LOOP
+                    IF EXISTS (
+                        SELECT 1 FROM information_schema.columns AS c
+                        WHERE c.table_schema = current_schema()
+                          AND c.table_name = 'matches'
+                          AND c.column_name = target_column
+                          AND c.data_type = 'timestamp without time zone'
+                    ) THEN
+                        EXECUTE format(
+                            'ALTER TABLE matches ALTER COLUMN %I TYPE TIMESTAMP WITH TIME ZONE USING %I AT TIME ZONE ''UTC''',
+                            target_column,
+                            target_column
+                        );
+                    END IF;
+                END LOOP;
+            END $$;
+        """))
 
         # Earlier SQLAlchemy-created databases can use a native enum. Convert
         # only that column to VARCHAR before storing new target state values.
@@ -443,6 +531,18 @@ def run_migrations():
                 """),
                 {"legacy_status": legacy_status, "target_status": target_status},
             )
+
+        connection.execute(text("""
+            UPDATE matches
+            SET timeout_deadline_at = CASE
+                WHEN status = 'WAITING_PLAYER' THEN scheduled_at
+                WHEN status = 'ROOM_READY' THEN updated_at + INTERVAL '10 minutes'
+                WHEN status = 'PLAYING' THEN COALESCE(room_code_created_at, updated_at) + INTERVAL '2 hours'
+                WHEN status = 'WAITING_ADMIN' THEN updated_at + INTERVAL '24 hours'
+            END
+            WHERE timeout_deadline_at IS NULL
+              AND status IN ('WAITING_PLAYER', 'ROOM_READY', 'PLAYING', 'WAITING_ADMIN');
+        """))
 
         # =========================
         # 1VS1 ARENA STATS

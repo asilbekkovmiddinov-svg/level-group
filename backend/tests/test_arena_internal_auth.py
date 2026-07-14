@@ -17,6 +17,7 @@ from app.routers import match as match_router
 INTERNAL_ENDPOINTS = {
     ("/matches/worker/due-scheduled", "GET"),
     ("/matches/worker/expired-ready", "GET"),
+    ("/matches/worker/timeouts/run", "POST"),
     ("/matches/{match_id}/start-ready-check", "POST"),
     ("/matches/{match_id}/finish-ready-check", "POST"),
     ("/matches/{match_id}/resolve", "POST"),

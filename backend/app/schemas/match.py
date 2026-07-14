@@ -86,6 +86,7 @@ class MatchResponse(BaseModel):
 
     ready_window_started_at: Optional[datetime] = None
     ready_deadline_at: Optional[datetime] = None
+    timeout_deadline_at: Optional[datetime] = None
 
     creator_ready: bool
     opponent_ready: bool
@@ -149,6 +150,9 @@ class MatchInternalResponse(BaseModel):
     admin_comment: Optional[str] = None
     resolved_at: Optional[datetime] = None
     cancel_reason: Optional[str] = None
+    timeout_deadline_at: Optional[datetime] = None
+    timeout_processed_at: Optional[datetime] = None
+    timeout_reason: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -172,6 +176,14 @@ class MatchInternalListResponse(BaseModel):
     """Internal worker/admin collection; do not expose through public routes."""
 
     matches: list[MatchInternalResponse]
+
+
+class ArenaTimeoutWorkerResponse(BaseModel):
+    scanned: int
+    processed: int
+    skipped: int
+    failed: int
+    retries: int
 
 
 class MatchStatsResponse(BaseModel):
