@@ -54,7 +54,7 @@ def test_base_rewards_match_only_frontend_random_sectors():
 
 
 def test_100000_base_spin_simulation_matches_probability_contract(monkeypatch):
-    tickets = iter(range(1, 10001) * 10)
+    tickets = iter(list(range(1, 10001)) * 10)
     monkeypatch.setattr(wheel.random, "randint", lambda _minimum, _maximum: next(tickets))
 
     counts = {reward["code"]: 0 for reward in wheel.BASE_REWARDS}
