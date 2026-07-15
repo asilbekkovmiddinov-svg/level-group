@@ -150,6 +150,30 @@ def get_last_free_spin_at(db: Session, telegram_id: int):
     return spin.created_at if spin else None
 
 
+def get_last_completed_spin(db: Session, telegram_id: int):
+    return (
+        db.query(WheelSpin)
+        .filter(
+            WheelSpin.telegram_id == telegram_id,
+            WheelSpin.status == STATUS_COMPLETED,
+        )
+        .order_by(WheelSpin.created_at.desc(), WheelSpin.id.desc())
+        .first()
+    )
+
+
+def serialize_last_win(spin):
+    if spin is None:
+        return None
+
+    return {
+        "reward_type": spin.reward_type,
+        "reward_amount": float(spin.reward_amount),
+        "reward_code": spin.reward_code,
+        "created_at": format_utc(spin.created_at),
+    }
+
+
 def can_spin(limit: WheelDailyLimit, spin_type: str, last_free_spin_at=None, now=None):
     current = make_naive(now or get_now())
 
@@ -391,6 +415,7 @@ def get_wheel_status(db: Session, telegram_id: int):
         "bonus_spin_count": limit.bonus_spin_count,
         "max_ad_spins": MAX_AD_SPINS_PER_DAY,
         "global_spin_count": settings.global_spin_count,
+        "last_win": serialize_last_win(get_last_completed_spin(db, telegram_id)),
     }
 
 
