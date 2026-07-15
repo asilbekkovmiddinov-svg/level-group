@@ -66,6 +66,7 @@ def test_internal_endpoint_cleans_only_authorized_test_matches(monkeypatch):
     response = client.post(
         "/matches/internal/test-cleanup",
         headers={"X-Internal-Api-Key": "cleanup-test-key"},
+        json={"telegram_id": TARGET_ID},
     )
 
     assert response.status_code == 200
@@ -87,3 +88,17 @@ def test_internal_endpoint_cleans_only_authorized_test_matches(monkeypatch):
     assert db.query(Transaction).filter(Transaction.type == "MATCH_UNLOCK").count() == 3
     db.close()
 
+
+def test_cleanup_openapi_exposes_required_confirming_body():
+    app = FastAPI()
+    app.include_router(match_router.router)
+
+    operation = app.openapi()["paths"]["/matches/internal/test-cleanup"]["post"]
+    body = operation["requestBody"]
+    schema = body["content"]["application/json"]["schema"]
+
+    assert body["required"] is True
+    assert schema["$ref"].endswith("/ArenaTestCleanupRequest")
+    request_schema = app.openapi()["components"]["schemas"]["ArenaTestCleanupRequest"]
+    assert request_schema["required"] == ["telegram_id"]
+    assert request_schema["properties"]["telegram_id"]["const"] == TARGET_ID
