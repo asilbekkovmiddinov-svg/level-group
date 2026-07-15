@@ -24,7 +24,8 @@ STATUS_PENDING = "PENDING"
 STATUS_REJECTED = "REJECTED"
 
 MAX_AD_SPINS_PER_DAY = 10
-AD_COOLDOWN_MINUTES = 1
+FREE_COOLDOWN_HOURS = 24
+AD_COOLDOWN_MINUTES = 60
 
 EFC_250_INTERVAL_MIN = 8000
 EFC_250_INTERVAL_MAX = 10000
@@ -118,27 +119,58 @@ def get_or_create_daily_limit(db: Session, telegram_id: int):
     return limit
 
 
-def can_spin(limit: WheelDailyLimit, spin_type: str):
-    now = get_now()
+def format_utc(value):
+    if value is None:
+        return None
+    return f"{make_naive(value).isoformat()}Z"
+
+
+def get_cooldown_status(last_spin_at, cooldown: timedelta, now=None):
+    current = make_naive(now or get_now())
+    if not last_spin_at:
+        return True, None, 1
+
+    next_spin_at = make_naive(last_spin_at) + cooldown
+    if current >= next_spin_at:
+        return True, None, 1
+    return False, format_utc(next_spin_at), 0
+
+
+def get_last_free_spin_at(db: Session, telegram_id: int):
+    spin = (
+        db.query(WheelSpin)
+        .filter(
+            WheelSpin.telegram_id == telegram_id,
+            WheelSpin.spin_type == SPIN_TYPE_FREE,
+            WheelSpin.status == STATUS_COMPLETED,
+        )
+        .order_by(WheelSpin.created_at.desc())
+        .first()
+    )
+    return spin.created_at if spin else None
+
+
+def can_spin(limit: WheelDailyLimit, spin_type: str, last_free_spin_at=None, now=None):
+    current = make_naive(now or get_now())
 
     if spin_type == SPIN_TYPE_FREE:
-        if limit.free_spin_used:
-            return False, "Bugungi bepul aylantirish ishlatilgan"
+        available, next_spin_at, _remaining = get_cooldown_status(
+            last_free_spin_at,
+            timedelta(hours=FREE_COOLDOWN_HOURS),
+            current,
+        )
+        if not available:
+            return False, f"Keyingi bepul aylantirish: {next_spin_at}"
         return True, None
 
     if spin_type == SPIN_TYPE_AD:
-        if limit.ad_spin_count >= MAX_AD_SPINS_PER_DAY:
-            return False, "Bugungi reklama aylantirish limiti tugagan"
-
-        if limit.last_ad_spin_at:
-            last_ad_spin_at = make_naive(limit.last_ad_spin_at)
-            next_time = last_ad_spin_at + timedelta(minutes=AD_COOLDOWN_MINUTES)
-
-            if now < next_time:
-                seconds = int((next_time - now).total_seconds())
-                minutes = seconds // 60
-                return False, f"Keyingi reklama aylantirish: {minutes} daqiqadan keyin"
-
+        available, next_spin_at, _remaining = get_cooldown_status(
+            limit.last_ad_spin_at,
+            timedelta(minutes=AD_COOLDOWN_MINUTES),
+            current,
+        )
+        if not available:
+            return False, f"Keyingi reklama aylantirish: {next_spin_at}"
         return True, None
 
     if spin_type == SPIN_TYPE_BONUS:
@@ -147,7 +179,6 @@ def can_spin(limit: WheelDailyLimit, spin_type: str):
         return True, None
 
     return False, "Spin turi noto‘g‘ri"
-
 
 def mark_spin_used(limit: WheelDailyLimit, spin_type: str):
     if spin_type == SPIN_TYPE_FREE:
@@ -158,18 +189,12 @@ def mark_spin_used(limit: WheelDailyLimit, spin_type: str):
     elif spin_type == SPIN_TYPE_BONUS:
         limit.bonus_spin_count -= 1
 
-def get_next_ad_spin_at(limit: WheelDailyLimit):
-    if not limit.last_ad_spin_at:
-        return None
-
-    last_ad_spin_at = make_naive(limit.last_ad_spin_at)
-    next_time = last_ad_spin_at + timedelta(minutes=AD_COOLDOWN_MINUTES)
-
-    if get_now() >= next_time:
-        return None
-
-    return next_time.isoformat()
-
+def get_next_ad_spin_at(limit: WheelDailyLimit, now=None):
+    return get_cooldown_status(
+        limit.last_ad_spin_at,
+        timedelta(minutes=AD_COOLDOWN_MINUTES),
+        now,
+    )[1]
 
 def choose_base_reward():
     total_weight = sum(item["weight"] for item in BASE_REWARDS)
@@ -291,7 +316,18 @@ def spin_wheel(db: Session, telegram_id: int, spin_type: str, username=None, fir
         return {"success": False, "message": "Wheel hozircha faol emas"}
 
     limit = get_or_create_daily_limit(db, telegram_id)
-    allowed, error = can_spin(limit, spin_type)
+    now = get_now()
+    last_free_spin_at = (
+        get_last_free_spin_at(db, telegram_id)
+        if spin_type == SPIN_TYPE_FREE
+        else None
+    )
+    allowed, error = can_spin(
+        limit,
+        spin_type,
+        last_free_spin_at=last_free_spin_at,
+        now=now,
+    )
 
     if not allowed:
         return {"success": False, "message": error}
@@ -329,14 +365,31 @@ def spin_wheel(db: Session, telegram_id: int, spin_type: str, username=None, fir
 def get_wheel_status(db: Session, telegram_id: int):
     limit = get_or_create_daily_limit(db, telegram_id)
     settings = get_or_create_settings(db)
+    now = get_now()
+    free_available, next_free_spin_at, remaining_free_spins = get_cooldown_status(
+        get_last_free_spin_at(db, telegram_id),
+        timedelta(hours=FREE_COOLDOWN_HOURS),
+        now,
+    )
+    ad_available, next_ad_spin_at, remaining_ad_spins = get_cooldown_status(
+        limit.last_ad_spin_at,
+        timedelta(minutes=AD_COOLDOWN_MINUTES),
+        now,
+    )
 
     return {
         "success": True,
+        "free_spin_available": free_available,
+        "next_free_spin_at": next_free_spin_at,
+        "remaining_free_spins": remaining_free_spins,
+        "ad_spin_available": ad_available,
+        "next_ad_spin_at": next_ad_spin_at,
+        "remaining_ad_spins": remaining_ad_spins,
+        "server_time": format_utc(now),
         "free_spin_used": limit.free_spin_used,
         "ad_spin_count": limit.ad_spin_count,
         "bonus_spin_count": limit.bonus_spin_count,
         "max_ad_spins": MAX_AD_SPINS_PER_DAY,
-        "next_ad_spin_at": get_next_ad_spin_at(limit),
         "global_spin_count": settings.global_spin_count,
     }
 
