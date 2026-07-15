@@ -5,7 +5,7 @@ import random
 from sqlalchemy.orm import Session
 
 from app.models.wheel import WheelSettings, WheelDailyLimit, WheelSpin, WheelCoinOrder
-from app.crud.wallet import add_efc_balance
+from app.crud.wallet import add_efc_balance, add_uzs_balance
 from app.crud.transaction import create_transaction
 
 
@@ -15,7 +15,7 @@ SPIN_TYPE_BONUS = "BONUS"
 
 REWARD_TYPE_NONE = "NONE"
 REWARD_TYPE_EFC = "EFC"
-REWARD_TYPE_BONUS_SPIN = "BONUS_SPIN"
+REWARD_TYPE_UZS = "UZS"
 REWARD_TYPE_COIN_ORDER = "COIN_ORDER"
 
 STATUS_COMPLETED = "COMPLETED"
@@ -26,22 +26,24 @@ STATUS_REJECTED = "REJECTED"
 MAX_AD_SPINS_PER_DAY = 10
 AD_COOLDOWN_MINUTES = 1
 
-SUPER_EFC_INTERVAL_MIN = 9000
-SUPER_EFC_INTERVAL_MAX = 11000
-COIN_130_INTERVAL_MIN = 2
-COIN_130_INTERVAL_MAX = 3
-JACKPOT_INTERVAL_MIN = 98000
-JACKPOT_INTERVAL_MAX = 102000
+EFC_250_INTERVAL_MIN = 8000
+EFC_250_INTERVAL_MAX = 10000
+EFC_500_INTERVAL_MIN = 18000
+EFC_500_INTERVAL_MAX = 21000
+UZS_1000_INTERVAL_MIN = 29000
+UZS_1000_INTERVAL_MAX = 31000
+UZS_5000_INTERVAL_MIN = 48000
+UZS_5000_INTERVAL_MAX = 52000
+COIN_130_INTERVAL_MIN = 65000
+COIN_130_INTERVAL_MAX = 75000
+JACKPOT_INTERVAL = 100000
 
 
 BASE_REWARDS = [
     {"code": "lose", "type": REWARD_TYPE_NONE, "amount": Decimal("0"), "weight": 4500, "message": "❌ Bu safar yutuq chiqmadi."},
-    {"code": "bonus_spin", "type": REWARD_TYPE_BONUS_SPIN, "amount": Decimal("1"), "weight": 1000, "message": "🎁 Yana 1 marta bepul aylantirish yutdingiz!"},
-    {"code": "efc_5", "type": REWARD_TYPE_EFC, "amount": Decimal("5"), "weight": 2200, "message": "🪙 5 EFC yutdingiz!"},
-    {"code": "efc_10", "type": REWARD_TYPE_EFC, "amount": Decimal("10"), "weight": 1200, "message": "🪙 10 EFC yutdingiz!"},
-    {"code": "efc_25", "type": REWARD_TYPE_EFC, "amount": Decimal("25"), "weight": 700, "message": "🪙 25 EFC yutdingiz!"},
-    {"code": "efc_50", "type": REWARD_TYPE_EFC, "amount": Decimal("50"), "weight": 300, "message": "🪙 50 EFC yutdingiz!"},
-    {"code": "efc_100", "type": REWARD_TYPE_EFC, "amount": Decimal("100"), "weight": 100, "message": "🔥 100 EFC yutdingiz!"},
+    {"code": "efc_50", "type": REWARD_TYPE_EFC, "amount": Decimal("50"), "weight": 2500, "message": "🪙 50 EFC yutdingiz!"},
+    {"code": "efc_100", "type": REWARD_TYPE_EFC, "amount": Decimal("100"), "weight": 1300, "message": "🔥 100 EFC yutdingiz!"},
+    {"code": "uzs_500", "type": REWARD_TYPE_UZS, "amount": Decimal("500"), "weight": 700, "message": "💵 500 UZS yutdingiz!"},
 ]
 
 
@@ -78,7 +80,7 @@ def get_or_create_settings(db: Session):
         id=1,
         global_spin_count=0,
         next_130_coin_spin=random.randint(COIN_130_INTERVAL_MIN, COIN_130_INTERVAL_MAX),
-        next_jackpot_spin=random.randint(JACKPOT_INTERVAL_MIN, JACKPOT_INTERVAL_MAX),
+        next_jackpot_spin=JACKPOT_INTERVAL,
         jackpot_coin_amount=2000,
         coin_130_amount=130,
         is_active=True,
@@ -156,10 +158,6 @@ def mark_spin_used(limit: WheelDailyLimit, spin_type: str):
     elif spin_type == SPIN_TYPE_BONUS:
         limit.bonus_spin_count -= 1
 
-def add_bonus_spin(limit: WheelDailyLimit):
-    limit.bonus_spin_count += 1
-
-
 def get_next_ad_spin_at(limit: WheelDailyLimit):
     if not limit.last_ad_spin_at:
         return None
@@ -186,52 +184,35 @@ def choose_base_reward():
     return BASE_REWARDS[0]
 
 
-def should_give_super_efc(current_spin: int):
-    interval = random.randint(SUPER_EFC_INTERVAL_MIN, SUPER_EFC_INTERVAL_MAX)
+def should_give_interval_reward(current_spin: int, minimum: int, maximum: int):
+    interval = random.randint(minimum, maximum)
     return current_spin % interval == 0
+
+
+def make_reward(code: str, reward_type: str, amount, message: str):
+    return {"code": code, "type": reward_type, "amount": Decimal(str(amount)), "message": message}
 
 
 def choose_reward(settings: WheelSettings):
     current_spin = settings.global_spin_count + 1
-    if current_spin % 2 == 0:
-        return {
-            "code": "coin_130",
-            "type": REWARD_TYPE_COIN_ORDER,
-            "amount": Decimal("130"),
-            "message": "🏆 130 Coin yutdingiz!",
-        }
 
-    if current_spin >= settings.next_jackpot_spin:
-        settings.next_jackpot_spin = current_spin + random.randint(
-            JACKPOT_INTERVAL_MIN,
-            JACKPOT_INTERVAL_MAX,
-        )
-        return {
-            "code": "coin_2000_jackpot",
-            "type": REWARD_TYPE_COIN_ORDER,
-            "amount": Decimal(str(settings.jackpot_coin_amount)),
-            "message": "👑 JACKPOT! 2000 coin yutdingiz!",
-        }
+    if current_spin % JACKPOT_INTERVAL == 0:
+        settings.next_jackpot_spin = current_spin + JACKPOT_INTERVAL
+        return make_reward("coin_2000_jackpot", REWARD_TYPE_COIN_ORDER, settings.jackpot_coin_amount, "👑 JACKPOT! 2000 Coin yutdingiz!")
 
     if current_spin >= settings.next_130_coin_spin:
-        settings.next_130_coin_spin = current_spin + random.randint(
-            COIN_130_INTERVAL_MIN,
-            COIN_130_INTERVAL_MAX,
-        )
-        return {
-            "code": "coin_130",
-            "type": REWARD_TYPE_COIN_ORDER,
-            "amount": Decimal(str(settings.coin_130_amount)),
-            "message": "🏆 130 coin yutdingiz!",
-        }
+        settings.next_130_coin_spin = current_spin + random.randint(COIN_130_INTERVAL_MIN, COIN_130_INTERVAL_MAX)
+        return make_reward("coin_130", REWARD_TYPE_COIN_ORDER, settings.coin_130_amount, "🏆 130 Coin yutdingiz!")
 
-    if should_give_super_efc(current_spin):
-        return {
-            "code": "efc_250",
-            "type": REWARD_TYPE_EFC,
-            "amount": Decimal("250"),
-            "message": "⭐ 250 EFC yutdingiz!",
-        }
+    interval_rewards = (
+        (UZS_5000_INTERVAL_MIN, UZS_5000_INTERVAL_MAX, "uzs_5000", REWARD_TYPE_UZS, 5000, "💵 5000 UZS yutdingiz!"),
+        (UZS_1000_INTERVAL_MIN, UZS_1000_INTERVAL_MAX, "uzs_1000", REWARD_TYPE_UZS, 1000, "💵 1000 UZS yutdingiz!"),
+        (EFC_500_INTERVAL_MIN, EFC_500_INTERVAL_MAX, "efc_500", REWARD_TYPE_EFC, 500, "💎 500 EFC yutdingiz!"),
+        (EFC_250_INTERVAL_MIN, EFC_250_INTERVAL_MAX, "efc_250", REWARD_TYPE_EFC, 250, "⭐ 250 EFC yutdingiz!"),
+    )
+    for minimum, maximum, code, reward_type, amount, message in interval_rewards:
+        if should_give_interval_reward(current_spin, minimum, maximum):
+            return make_reward(code, reward_type, amount, message)
 
     return choose_base_reward()
 
@@ -285,8 +266,18 @@ def apply_reward(db: Session, telegram_id: int, reward: dict, spin: WheelSpin, l
             description=f"Wheel yutug‘i: {amount} EFC",
         )
 
-    elif reward_type == REWARD_TYPE_BONUS_SPIN:
-        add_bonus_spin(limit)
+    elif reward_type == REWARD_TYPE_UZS:
+        wallet = add_uzs_balance(db=db, telegram_id=telegram_id, amount=amount)
+        create_transaction(
+            db=db,
+            telegram_id=telegram_id,
+            currency="UZS",
+            amount=amount,
+            balance_before=wallet.uzs_balance - amount,
+            balance_after=wallet.uzs_balance,
+            type="WHEEL_REWARD",
+            description=f"Wheel yutug‘i: {amount} UZS",
+        )
 
     elif reward_type == REWARD_TYPE_COIN_ORDER:
         create_coin_order(db, spin, telegram_id, username, first_name, int(amount))
