@@ -1,6 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -190,6 +190,12 @@ class ArenaTestCleanupTransitionResponse(BaseModel):
     match_id: int
     previous_status: str
     current_status: str
+
+
+class ArenaTestCleanupRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    telegram_id: Literal[1678146043]
 
 
 class ArenaTestCleanupResponse(BaseModel):

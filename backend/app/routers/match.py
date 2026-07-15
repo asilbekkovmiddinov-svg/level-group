@@ -32,6 +32,7 @@ from app.schemas.match import (
     MatchStatsResponse,
     ArenaTimeoutWorkerResponse,
     ArenaTestCleanupResponse,
+    ArenaTestCleanupRequest,
 )
 
 
@@ -189,6 +190,7 @@ def run_timeout_worker(
 
 @router.post("/internal/test-cleanup", response_model=ArenaTestCleanupResponse)
 def run_test_cleanup(
+    payload: ArenaTestCleanupRequest,
     _: None = Depends(require_arena_internal_api_key),
     db: Session = Depends(get_db),
 ):
