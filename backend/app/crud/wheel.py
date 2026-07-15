@@ -40,10 +40,10 @@ JACKPOT_INTERVAL = 100000
 
 
 BASE_REWARDS = [
-    {"code": "lose", "type": REWARD_TYPE_NONE, "amount": Decimal("0"), "weight": 4500, "message": "❌ Bu safar yutuq chiqmadi."},
-    {"code": "efc_50", "type": REWARD_TYPE_EFC, "amount": Decimal("50"), "weight": 2500, "message": "🪙 50 EFC yutdingiz!"},
-    {"code": "efc_100", "type": REWARD_TYPE_EFC, "amount": Decimal("100"), "weight": 1300, "message": "🔥 100 EFC yutdingiz!"},
-    {"code": "uzs_500", "type": REWARD_TYPE_UZS, "amount": Decimal("500"), "weight": 700, "message": "💵 500 UZS yutdingiz!"},
+    {"code": "lose", "type": REWARD_TYPE_NONE, "amount": Decimal("0"), "weight": 7500, "message": "❌ Bu safar yutuq chiqmadi."},
+    {"code": "efc_50", "type": REWARD_TYPE_EFC, "amount": Decimal("50"), "weight": 1500, "message": "🪙 50 EFC yutdingiz!"},
+    {"code": "efc_100", "type": REWARD_TYPE_EFC, "amount": Decimal("100"), "weight": 700, "message": "🔥 100 EFC yutdingiz!"},
+    {"code": "uzs_500", "type": REWARD_TYPE_UZS, "amount": Decimal("500"), "weight": 300, "message": "💵 500 UZS yutdingiz!"},
 ]
 
 
