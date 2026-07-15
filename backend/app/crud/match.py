@@ -217,9 +217,14 @@ def is_match_participant(match: Match, telegram_id: int) -> bool:
 
 
 def get_open_matches(db: Session, skip: int = 0, limit: int = 20) -> list[Match]:
+    now = utc_now()
     return (
         db.query(Match)
-        .filter(Match.status == MatchStatus.WAITING_PLAYER)
+        .filter(
+            Match.status == MatchStatus.WAITING_PLAYER,
+            (Match.timeout_deadline_at.is_(None))
+            | (Match.timeout_deadline_at > now),
+        )
         .order_by(Match.scheduled_at.asc())
         .offset(skip)
         .limit(limit)
