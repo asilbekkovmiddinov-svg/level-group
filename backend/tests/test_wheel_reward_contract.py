@@ -45,6 +45,29 @@ def test_base_rewards_match_only_frontend_random_sectors():
     assert {reward["code"] for reward in wheel.BASE_REWARDS} == {
         "lose", "efc_50", "efc_100", "uzs_500",
     }
+    assert {reward["code"]: reward["weight"] for reward in wheel.BASE_REWARDS} == {
+        "lose": 7500,
+        "efc_50": 1500,
+        "efc_100": 700,
+        "uzs_500": 300,
+    }
+
+
+def test_100000_base_spin_simulation_matches_probability_contract(monkeypatch):
+    tickets = iter(list(range(1, 10001)) * 10)
+    monkeypatch.setattr(wheel.random, "randint", lambda _minimum, _maximum: next(tickets))
+
+    counts = {reward["code"]: 0 for reward in wheel.BASE_REWARDS}
+    for _ in range(100000):
+        counts[wheel.choose_base_reward()["code"]] += 1
+
+    assert counts == {
+        "lose": 75000,
+        "efc_50": 15000,
+        "efc_100": 7000,
+        "uzs_500": 3000,
+    }
+    assert sum(reward["weight"] for reward in wheel.BASE_REWARDS) == 10000
 
 
 @pytest.mark.parametrize(
