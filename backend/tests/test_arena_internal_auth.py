@@ -18,6 +18,7 @@ INTERNAL_ENDPOINTS = {
     ("/matches/worker/due-scheduled", "GET"),
     ("/matches/worker/expired-ready", "GET"),
     ("/matches/worker/timeouts/run", "POST"),
+    ("/matches/internal/test-cleanup", "POST"),
     ("/matches/{match_id}/start-ready-check", "POST"),
     ("/matches/{match_id}/finish-ready-check", "POST"),
     ("/matches/{match_id}/resolve", "POST"),

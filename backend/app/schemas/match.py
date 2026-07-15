@@ -186,6 +186,21 @@ class ArenaTimeoutWorkerResponse(BaseModel):
     retries: int
 
 
+class ArenaTestCleanupTransitionResponse(BaseModel):
+    match_id: int
+    previous_status: str
+    current_status: str
+
+
+class ArenaTestCleanupResponse(BaseModel):
+    telegram_id: int
+    cleaned_count: int
+    transitions: list[ArenaTestCleanupTransitionResponse]
+    locked_efc: Decimal
+    locked_efc_zero: bool
+    new_match_allowed: bool
+
+
 class MatchStatsResponse(BaseModel):
     id: int
 
