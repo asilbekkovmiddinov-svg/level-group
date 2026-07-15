@@ -12,6 +12,7 @@ from app.models.match import MatchStatus
 from app.services.arena_state_machine import ArenaTransitionError
 from app.services.arena_notifications import notify_arena_event
 from app.services.arena_timeouts import run_arena_timeout_worker
+from app.services.arena_test_cleanup import cleanup_test_matches
 from app.schemas.match import (
     MatchAccept,
     MatchAdminResolve,
@@ -30,6 +31,7 @@ from app.schemas.match import (
     MatchScreenshotUpload,
     MatchStatsResponse,
     ArenaTimeoutWorkerResponse,
+    ArenaTestCleanupResponse,
 )
 
 
@@ -183,6 +185,22 @@ def run_timeout_worker(
     db: Session = Depends(get_db),
 ):
     return run_arena_timeout_worker(db=db, limit=limit)
+
+
+@router.post("/internal/test-cleanup", response_model=ArenaTestCleanupResponse)
+def run_test_cleanup(
+    _: None = Depends(require_arena_internal_api_key),
+    db: Session = Depends(get_db),
+):
+    try:
+        return cleanup_test_matches(db)
+    except ValueError as error:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(error))
+    except Exception:
+        db.rollback()
+        logger.exception("arena_test_cleanup_failed")
+        raise HTTPException(status_code=500, detail="Arena test cleanup failed")
 
 
 @router.get("/me", response_model=MatchListResponse)
