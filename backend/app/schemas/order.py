@@ -10,13 +10,6 @@ class OrderCreate(BaseModel):
     telegram_id: Optional[int] = None
 
 
-class OrderDetails(BaseModel):
-    konami_login: str
-    konami_password: str
-    platform: str
-    region: str
-
-
 class OrderStatusUpdate(BaseModel):
     status: str
 
