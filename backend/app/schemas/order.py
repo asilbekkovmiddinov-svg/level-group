@@ -8,6 +8,9 @@ class OrderCreate(BaseModel):
     region: Optional[str] = None
     # Legacy clients may still send this field. Authentication is authoritative.
     telegram_id: Optional[int] = None
+    konami_login: str
+    konami_password: str
+    platform: str
 
 
 class OrderStatusUpdate(BaseModel):
