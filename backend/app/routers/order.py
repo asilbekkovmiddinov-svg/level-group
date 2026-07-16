@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.crud.order import (
     create_order,
+    fill_order_details,
     get_orders,
     get_user_orders,
     get_pending_orders,
@@ -17,6 +18,7 @@ from app.crud.order import (
 )
 from app.schemas.order import (
     OrderCreate,
+    OrderDetails,
     OrderAdminAction,
     OrderReject,
 )
@@ -39,6 +41,7 @@ def order_response(order):
         "price_uzs": float(order.price_uzs),
         "status": order.status,
         "region": getattr(order, "region", None),
+        "platform": getattr(order, "platform", None),
         "claimed_by": getattr(order, "claimed_by", None),
         "claimed_at": (
             str(order.claimed_at)
@@ -115,6 +118,17 @@ def create_new_order(
         "message": "Order created",
         "data": order_response(order),
     }
+
+
+@router.post("/{order_id}/details")
+def submit_order_details(order_id: int, data: OrderDetails,
+    current_user: TelegramUser = Depends(get_current_telegram_user), db: Session = Depends(get_db)):
+    order = fill_order_details(db, order_id, current_user.telegram_id, data)
+    if order == "forbidden": raise HTTPException(403, "Order belongs to another user")
+    if order == "not_waiting": raise HTTPException(409, "Order details already submitted")
+    if order == "invalid_details": raise HTTPException(400, "Platform or region is invalid")
+    if not order: raise HTTPException(404, "Order not found")
+    return {"success": True, "message": "Order details accepted", "data": order_response(order)}
 
 
 @router.get("/all")
