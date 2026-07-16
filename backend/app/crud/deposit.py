@@ -44,12 +44,6 @@ def create_deposit(db: Session, data: DepositCreate, telegram_id: int, idempoten
                 ).first()
                 if replay:
                     return replay if replay.request_fingerprint == fingerprint else "idempotency_conflict"
-            active = db.query(Deposit).filter(
-                Deposit.telegram_id == telegram_id,
-                Deposit.status.in_(("PENDING", "CLAIMED")),
-            ).order_by(Deposit.id.desc()).first()
-            if active:
-                return active
             deposit = Deposit(
                 telegram_id=telegram_id, amount=amount, status="PENDING",
                 idempotency_key=idempotency_key, request_fingerprint=fingerprint,
