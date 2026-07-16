@@ -7,16 +7,6 @@ def run_coin_chat_migration() -> None:
     """Additive, isolated schema changes for Coin Order Chat."""
     with engine.begin() as connection:
         connection.execute(text("""
-            ALTER TABLE orders
-            ADD COLUMN IF NOT EXISTS platform VARCHAR(20),
-            ADD COLUMN IF NOT EXISTS konami_login VARCHAR(255),
-            ADD COLUMN IF NOT EXISTS konami_password_encrypted TEXT;
-        """))
-        connection.execute(text("""
-            ALTER TABLE wheel_coin_orders
-            ADD COLUMN IF NOT EXISTS konami_password_encrypted TEXT;
-        """))
-        connection.execute(text("""
             CREATE TABLE IF NOT EXISTS coin_order_messages (
                 id SERIAL PRIMARY KEY, order_type VARCHAR(10) NOT NULL,
                 order_id INTEGER NOT NULL, telegram_id BIGINT NOT NULL,
