@@ -30,3 +30,15 @@ class CoinCredentialAccessAudit(Base):
     ip_address = Column(String(64), nullable=True)
     session_id = Column(String(128), nullable=True)
     result = Column(String(20), nullable=False)
+
+
+class CoinCredentialAccessGrant(Base):
+    __tablename__ = "coin_credential_access_grants"
+
+    id = Column(Integer, primary_key=True)
+    token_hash = Column(String(64), nullable=False, unique=True, index=True)
+    order_type = Column(String(10), nullable=False)
+    order_id = Column(Integer, nullable=False)
+    admin_id = Column(BigInteger, nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    used_at = Column(DateTime(timezone=True), nullable=True)
