@@ -22,3 +22,9 @@ class OperatorChatAction(BaseModel):
     model_config = ConfigDict(extra="forbid")
     admin_id: int
     action: str
+
+
+class CredentialOpenRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    admin_id: int
+    session_id: str | None = None
