@@ -1,6 +1,10 @@
+import hashlib
+import secrets
+from datetime import datetime, timedelta, timezone
+
 from sqlalchemy.orm import Session
 
-from app.models.coin_credential import CoinCredentialAccessAudit, CoinOrderCredential
+from app.models.coin_credential import CoinCredentialAccessAudit, CoinCredentialAccessGrant, CoinOrderCredential
 from app.models.coin_order_message import CoinOrderMessage
 from app.services.coin_credentials import decrypt_value, encrypt_value
 
@@ -46,3 +50,27 @@ def cleanup_sensitive_order_data(db: Session, order_type: str, order_id: int):
         if len(value) == 6 and value.isdigit():
             message.message = "OTP qabul qilindi"
     db.flush()
+
+
+def create_access_grant(db: Session, order_type: str, order_id: int, admin_id: int):
+    token = secrets.token_urlsafe(32)
+    db.add(CoinCredentialAccessGrant(
+        token_hash=hashlib.sha256(token.encode()).hexdigest(), order_type=order_type,
+        order_id=order_id, admin_id=admin_id,
+        expires_at=datetime.now(timezone.utc) + timedelta(seconds=60),
+    ))
+    db.commit()
+    return token
+
+
+def consume_access_grant(db: Session, token: str):
+    item = db.query(CoinCredentialAccessGrant).filter_by(token_hash=hashlib.sha256(token.encode()).hexdigest()).with_for_update().first()
+    now = datetime.now(timezone.utc)
+    if not item or item.used_at is not None:
+        return None
+    expires = item.expires_at if item.expires_at.tzinfo else item.expires_at.replace(tzinfo=timezone.utc)
+    if expires <= now:
+        return None
+    item.used_at = now
+    db.commit()
+    return item
