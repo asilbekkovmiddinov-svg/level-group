@@ -11,6 +11,7 @@ from app.crud.product import (
 )
 from app.schemas.product import ProductCreate, ProductUpdate
 from app.core.telegram_auth import TelegramUser, get_current_telegram_user
+from app.routers.internal_wallet import require_internal_api_key
 
 router = APIRouter(
     prefix="/products",
@@ -39,6 +40,7 @@ def product_response(product):
 @router.post("/create")
 def create_new_product(
     data: ProductCreate,
+    _: None = Depends(require_internal_api_key),
     db: Session = Depends(get_db),
 ):
     product = create_product(db, data)
@@ -51,7 +53,10 @@ def create_new_product(
 
 
 @router.get("/all")
-def all_products(db: Session = Depends(get_db)):
+def all_products(
+    _: None = Depends(require_internal_api_key),
+    db: Session = Depends(get_db),
+):
     products = get_products(db)
 
     return {
@@ -84,6 +89,7 @@ def active_products(
 def update_existing_product(
     product_id: int,
     data: ProductUpdate,
+    _: None = Depends(require_internal_api_key),
     db: Session = Depends(get_db),
 ):
     product = update_product(db, product_id, data)
