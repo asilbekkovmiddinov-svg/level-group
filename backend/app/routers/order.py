@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -18,6 +20,7 @@ from app.schemas.order import (
     OrderAdminAction,
     OrderReject,
 )
+from app.core.telegram_auth import TelegramUser, get_current_telegram_user
 
 router = APIRouter(
     prefix="/orders",
@@ -66,9 +69,15 @@ def order_response(order):
 @router.post("/create")
 def create_new_order(
     data: OrderCreate,
+    current_user: TelegramUser = Depends(get_current_telegram_user),
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
     db: Session = Depends(get_db),
 ):
-    order = create_order(db, data)
+    if idempotency_key:
+        idempotency_key = idempotency_key.strip()
+        if not idempotency_key or len(idempotency_key) > 128:
+            raise HTTPException(status_code=400, detail="Invalid Idempotency-Key")
+    order = create_order(db, data, current_user.telegram_id, idempotency_key)
 
     if order == "product_not_found":
         return {
@@ -87,6 +96,12 @@ def create_new_order(
             "success": False,
             "message": "Balans yetarli emas",
         }
+
+    if order == "idempotency_conflict":
+        raise HTTPException(status_code=409, detail="Idempotency key payload mismatch")
+
+    if order == "operation_failed":
+        raise HTTPException(status_code=500, detail="Order yaratilmadi")
 
     if not order:
         return {
@@ -131,12 +146,12 @@ def claimed_orders(db: Session = Depends(get_db)):
     }
 
 
-@router.get("/user/{telegram_id}")
+@router.get("/user")
 def user_orders(
-    telegram_id: int,
+    current_user: TelegramUser = Depends(get_current_telegram_user),
     db: Session = Depends(get_db),
 ):
-    orders = get_user_orders(db, telegram_id)
+    orders = get_user_orders(db, current_user.telegram_id)
 
     return {
         "success": True,
