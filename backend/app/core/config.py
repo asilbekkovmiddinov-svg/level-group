@@ -15,6 +15,7 @@ TELEGRAM_INIT_DATA_MAX_AGE_SECONDS = int(
 # Used only by trusted server-to-server clients (for example the bot) for
 # internal wallet operations. It must never be exposed to the Mini App.
 INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY")
+COIN_CREDENTIAL_ENCRYPTION_KEY = os.getenv("COIN_CREDENTIAL_ENCRYPTION_KEY")
 
 # Public payment requisites returned only to authenticated MiniApp users when
 # they create a deposit. Values must be configured by the deployment.
