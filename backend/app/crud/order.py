@@ -1,67 +1,80 @@
 from decimal import Decimal
 from datetime import datetime, timezone
+from hashlib import sha256
 
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.models.order import Order
 from app.models.product import Product
 from app.schemas.order import OrderCreate
-from app.crud.wallet import get_wallet, add_uzs
+from app.crud.wallet import get_wallet_for_update, add_uzs
 from app.crud.transaction import create_transaction
 
 
-def create_order(db: Session, data: OrderCreate):
-    product = (
-        db.query(Product)
-        .filter(
-            Product.id == data.product_id,
-            Product.is_active == True,
-        )
-        .first()
-    )
+def create_order(
+    db: Session,
+    data: OrderCreate,
+    telegram_id: int,
+    idempotency_key: str | None = None,
+):
+    region = data.region.strip() if data.region else None
+    fingerprint = sha256(f"{data.product_id}:{region or ''}".encode()).hexdigest()
 
-    if not product:
-        return "product_not_found"
+    try:
+        with db.begin():
+            if idempotency_key:
+                replay = db.query(Order).filter(
+                    Order.telegram_id == telegram_id,
+                    Order.idempotency_key == idempotency_key,
+                ).first()
+                if replay:
+                    return replay if replay.request_fingerprint == fingerprint else "idempotency_conflict"
 
-    wallet = get_wallet(db, data.telegram_id)
+            product = db.query(Product).filter(
+                Product.id == data.product_id,
+                Product.is_active == True,
+            ).first()
+            if not product:
+                return "product_not_found"
 
-    if not wallet:
-        return "wallet_not_found"
+            wallet = get_wallet_for_update(db, telegram_id)
+            if not wallet:
+                return "wallet_not_found"
 
-    price = Decimal(str(product.price_uzs))
+            price = Decimal(str(product.price_uzs))
+            balance_before = Decimal(str(wallet.uzs_balance))
+            if balance_before < price:
+                return "insufficient_balance"
+            wallet.uzs_balance = balance_before - price
 
-    if wallet.uzs_balance < price:
-        return "insufficient_balance"
-
-    before = wallet.uzs_balance
-    wallet.uzs_balance -= price
-
-    order = Order(
-        telegram_id=data.telegram_id,
-        product_id=product.id,
-        product_title=product.title,
-        coins_amount=product.coins_amount,
-        price_uzs=product.price_uzs,
-        region=data.region,
-        status="PENDING",
-    )
-
-    db.add(order)
-    db.commit()
-    db.refresh(order)
-
-    create_transaction(
-        db=db,
-        telegram_id=data.telegram_id,
-        currency="UZS",
-        amount=float(product.price_uzs),
-        balance_before=before,
-        balance_after=wallet.uzs_balance,
-        type="ORDER_PAYMENT",
-        description=f"Order payment for {product.title}",
-    )
-
-    return order
+            order = Order(
+                telegram_id=telegram_id,
+                product_id=product.id,
+                product_title=product.title,
+                coins_amount=product.coins_amount,
+                price_uzs=product.price_uzs,
+                region=region,
+                status="PENDING",
+                idempotency_key=idempotency_key,
+                request_fingerprint=fingerprint,
+            )
+            db.add(order)
+            db.flush()
+            create_transaction(
+                db=db,
+                telegram_id=telegram_id,
+                currency="UZS",
+                amount=price,
+                balance_before=balance_before,
+                balance_after=wallet.uzs_balance,
+                type="ORDER_PAYMENT",
+                description=f"Order payment for {product.title}",
+                commit=False,
+            )
+            return order
+    except SQLAlchemyError:
+        return "operation_failed"
 
 
 def get_orders(db: Session):

@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -18,6 +20,8 @@ from app.schemas.order import (
     OrderAdminAction,
     OrderReject,
 )
+from app.core.telegram_auth import TelegramUser, get_current_telegram_user
+from app.routers.internal_wallet import require_internal_api_key
 
 router = APIRouter(
     prefix="/orders",
@@ -66,9 +70,15 @@ def order_response(order):
 @router.post("/create")
 def create_new_order(
     data: OrderCreate,
+    current_user: TelegramUser = Depends(get_current_telegram_user),
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
     db: Session = Depends(get_db),
 ):
-    order = create_order(db, data)
+    if idempotency_key:
+        idempotency_key = idempotency_key.strip()
+        if not idempotency_key or len(idempotency_key) > 128:
+            raise HTTPException(status_code=400, detail="Invalid Idempotency-Key")
+    order = create_order(db, data, current_user.telegram_id, idempotency_key)
 
     if order == "product_not_found":
         return {
@@ -88,6 +98,12 @@ def create_new_order(
             "message": "Balans yetarli emas",
         }
 
+    if order == "idempotency_conflict":
+        raise HTTPException(status_code=409, detail="Idempotency key payload mismatch")
+
+    if order == "operation_failed":
+        raise HTTPException(status_code=500, detail="Order yaratilmadi")
+
     if not order:
         return {
             "success": False,
@@ -102,7 +118,10 @@ def create_new_order(
 
 
 @router.get("/all")
-def all_orders(db: Session = Depends(get_db)):
+def all_orders(
+    _: None = Depends(require_internal_api_key),
+    db: Session = Depends(get_db),
+):
     orders = get_orders(db)
 
     return {
@@ -112,7 +131,10 @@ def all_orders(db: Session = Depends(get_db)):
 
 
 @router.get("/pending")
-def pending_orders(db: Session = Depends(get_db)):
+def pending_orders(
+    _: None = Depends(require_internal_api_key),
+    db: Session = Depends(get_db),
+):
     orders = get_pending_orders(db)
 
     return {
@@ -122,7 +144,10 @@ def pending_orders(db: Session = Depends(get_db)):
 
 
 @router.get("/claimed")
-def claimed_orders(db: Session = Depends(get_db)):
+def claimed_orders(
+    _: None = Depends(require_internal_api_key),
+    db: Session = Depends(get_db),
+):
     orders = get_claimed_orders(db)
 
     return {
@@ -131,12 +156,12 @@ def claimed_orders(db: Session = Depends(get_db)):
     }
 
 
-@router.get("/user/{telegram_id}")
+@router.get("/user")
 def user_orders(
-    telegram_id: int,
+    current_user: TelegramUser = Depends(get_current_telegram_user),
     db: Session = Depends(get_db),
 ):
-    orders = get_user_orders(db, telegram_id)
+    orders = get_user_orders(db, current_user.telegram_id)
 
     return {
         "success": True,
@@ -148,6 +173,7 @@ def user_orders(
 def claim_existing_order(
     order_id: int,
     data: OrderAdminAction,
+    _: None = Depends(require_internal_api_key),
     db: Session = Depends(get_db),
 ):
     order = claim_order(db, order_id, data.admin_id)
@@ -175,6 +201,7 @@ def claim_existing_order(
 def approve_existing_order(
     order_id: int,
     data: OrderAdminAction,
+    _: None = Depends(require_internal_api_key),
     db: Session = Depends(get_db),
 ):
     order = approve_order(db, order_id, data.admin_id)
@@ -208,6 +235,7 @@ def approve_existing_order(
 def reject_existing_order(
     order_id: int,
     data: OrderReject,
+    _: None = Depends(require_internal_api_key),
     db: Session = Depends(get_db),
 ):
     order = reject_order(
@@ -245,6 +273,7 @@ def reject_existing_order(
 @router.post("/cancel/{order_id}")
 def cancel_existing_order(
     order_id: int,
+    _: None = Depends(require_internal_api_key),
     db: Session = Depends(get_db),
 ):
     order = cancel_order(db, order_id)

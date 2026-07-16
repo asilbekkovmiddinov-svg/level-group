@@ -4,9 +4,10 @@ from pydantic import BaseModel
 
 
 class OrderCreate(BaseModel):
-    telegram_id: int
     product_id: int
     region: Optional[str] = None
+    # Legacy clients may still send this field. Authentication is authoritative.
+    telegram_id: Optional[int] = None
 
 
 class OrderStatusUpdate(BaseModel):

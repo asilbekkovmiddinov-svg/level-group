@@ -21,6 +21,7 @@ REWARD_TYPE_COIN_ORDER = "COIN_ORDER"
 STATUS_COMPLETED = "COMPLETED"
 STATUS_WAITING_DETAILS = "WAITING_DETAILS"
 STATUS_PENDING = "PENDING"
+STATUS_CLAIMED = "CLAIMED"
 STATUS_REJECTED = "REJECTED"
 
 MAX_AD_SPINS_PER_DAY = 10
@@ -426,16 +427,49 @@ def get_waiting_coin_order(db: Session, telegram_id: int):
     ).order_by(WheelCoinOrder.id.desc()).first()
 
 
-def fill_coin_order_details(db: Session, telegram_id: int, konami_login: str, konami_password: str, region: str, device: str):
-    order = get_waiting_coin_order(db, telegram_id)
+def get_active_coin_order(db: Session, telegram_id: int):
+    return db.query(WheelCoinOrder).filter(
+        WheelCoinOrder.telegram_id == telegram_id,
+        WheelCoinOrder.status.in_((
+            STATUS_WAITING_DETAILS,
+            STATUS_PENDING,
+            STATUS_CLAIMED,
+        )),
+    ).order_by(WheelCoinOrder.id.desc()).first()
 
+
+def get_user_coin_orders(db: Session, telegram_id: int):
+    return db.query(WheelCoinOrder).filter(
+        WheelCoinOrder.telegram_id == telegram_id,
+    ).order_by(WheelCoinOrder.id.desc()).all()
+
+
+def fill_coin_order_details(
+    db: Session,
+    telegram_id: int,
+    spin_id: int,
+    konami_login: str,
+    konami_password: str,
+    region: str,
+    platform: str,
+):
+    order = (
+        db.query(WheelCoinOrder)
+        .filter(WheelCoinOrder.spin_id == spin_id)
+        .with_for_update()
+        .first()
+    )
     if not order:
         return None
+    if order.telegram_id != telegram_id:
+        return "forbidden"
+    if order.status != STATUS_WAITING_DETAILS:
+        return "not_waiting"
 
     order.konami_login = konami_login
     order.konami_password = konami_password
     order.region = region
-    order.device = device
+    order.device = platform
     order.status = STATUS_PENDING
 
     db.commit()
@@ -451,14 +485,28 @@ def get_coin_order(db: Session, order_id: int):
     return db.query(WheelCoinOrder).filter(WheelCoinOrder.id == order_id).first()
 
 
+def claim_coin_order(db: Session, order_id: int, admin_id: int):
+    order = get_coin_order(db, order_id)
+    if not order:
+        return None
+    if order.status != STATUS_PENDING:
+        return "not_pending"
+
+    order.status = STATUS_CLAIMED
+    order.admin_id = admin_id
+    db.commit()
+    db.refresh(order)
+    return order
+
+
 def approve_coin_order(db: Session, order_id: int, admin_id: int):
     order = get_coin_order(db, order_id)
 
     if not order:
         return None
 
-    if order.status != STATUS_PENDING:
-        return "not_pending"
+    if order.status != STATUS_CLAIMED:
+        return "not_claimed"
 
     order.status = STATUS_COMPLETED
     order.admin_id = admin_id
@@ -475,8 +523,8 @@ def reject_coin_order(db: Session, order_id: int, admin_id: int, reason: str = "
     if not order:
         return None
 
-    if order.status != STATUS_PENDING:
-        return "not_pending"
+    if order.status not in (STATUS_PENDING, STATUS_CLAIMED):
+        return "not_rejectable"
 
     order.status = STATUS_REJECTED
     order.admin_id = admin_id

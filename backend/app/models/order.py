@@ -5,6 +5,7 @@ from sqlalchemy import (
     Numeric,
     DateTime,
     BigInteger,
+    UniqueConstraint,
 )
 from sqlalchemy.sql import func
 
@@ -13,6 +14,13 @@ from app.core.database import Base
 
 class Order(Base):
     __tablename__ = "orders"
+    __table_args__ = (
+        UniqueConstraint(
+            "telegram_id",
+            "idempotency_key",
+            name="uq_order_user_idempotency",
+        ),
+    )
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
 
@@ -27,6 +35,9 @@ class Order(Base):
     price_uzs = Column(Numeric(18, 2), nullable=False)
 
     region = Column(String(100), nullable=True)
+
+    idempotency_key = Column(String(128), nullable=True)
+    request_fingerprint = Column(String(64), nullable=True)
 
     status = Column(String(30), default="PENDING")
     # PENDING, CLAIMED, COMPLETED, REJECTED, CANCELLED
