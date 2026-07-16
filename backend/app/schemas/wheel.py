@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class WheelSpinRequest(BaseModel):
@@ -22,14 +22,15 @@ class WheelDailyLimitResponse(BaseModel):
 
 
 class WheelCoinOrderCreate(BaseModel):
-    telegram_id: int
+    model_config = ConfigDict(extra="forbid")
+
     spin_id: int
 
     konami_login: str
     konami_password: str
 
     region: str
-    device: str
+    platform: str
 
 
 class WheelCoinOrderResponse(BaseModel):
