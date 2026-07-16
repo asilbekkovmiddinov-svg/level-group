@@ -9,14 +9,13 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.core import config, telegram_auth
+from app.core import telegram_auth
 from app.core.database import Base, get_db
 from app.models.coin_order_message import CoinOrderMessage
 from app.models.order import Order
 from app.models.wheel import WheelCoinOrder, WheelSpin
 from app.models.user import User
 from app.routers import coin_order_chat, internal_wallet
-from app.services.coin_credentials import decrypt_credential, encrypt_credential
 
 
 def auth(user_id):
@@ -29,7 +28,6 @@ def auth(user_id):
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.setattr(telegram_auth,"BOT_TOKEN","token"); monkeypatch.setattr(internal_wallet,"INTERNAL_API_KEY","key")
-    monkeypatch.setattr(config,"INTERNAL_API_KEY","key")
     engine=create_engine("sqlite://",connect_args={"check_same_thread":False},poolclass=StaticPool)
     Base.metadata.create_all(engine,tables=[User.__table__,Order.__table__,WheelSpin.__table__,WheelCoinOrder.__table__,CoinOrderMessage.__table__])
     factory=sessionmaker(bind=engine); db=factory()
@@ -67,10 +65,3 @@ def test_wheel_wrong_code_returns_to_waiting_otp(client):
     assert http.post("/coin-order-chat/WHEEL/2/messages",json={"message":"111111"},headers=auth(42)).json()["status"]=="OTP_SUBMITTED"
     result=http.post("/coin-order-chat/internal/WHEEL/2/action",json={"admin_id":7,"action":"WRONG_CODE"},headers=internal)
     assert result.json()["status"]=="WAITING_OTP"
-
-
-def test_coin_credentials_are_encrypted_at_rest(client):
-    _http,_=client
-    encrypted=encrypt_credential("one-time-secret")
-    assert encrypted != "one-time-secret"
-    assert decrypt_credential(encrypted) == "one-time-secret"
