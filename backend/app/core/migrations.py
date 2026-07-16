@@ -12,6 +12,17 @@ logger = logging.getLogger(__name__)
 def run_migrations():
     with engine.begin() as connection:
         connection.execute(text("""
+            ALTER TABLE orders
+            ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(128),
+            ADD COLUMN IF NOT EXISTS request_fingerprint VARCHAR(64);
+        """))
+        connection.execute(text("""
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_order_user_idempotency
+            ON orders (telegram_id, idempotency_key)
+            WHERE idempotency_key IS NOT NULL;
+        """))
+
+        connection.execute(text("""
             CREATE TABLE IF NOT EXISTS receipt_orphans (
                 id SERIAL PRIMARY KEY, object_key VARCHAR(500) NOT NULL UNIQUE,
                 attempts INTEGER NOT NULL DEFAULT 0, last_error VARCHAR(255),
