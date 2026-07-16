@@ -78,9 +78,11 @@ def test_credentials_decrypt_audit_and_terminal_cleanup_are_irreversible(client)
     opened=http.post("/coin-order-chat/internal/SHOP/1/credential-grant",json={"admin_id":7,"session_id":"s1"},headers=internal)
     assert opened.status_code==200
     view_path=opened.json()["view_path"]
-    view=http.get(view_path)
+    assert "shop-secret" not in http.get(view_path).text
+    assert http.post(view_path,data={"init_data":auth(8)["X-Telegram-Init-Data"]}).status_code==410
+    view=http.post(view_path,data={"init_data":auth(7)["X-Telegram-Init-Data"]})
     assert view.status_code==200 and "shop-secret" in view.text
-    assert http.get(view_path).status_code==410
+    assert http.post(view_path,data={"init_data":auth(7)["X-Telegram-Init-Data"]}).status_code==410
     assert http.post("/coin-order-chat/SHOP/1/messages",json={"message":"482193"},headers=auth(42)).json()["status"]=="OTP_SUBMITTED"
     assert http.post("/coin-order-chat/internal/SHOP/1/action",json={"admin_id":7,"action":"ACCEPT_CODE"},headers=internal).json()["status"]=="PENDING"
     assert http.post("/coin-order-chat/internal/SHOP/1/action",json={"admin_id":7,"action":"CLAIM"},headers=internal).status_code==200
