@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.models.wheel import WheelSettings, WheelDailyLimit, WheelSpin, WheelCoinOrder
 from app.crud.wallet import add_efc_balance, add_uzs_balance
 from app.crud.transaction import create_transaction
+from app.crud.coin_credentials import cleanup_sensitive_order_data, store_credentials
 
 
 SPIN_TYPE_FREE = "FREE"
@@ -470,8 +471,9 @@ def fill_coin_order_details(
     if order.status != STATUS_WAITING_DETAILS:
         return "not_waiting"
 
-    order.konami_login = konami_login
-    order.konami_password = konami_password
+    order.konami_login = None
+    order.konami_password = None
+    store_credentials(db, "WHEEL", order.id, konami_login, konami_password)
     order.region = region
     order.device = platform
     order.status = STATUS_WAITING_OTP
@@ -515,6 +517,7 @@ def approve_coin_order(db: Session, order_id: int, admin_id: int):
     order.status = STATUS_COMPLETED
     order.admin_id = admin_id
     order.completed_at = get_now()
+    cleanup_sensitive_order_data(db, "WHEEL", order.id)
 
     db.commit()
     db.refresh(order)
@@ -533,6 +536,7 @@ def reject_coin_order(db: Session, order_id: int, admin_id: int, reason: str = "
     order.status = STATUS_REJECTED
     order.admin_id = admin_id
     order.reject_reason = reason
+    cleanup_sensitive_order_data(db, "WHEEL", order.id)
 
     db.commit()
     db.refresh(order)
