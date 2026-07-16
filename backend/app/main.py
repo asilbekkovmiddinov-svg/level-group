@@ -26,6 +26,7 @@ from app.routers.match_overview import router as match_overview_router
 from app.routers.internal_wallet import router as internal_wallet_router
 from app.routers.deposit_receipt import router as deposit_receipt_router
 from app.routers.health import router as health_router
+from app.routers.coin_order_chat import router as coin_order_chat_router
 from app.core.observability import configure_logging, correlation_middleware
 
 
@@ -74,6 +75,7 @@ app.include_router(match_overview_router)
 app.include_router(internal_wallet_router)
 app.include_router(deposit_receipt_router)
 app.include_router(health_router)
+app.include_router(coin_order_chat_router)
 
 
 @app.get("/")
