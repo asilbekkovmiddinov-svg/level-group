@@ -35,6 +35,7 @@ class Order(Base):
     price_uzs = Column(Numeric(18, 2), nullable=False)
 
     region = Column(String(100), nullable=True)
+    platform = Column(String(20), nullable=True)
 
     idempotency_key = Column(String(128), nullable=True)
     request_fingerprint = Column(String(64), nullable=True)

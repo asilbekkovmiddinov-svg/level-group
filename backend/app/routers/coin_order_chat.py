@@ -1,14 +1,17 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi.responses import HTMLResponse
+from html import escape
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.telegram_auth import TelegramUser, get_current_telegram_user
+from app.core.telegram_auth import TelegramUser, get_current_telegram_user, verify_init_data
 from app.crud.coin_order_chat import (
     active_orders, add_message, apply_operator_action, get_coin_order,
     list_messages, mark_read, normalize_order_type, unread_count,
 )
 from app.routers.internal_wallet import require_internal_api_key
-from app.schemas.coin_order_chat import CoinOrderMessageCreate, OperatorChatAction, OperatorMessageCreate
+from app.schemas.coin_order_chat import CoinOrderMessageCreate, CredentialOpenRequest, OperatorChatAction, OperatorMessageCreate
+from app.crud.coin_credentials import consume_access_grant, create_access_grant, open_credentials
 from app.crud.order import claim_order, approve_order, reject_order
 from app.crud.wheel import claim_coin_order, approve_coin_order, reject_coin_order
 
@@ -65,6 +68,34 @@ def admin_messages(order_type: str, order_id: int, _: None = Depends(require_int
     if not order: raise HTTPException(404, "Order not found")
     return {"success": True, "status": order.status,
             "data": [message_response(x) for x in list_messages(db, order_type, order_id)]}
+
+
+@router.post("/internal/{order_type}/{order_id}/credential-grant")
+def admin_credentials(order_type: str, order_id: int, data: CredentialOpenRequest, request: Request,
+    _: None = Depends(require_internal_api_key), db: Session = Depends(get_db)):
+    order = get_coin_order(db, order_type, order_id)
+    if not order: raise HTTPException(404, "Order not found")
+    if order.status in {"COMPLETED", "REJECTED", "CANCELLED"}: raise HTTPException(410, "Credentials were destroyed")
+    token = create_access_grant(db, normalize_order_type(order_type), order_id, data.admin_id)
+    return {"success": True, "view_path": f"/coin-order-chat/credential-view/{token}"}
+
+
+@router.get("/credential-view/{token}", response_class=HTMLResponse)
+def credential_view(token: str):
+    html = """<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width'><title>Admin verification</title><script src='https://telegram.org/js/telegram-web-app.js'></script><style>body{font-family:sans-serif;background:#090b10;color:#fff;padding:24px}main{max-width:420px;margin:auto;background:#171a22;padding:20px;border-radius:18px}</style><main><h2>Admin tekshirilmoqda…</h2><p id='status'>Telegram tasdiqlashi kutilmoqda.</p><form method='post'><input id='init' type='hidden' name='init_data'></form></main><script>const data=window.Telegram&&Telegram.WebApp&&Telegram.WebApp.initData;if(data){document.getElementById('init').value=data;document.querySelector('form').submit()}else{document.getElementById('status').textContent='Bu oynani admin bot ichidan oching.'}</script>"""
+    return HTMLResponse(html, headers={"Cache-Control":"no-store, private, max-age=0","Pragma":"no-cache","Referrer-Policy":"no-referrer","X-Content-Type-Options":"nosniff","X-Frame-Options":"SAMEORIGIN","Content-Security-Policy":"default-src 'none'; script-src https://telegram.org 'unsafe-inline'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors https://web.telegram.org https://*.telegram.org"})
+
+
+@router.post("/credential-view/{token}", response_class=HTMLResponse)
+def credential_view_open(token: str, request: Request, init_data: str = Form(...), db: Session = Depends(get_db)):
+    admin = verify_init_data(init_data)
+    grant = consume_access_grant(db, token, admin.telegram_id)
+    if not grant: raise HTTPException(410, "Credential link expired or used")
+    credentials = open_credentials(db, grant.order_type, grant.order_id, grant.admin_id,
+        request.client.host if request.client else None, f"grant:{grant.id}")
+    if not credentials: raise HTTPException(410, "Credentials are unavailable")
+    html = f"<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width'><title>Credential</title><style>body{{font-family:sans-serif;background:#090b10;color:#fff;padding:24px}}main{{max-width:420px;margin:auto;background:#171a22;padding:20px;border-radius:18px}}code{{display:block;padding:12px;background:#050609;border-radius:10px;margin:8px 0;word-break:break-all}}</style><main><h2>MyKonami credential</h2><small>Order #{grant.order_id}</small><p>Email</p><code>{escape(credentials['email'])}</code><p>Parol</p><code>{escape(credentials['password'])}</code><p>Bu sahifa bir marta ochiladi.</p></main>"
+    return HTMLResponse(html, headers={"Cache-Control":"no-store, private, max-age=0","Pragma":"no-cache","Referrer-Policy":"no-referrer","X-Content-Type-Options":"nosniff","X-Frame-Options":"SAMEORIGIN","Content-Security-Policy":"default-src 'none'; style-src 'unsafe-inline'; frame-ancestors https://web.telegram.org https://*.telegram.org"})
 
 
 @router.post("/internal/{order_type}/{order_id}/messages")

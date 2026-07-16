@@ -10,6 +10,7 @@ from app.models.product import Product
 from app.schemas.order import OrderCreate
 from app.crud.wallet import get_wallet_for_update, add_uzs
 from app.crud.transaction import create_transaction
+from app.crud.coin_credentials import cleanup_sensitive_order_data, store_credentials
 
 
 def create_order(
@@ -18,7 +19,10 @@ def create_order(
     telegram_id: int,
     idempotency_key: str | None = None,
 ):
-    region = data.region.strip() if data.region else None
+    region = data.region.strip().upper() if data.region else "GLOBAL"
+    platform = data.platform.strip().upper()
+    if region not in {"GLOBAL", "JAPAN"} or platform not in {"ANDROID", "IOS"}:
+        return "invalid_details"
     fingerprint = sha256(f"{data.product_id}:{region or ''}".encode()).hexdigest()
 
     try:
@@ -55,12 +59,14 @@ def create_order(
                 coins_amount=product.coins_amount,
                 price_uzs=product.price_uzs,
                 region=region,
-                status="PENDING",
+                platform=platform,
+                status="WAITING_OTP",
                 idempotency_key=idempotency_key,
                 request_fingerprint=fingerprint,
             )
             db.add(order)
             db.flush()
+            store_credentials(db, "SHOP", order.id, data.konami_login.strip(), data.konami_password)
             create_transaction(
                 db=db,
                 telegram_id=telegram_id,
@@ -170,9 +176,12 @@ def approve_order(db: Session, order_id: int, admin_id: int):
     order.completed_at = now
 
     if order.claimed_at:
+        claimed_at = order.claimed_at if order.claimed_at.tzinfo else order.claimed_at.replace(tzinfo=timezone.utc)
         order.processing_seconds = int(
-            (now - order.claimed_at).total_seconds()
+            (now - claimed_at).total_seconds()
         )
+
+    cleanup_sensitive_order_data(db, "SHOP", order.id)
 
     db.commit()
     db.refresh(order)
@@ -226,9 +235,12 @@ def reject_order(
     order.reject_reason = reason
 
     if order.claimed_at:
+        claimed_at = order.claimed_at if order.claimed_at.tzinfo else order.claimed_at.replace(tzinfo=timezone.utc)
         order.processing_seconds = int(
-            (now - order.claimed_at).total_seconds()
+            (now - claimed_at).total_seconds()
         )
+
+    cleanup_sensitive_order_data(db, "SHOP", order.id)
 
     db.commit()
     db.refresh(order)
