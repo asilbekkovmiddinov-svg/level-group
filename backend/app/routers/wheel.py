@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -9,11 +9,13 @@ from app.crud.wheel import (
     get_pending_coin_orders,
     approve_coin_order,
     reject_coin_order,
+    get_waiting_coin_order,
 )
 from app.schemas.wheel import (
     WheelSpinRequest,
     WheelCoinOrderCreate,
 )
+from app.core.telegram_auth import TelegramUser, get_current_telegram_user
 
 router = APIRouter(
     prefix="/wheel",
@@ -32,6 +34,7 @@ def coin_order_response(order):
         "konami_login": order.konami_login,
         "region": order.region,
         "device": order.device,
+        "platform": order.device,
         "status": order.status,
     }
 
@@ -62,27 +65,42 @@ def wheel_spin(
 @router.post("/coin-order/details")
 def coin_order_details(
     data: WheelCoinOrderCreate,
+    current_user: TelegramUser = Depends(get_current_telegram_user),
     db: Session = Depends(get_db),
 ):
     order = fill_coin_order_details(
         db=db,
-        telegram_id=data.telegram_id,
+        telegram_id=current_user.telegram_id,
+        spin_id=data.spin_id,
         konami_login=data.konami_login,
         konami_password=data.konami_password,
         region=data.region,
-        device=data.device,
+        platform=data.platform,
     )
 
+    if order == "forbidden":
+        raise HTTPException(status_code=403, detail="Bu Coin order boshqa foydalanuvchiga tegishli")
+    if order == "not_waiting":
+        raise HTTPException(status_code=409, detail="Coin order details allaqachon yuborilgan")
     if not order:
-        return {
-            "success": False,
-            "message": "Kutilayotgan coin buyurtma topilmadi",
-        }
+        raise HTTPException(status_code=404, detail="Coin order topilmadi")
 
     return {
         "success": True,
         "message": "Coin buyurtma adminga yuborildi",
         "data": coin_order_response(order),
+    }
+
+
+@router.get("/coin-order/pending")
+def pending_coin_order_for_user(
+    current_user: TelegramUser = Depends(get_current_telegram_user),
+    db: Session = Depends(get_db),
+):
+    order = get_waiting_coin_order(db, current_user.telegram_id)
+    return {
+        "success": True,
+        "data": coin_order_response(order) if order else None,
     }
 
 
