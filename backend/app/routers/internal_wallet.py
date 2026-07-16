@@ -158,13 +158,18 @@ def internal_create_withdraw(
 def internal_create_deposit(
     data: InternalDepositCreate,
     _: None = Depends(require_internal_api_key),
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
     db: Session = Depends(get_db),
 ):
-    deposit = create_deposit(db, data, data.telegram_id)
+    deposit = create_deposit(db, data, data.telegram_id, idempotency_key)
     if deposit == "invalid_amount":
         raise HTTPException(status_code=400, detail="Deposit amount must be greater than zero")
     if deposit == "minimum_amount":
         raise HTTPException(status_code=400, detail="Minimal deposit summasi 15 000 UZS")
+    if deposit == "idempotency_conflict":
+        raise HTTPException(status_code=409, detail="Idempotency key payload mismatch")
+    if deposit == "operation_failed":
+        raise HTTPException(status_code=500, detail="Deposit request failed")
     return {"message": "Deposit request created", "deposit_id": deposit.id, "telegram_id": deposit.telegram_id, "amount": float(deposit.amount), "status": deposit.status}
 
 @router.get("/deposits/{deposit_id}/receipt-url")
