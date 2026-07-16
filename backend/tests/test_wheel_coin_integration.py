@@ -17,6 +17,8 @@ from app.core.database import Base, get_db
 from app.crud import wheel
 from app.models.user import User
 from app.models.wheel import WheelCoinOrder, WheelSpin
+from app.models.coin_credential import CoinOrderCredential
+from app.models.coin_order_message import CoinOrderMessage
 from app.routers import wheel as wheel_router
 from app.routers import internal_wallet
 
@@ -48,6 +50,7 @@ def client(monkeypatch):
     monkeypatch.setattr(telegram_auth, "BOT_TOKEN", "test-token")
     monkeypatch.setattr(internal_wallet, "INTERNAL_API_KEY", "internal-test-key")
     monkeypatch.setattr(config, "INTERNAL_API_KEY", "internal-test-key")
+    monkeypatch.setattr(config, "COIN_CREDENTIAL_ENCRYPTION_KEY", "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=")
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -55,7 +58,7 @@ def client(monkeypatch):
     )
     Base.metadata.create_all(
         engine,
-        tables=[User.__table__, WheelSpin.__table__, WheelCoinOrder.__table__],
+        tables=[User.__table__, WheelSpin.__table__, WheelCoinOrder.__table__, CoinOrderCredential.__table__, CoinOrderMessage.__table__],
     )
     session_factory = sessionmaker(bind=engine)
     setup = session_factory()
