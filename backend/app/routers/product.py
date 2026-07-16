@@ -10,6 +10,7 @@ from app.crud.product import (
     update_product,
 )
 from app.schemas.product import ProductCreate, ProductUpdate
+from app.core.telegram_auth import TelegramUser, get_current_telegram_user
 
 router = APIRouter(
     prefix="/products",
@@ -62,6 +63,7 @@ def all_products(db: Session = Depends(get_db)):
 @router.get("/active")
 def active_products(
     category: str | None = None,
+    _current_user: TelegramUser = Depends(get_current_telegram_user),
     db: Session = Depends(get_db),
 ):
     if category:
