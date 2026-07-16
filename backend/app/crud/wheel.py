@@ -426,16 +426,32 @@ def get_waiting_coin_order(db: Session, telegram_id: int):
     ).order_by(WheelCoinOrder.id.desc()).first()
 
 
-def fill_coin_order_details(db: Session, telegram_id: int, konami_login: str, konami_password: str, region: str, device: str):
-    order = get_waiting_coin_order(db, telegram_id)
-
+def fill_coin_order_details(
+    db: Session,
+    telegram_id: int,
+    spin_id: int,
+    konami_login: str,
+    konami_password: str,
+    region: str,
+    platform: str,
+):
+    order = (
+        db.query(WheelCoinOrder)
+        .filter(WheelCoinOrder.spin_id == spin_id)
+        .with_for_update()
+        .first()
+    )
     if not order:
         return None
+    if order.telegram_id != telegram_id:
+        return "forbidden"
+    if order.status != STATUS_WAITING_DETAILS:
+        return "not_waiting"
 
     order.konami_login = konami_login
     order.konami_password = konami_password
     order.region = region
-    order.device = device
+    order.device = platform
     order.status = STATUS_PENDING
 
     db.commit()
