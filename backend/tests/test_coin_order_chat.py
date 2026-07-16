@@ -15,7 +15,7 @@ from app.models.coin_order_message import CoinOrderMessage
 from app.models.order import Order
 from app.models.wheel import WheelCoinOrder, WheelSpin
 from app.models.user import User
-from app.models.coin_credential import CoinCredentialAccessAudit, CoinOrderCredential
+from app.models.coin_credential import CoinCredentialAccessAudit, CoinCredentialAccessGrant, CoinOrderCredential
 from app.crud.coin_credentials import store_credentials
 from app.routers import coin_order_chat, internal_wallet
 
@@ -32,7 +32,7 @@ def client(monkeypatch):
     monkeypatch.setattr(telegram_auth,"BOT_TOKEN","token"); monkeypatch.setattr(internal_wallet,"INTERNAL_API_KEY","key")
     monkeypatch.setattr(config,"COIN_CREDENTIAL_ENCRYPTION_KEY","MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=")
     engine=create_engine("sqlite://",connect_args={"check_same_thread":False},poolclass=StaticPool)
-    Base.metadata.create_all(engine,tables=[User.__table__,Order.__table__,WheelSpin.__table__,WheelCoinOrder.__table__,CoinOrderMessage.__table__,CoinOrderCredential.__table__,CoinCredentialAccessAudit.__table__])
+    Base.metadata.create_all(engine,tables=[User.__table__,Order.__table__,WheelSpin.__table__,WheelCoinOrder.__table__,CoinOrderMessage.__table__,CoinOrderCredential.__table__,CoinCredentialAccessAudit.__table__,CoinCredentialAccessGrant.__table__])
     factory=sessionmaker(bind=engine); db=factory()
     db.add_all([User(telegram_id=42,first_name="A"),User(telegram_id=99,first_name="B"),
         Order(id=1,telegram_id=42,product_id=1,product_title="130",coins_amount=130,price_uzs=Decimal("1"),status="WAITING_OTP"),
@@ -75,13 +75,17 @@ def test_wheel_wrong_code_returns_to_waiting_otp(client):
 
 def test_credentials_decrypt_audit_and_terminal_cleanup_are_irreversible(client):
     http,sessions=client; internal={"X-Internal-Api-Key":"key"}
-    opened=http.post("/coin-order-chat/internal/SHOP/1/credentials",json={"admin_id":7,"session_id":"s1"},headers=internal)
-    assert opened.json()["data"]=={"email":"user@example.com","password":"shop-secret"}
+    opened=http.post("/coin-order-chat/internal/SHOP/1/credential-grant",json={"admin_id":7,"session_id":"s1"},headers=internal)
+    assert opened.status_code==200
+    view_path=opened.json()["view_path"]
+    view=http.get(view_path)
+    assert view.status_code==200 and "shop-secret" in view.text
+    assert http.get(view_path).status_code==410
     assert http.post("/coin-order-chat/SHOP/1/messages",json={"message":"482193"},headers=auth(42)).json()["status"]=="OTP_SUBMITTED"
     assert http.post("/coin-order-chat/internal/SHOP/1/action",json={"admin_id":7,"action":"ACCEPT_CODE"},headers=internal).json()["status"]=="PENDING"
     assert http.post("/coin-order-chat/internal/SHOP/1/action",json={"admin_id":7,"action":"CLAIM"},headers=internal).status_code==200
     assert http.post("/coin-order-chat/internal/SHOP/1/action",json={"admin_id":7,"action":"COMPLETE"},headers=internal).status_code==200
-    assert http.post("/coin-order-chat/internal/SHOP/1/credentials",json={"admin_id":7},headers=internal).status_code==410
+    assert http.post("/coin-order-chat/internal/SHOP/1/credential-grant",json={"admin_id":7},headers=internal).status_code==410
     db=sessions()
     try:
         assert db.query(CoinOrderCredential).filter_by(order_type="SHOP",order_id=1).first() is None
