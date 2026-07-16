@@ -11,7 +11,6 @@ from app.routers.internal_wallet import require_internal_api_key
 from app.schemas.coin_order_chat import CoinOrderMessageCreate, OperatorChatAction, OperatorMessageCreate
 from app.crud.order import claim_order, approve_order, reject_order
 from app.crud.wheel import claim_coin_order, approve_coin_order, reject_coin_order
-from app.services.coin_credentials import decrypt_credential
 
 router = APIRouter(prefix="/coin-order-chat", tags=["Coin Order Chat"])
 
@@ -66,16 +65,6 @@ def admin_messages(order_type: str, order_id: int, _: None = Depends(require_int
     if not order: raise HTTPException(404, "Order not found")
     return {"success": True, "status": order.status,
             "data": [message_response(x) for x in list_messages(db, order_type, order_id)]}
-
-
-@router.get("/internal/{order_type}/{order_id}/credentials")
-def admin_credentials(order_type: str, order_id: int, _: None = Depends(require_internal_api_key), db: Session = Depends(get_db)):
-    order = get_coin_order(db, order_type, order_id)
-    if not order: raise HTTPException(404, "Order not found")
-    return {"success": True, "data": {"konami_login": getattr(order, "konami_login", None),
-            "konami_password": decrypt_credential(getattr(order, "konami_password_encrypted", None)),
-            "platform": getattr(order, "platform", getattr(order, "device", None)),
-            "region": getattr(order, "region", None)}}
 
 
 @router.post("/internal/{order_type}/{order_id}/messages")
