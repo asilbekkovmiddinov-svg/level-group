@@ -18,6 +18,7 @@ from app.crud import wheel
 from app.models.user import User
 from app.models.wheel import WheelCoinOrder, WheelSpin
 from app.routers import wheel as wheel_router
+from app.routers import internal_wallet
 
 
 def make_init_data(telegram_id: int):
@@ -38,9 +39,14 @@ def headers(telegram_id: int):
     return {"X-Telegram-Init-Data": make_init_data(telegram_id)}
 
 
+def internal_headers():
+    return {"X-Internal-Api-Key": "internal-test-key"}
+
+
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.setattr(telegram_auth, "BOT_TOKEN", "test-token")
+    monkeypatch.setattr(internal_wallet, "INTERNAL_API_KEY", "internal-test-key")
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -151,3 +157,51 @@ def test_pending_restore_details_ownership_and_duplicate_contract(client):
         "/wheel/coin-order/details", json=spoofed, headers=headers(42)
     ).status_code == 422
 
+
+def test_130_completed_and_2000_rejected_lifecycle_requires_internal_auth(client):
+    http, _sessions = client
+    for spin_id in (1, 2):
+        details = {
+            "spin_id": spin_id,
+            "konami_login": "player@example.com",
+            "konami_password": "one-time-secret",
+            "platform": "Android",
+            "region": "Global",
+        }
+        assert http.post(
+            "/wheel/coin-order/details", json=details, headers=headers(42)
+        ).json()["data"]["status"] == wheel.STATUS_PENDING
+
+    assert http.get("/wheel/coin-orders/pending").status_code == 403
+    pending = http.get(
+        "/wheel/coin-orders/pending", headers=internal_headers()
+    )
+    assert pending.status_code == 200
+    assert len(pending.json()["data"]) == 2
+
+    assert http.post("/wheel/coin-orders/1/claim?admin_id=7").status_code == 403
+    assert http.post("/wheel/coin-orders/1/approve?admin_id=7").status_code == 403
+    assert http.post("/wheel/coin-orders/1/reject?admin_id=7").status_code == 403
+    claimed_130 = http.post(
+        "/wheel/coin-orders/1/claim?admin_id=7", headers=internal_headers()
+    )
+    assert claimed_130.json()["data"]["status"] == wheel.STATUS_CLAIMED
+    completed_130 = http.post(
+        "/wheel/coin-orders/1/approve?admin_id=7", headers=internal_headers()
+    )
+    assert completed_130.json()["data"]["status"] == wheel.STATUS_COMPLETED
+
+    claimed_2000 = http.post(
+        "/wheel/coin-orders/2/claim?admin_id=7", headers=internal_headers()
+    )
+    assert claimed_2000.json()["data"]["status"] == wheel.STATUS_CLAIMED
+    rejected_2000 = http.post(
+        "/wheel/coin-orders/2/reject?admin_id=7", headers=internal_headers()
+    )
+    assert rejected_2000.json()["data"]["status"] == wheel.STATUS_REJECTED
+
+    user_orders = http.get("/wheel/coin-orders/user", headers=headers(42))
+    assert [item["status"] for item in user_orders.json()["data"]] == [
+        wheel.STATUS_REJECTED,
+        wheel.STATUS_COMPLETED,
+    ]
