@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -8,7 +8,8 @@ from app.crud.coin_order_chat import (
     list_messages, mark_read, normalize_order_type, unread_count,
 )
 from app.routers.internal_wallet import require_internal_api_key
-from app.schemas.coin_order_chat import CoinOrderMessageCreate, OperatorChatAction, OperatorMessageCreate
+from app.schemas.coin_order_chat import CoinOrderMessageCreate, CredentialOpenRequest, OperatorChatAction, OperatorMessageCreate
+from app.crud.coin_credentials import open_credentials
 from app.crud.order import claim_order, approve_order, reject_order
 from app.crud.wheel import claim_coin_order, approve_coin_order, reject_coin_order
 
@@ -65,6 +66,18 @@ def admin_messages(order_type: str, order_id: int, _: None = Depends(require_int
     if not order: raise HTTPException(404, "Order not found")
     return {"success": True, "status": order.status,
             "data": [message_response(x) for x in list_messages(db, order_type, order_id)]}
+
+
+@router.post("/internal/{order_type}/{order_id}/credentials")
+def admin_credentials(order_type: str, order_id: int, data: CredentialOpenRequest, request: Request,
+    _: None = Depends(require_internal_api_key), db: Session = Depends(get_db)):
+    order = get_coin_order(db, order_type, order_id)
+    if not order: raise HTTPException(404, "Order not found")
+    if order.status in {"COMPLETED", "REJECTED", "CANCELLED"}: raise HTTPException(410, "Credentials were destroyed")
+    credentials = open_credentials(db, normalize_order_type(order_type), order_id, data.admin_id,
+        request.client.host if request.client else None, data.session_id)
+    if not credentials: raise HTTPException(410, "Credentials are unavailable")
+    return {"success": True, "data": credentials}
 
 
 @router.post("/internal/{order_type}/{order_id}/messages")
