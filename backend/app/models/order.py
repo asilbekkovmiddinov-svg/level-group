@@ -35,12 +35,14 @@ class Order(Base):
     price_uzs = Column(Numeric(18, 2), nullable=False)
 
     region = Column(String(100), nullable=True)
+    platform = Column(String(20), nullable=True)
+    konami_login = Column(String(255), nullable=True)
+    konami_password_encrypted = Column(String, nullable=True)
 
     idempotency_key = Column(String(128), nullable=True)
     request_fingerprint = Column(String(64), nullable=True)
 
-    status = Column(String(30), default="PENDING")
-    # PENDING, CLAIMED, COMPLETED, REJECTED, CANCELLED
+    status = Column(String(30), default="WAITING_DETAILS")
 
     claimed_by = Column(BigInteger, nullable=True)
     claimed_at = Column(DateTime(timezone=True), nullable=True)
