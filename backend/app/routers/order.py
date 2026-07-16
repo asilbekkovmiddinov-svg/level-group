@@ -21,6 +21,7 @@ from app.schemas.order import (
     OrderReject,
 )
 from app.core.telegram_auth import TelegramUser, get_current_telegram_user
+from app.routers.internal_wallet import require_internal_api_key
 
 router = APIRouter(
     prefix="/orders",
@@ -117,7 +118,10 @@ def create_new_order(
 
 
 @router.get("/all")
-def all_orders(db: Session = Depends(get_db)):
+def all_orders(
+    _: None = Depends(require_internal_api_key),
+    db: Session = Depends(get_db),
+):
     orders = get_orders(db)
 
     return {
@@ -127,7 +131,10 @@ def all_orders(db: Session = Depends(get_db)):
 
 
 @router.get("/pending")
-def pending_orders(db: Session = Depends(get_db)):
+def pending_orders(
+    _: None = Depends(require_internal_api_key),
+    db: Session = Depends(get_db),
+):
     orders = get_pending_orders(db)
 
     return {
@@ -137,7 +144,10 @@ def pending_orders(db: Session = Depends(get_db)):
 
 
 @router.get("/claimed")
-def claimed_orders(db: Session = Depends(get_db)):
+def claimed_orders(
+    _: None = Depends(require_internal_api_key),
+    db: Session = Depends(get_db),
+):
     orders = get_claimed_orders(db)
 
     return {
@@ -163,6 +173,7 @@ def user_orders(
 def claim_existing_order(
     order_id: int,
     data: OrderAdminAction,
+    _: None = Depends(require_internal_api_key),
     db: Session = Depends(get_db),
 ):
     order = claim_order(db, order_id, data.admin_id)
@@ -190,6 +201,7 @@ def claim_existing_order(
 def approve_existing_order(
     order_id: int,
     data: OrderAdminAction,
+    _: None = Depends(require_internal_api_key),
     db: Session = Depends(get_db),
 ):
     order = approve_order(db, order_id, data.admin_id)
@@ -223,6 +235,7 @@ def approve_existing_order(
 def reject_existing_order(
     order_id: int,
     data: OrderReject,
+    _: None = Depends(require_internal_api_key),
     db: Session = Depends(get_db),
 ):
     order = reject_order(
@@ -260,6 +273,7 @@ def reject_existing_order(
 @router.post("/cancel/{order_id}")
 def cancel_existing_order(
     order_id: int,
+    _: None = Depends(require_internal_api_key),
     db: Session = Depends(get_db),
 ):
     order = cancel_order(db, order_id)
