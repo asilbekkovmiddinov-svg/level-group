@@ -21,6 +21,7 @@ from app.models.user import User
 from app.models.wallet import Wallet
 from app.routers import order as order_router
 from app.routers import product as product_router
+from app.routers import internal_wallet
 
 
 def make_init_data(telegram_id: int):
@@ -47,6 +48,7 @@ def headers(telegram_id: int, key: str | None = None):
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.setattr(telegram_auth, "BOT_TOKEN", "test-token")
+    monkeypatch.setattr(internal_wallet, "INTERNAL_API_KEY", "internal-test-key")
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -120,6 +122,20 @@ def test_coin_endpoints_require_verified_init_data(client):
     assert http.get("/orders/user").status_code == 401
 
 
+def test_shop_admin_endpoints_require_internal_api_key(client):
+    http, _sessions = client
+    for path in ("/products/all", "/orders/all", "/orders/pending", "/orders/claimed"):
+        assert http.get(path).status_code == 403
+        assert http.get(path, headers={"X-Internal-Api-Key": "internal-test-key"}).status_code == 200
+
+    assert http.post("/orders/1/claim", json={"admin_id": 7}).status_code == 403
+    assert http.post("/orders/1/approve", json={"admin_id": 7}).status_code == 403
+    assert http.post(
+        "/orders/1/reject", json={"admin_id": 7, "reason": "test"}
+    ).status_code == 403
+    assert http.post("/orders/cancel/1").status_code == 403
+
+
 def test_order_identity_history_and_idempotency_are_user_scoped(client):
     http, sessions = client
     body = {"product_id": 7, "region": "Japan", "telegram_id": 99}
@@ -158,4 +174,3 @@ def test_order_identity_history_and_idempotency_are_user_scoped(client):
         headers=headers(42, "coin-order-42"),
     )
     assert conflict.status_code == 409
-
