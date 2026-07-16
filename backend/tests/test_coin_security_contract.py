@@ -12,7 +12,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.core import config, telegram_auth
+from app.core import telegram_auth
 from app.core.database import Base, get_db
 from app.models.order import Order
 from app.models.product import Product
@@ -49,7 +49,6 @@ def headers(telegram_id: int, key: str | None = None):
 def client(monkeypatch):
     monkeypatch.setattr(telegram_auth, "BOT_TOKEN", "test-token")
     monkeypatch.setattr(internal_wallet, "INTERNAL_API_KEY", "internal-test-key")
-    monkeypatch.setattr(config, "INTERNAL_API_KEY", "internal-test-key")
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
