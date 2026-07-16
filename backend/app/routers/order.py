@@ -39,6 +39,7 @@ def order_response(order):
         "price_uzs": float(order.price_uzs),
         "status": order.status,
         "region": getattr(order, "region", None),
+        "platform": getattr(order, "platform", None),
         "claimed_by": getattr(order, "claimed_by", None),
         "claimed_at": (
             str(order.claimed_at)
@@ -100,6 +101,9 @@ def create_new_order(
 
     if order == "idempotency_conflict":
         raise HTTPException(status_code=409, detail="Idempotency key payload mismatch")
+
+    if order == "invalid_details":
+        raise HTTPException(status_code=400, detail="Platform or region is invalid")
 
     if order == "operation_failed":
         raise HTTPException(status_code=500, detail="Order yaratilmadi")
