@@ -12,7 +12,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.core import telegram_auth
+from app.core import config, telegram_auth
 from app.core.database import Base, get_db
 from app.crud import wheel
 from app.models.user import User
@@ -47,6 +47,7 @@ def internal_headers():
 def client(monkeypatch):
     monkeypatch.setattr(telegram_auth, "BOT_TOKEN", "test-token")
     monkeypatch.setattr(internal_wallet, "INTERNAL_API_KEY", "internal-test-key")
+    monkeypatch.setattr(config, "INTERNAL_API_KEY", "internal-test-key")
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -144,7 +145,7 @@ def test_pending_restore_details_ownership_and_duplicate_contract(client):
         "/wheel/coin-order/details", json=body, headers=headers(42)
     )
     assert completed.status_code == 200
-    assert completed.json()["data"]["status"] == wheel.STATUS_PENDING
+    assert completed.json()["data"]["status"] == wheel.STATUS_WAITING_OTP
     assert completed.json()["data"]["platform"] == "Android"
 
     duplicate = http.post(
@@ -170,7 +171,15 @@ def test_130_completed_and_2000_rejected_lifecycle_requires_internal_auth(client
         }
         assert http.post(
             "/wheel/coin-order/details", json=details, headers=headers(42)
-        ).json()["data"]["status"] == wheel.STATUS_PENDING
+        ).json()["data"]["status"] == wheel.STATUS_WAITING_OTP
+
+        db = _sessions()
+        try:
+            order = db.query(WheelCoinOrder).filter(WheelCoinOrder.spin_id == spin_id).one()
+            order.status = wheel.STATUS_PENDING
+            db.commit()
+        finally:
+            db.close()
 
     assert http.get("/wheel/coin-orders/pending").status_code == 403
     pending = http.get(

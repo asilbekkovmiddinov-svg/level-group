@@ -20,6 +20,8 @@ REWARD_TYPE_COIN_ORDER = "COIN_ORDER"
 
 STATUS_COMPLETED = "COMPLETED"
 STATUS_WAITING_DETAILS = "WAITING_DETAILS"
+STATUS_WAITING_OTP = "WAITING_OTP"
+STATUS_OTP_SUBMITTED = "OTP_SUBMITTED"
 STATUS_PENDING = "PENDING"
 STATUS_CLAIMED = "CLAIMED"
 STATUS_REJECTED = "REJECTED"
@@ -432,6 +434,8 @@ def get_active_coin_order(db: Session, telegram_id: int):
         WheelCoinOrder.telegram_id == telegram_id,
         WheelCoinOrder.status.in_((
             STATUS_WAITING_DETAILS,
+            STATUS_WAITING_OTP,
+            STATUS_OTP_SUBMITTED,
             STATUS_PENDING,
             STATUS_CLAIMED,
         )),
@@ -470,7 +474,7 @@ def fill_coin_order_details(
     order.konami_password = konami_password
     order.region = region
     order.device = platform
-    order.status = STATUS_PENDING
+    order.status = STATUS_WAITING_OTP
 
     db.commit()
     db.refresh(order)
