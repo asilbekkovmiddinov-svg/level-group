@@ -29,15 +29,16 @@ def session():
     return db
 
 
-def test_deposit_create_replays_key_and_enforces_one_active_request():
+def test_deposit_create_replays_only_the_same_key():
     db = session()
     first = create_deposit(db, DepositCreate(amount=15000), 42, "deposit-key")
     replay = create_deposit(db, DepositCreate(amount=15000), 42, "deposit-key")
     other_device = create_deposit(db, DepositCreate(amount=20000), 42, "other-key")
     conflict = create_deposit(db, DepositCreate(amount=20000), 42, "deposit-key")
-    assert first.id == replay.id == other_device.id
+    assert first.id == replay.id
+    assert other_device.id != first.id
     assert conflict == "idempotency_conflict"
-    assert db.query(Deposit).count() == 1
+    assert db.query(Deposit).count() == 2
 
 
 def test_withdraw_create_replays_without_double_lock_or_transaction():
