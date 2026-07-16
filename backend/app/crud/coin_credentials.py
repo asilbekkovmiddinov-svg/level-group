@@ -63,10 +63,10 @@ def create_access_grant(db: Session, order_type: str, order_id: int, admin_id: i
     return token
 
 
-def consume_access_grant(db: Session, token: str):
+def consume_access_grant(db: Session, token: str, admin_id: int):
     item = db.query(CoinCredentialAccessGrant).filter_by(token_hash=hashlib.sha256(token.encode()).hexdigest()).with_for_update().first()
     now = datetime.now(timezone.utc)
-    if not item or item.used_at is not None:
+    if not item or item.used_at is not None or item.admin_id != admin_id:
         return None
     expires = item.expires_at if item.expires_at.tzinfo else item.expires_at.replace(tzinfo=timezone.utc)
     if expires <= now:
