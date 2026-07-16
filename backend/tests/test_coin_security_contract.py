@@ -12,13 +12,14 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.core import telegram_auth
+from app.core import config, telegram_auth
 from app.core.database import Base, get_db
 from app.models.order import Order
 from app.models.product import Product
 from app.models.transaction import Transaction
 from app.models.user import User
 from app.models.wallet import Wallet
+from app.models.coin_credential import CoinOrderCredential
 from app.routers import order as order_router
 from app.routers import product as product_router
 from app.routers import internal_wallet
@@ -49,6 +50,7 @@ def headers(telegram_id: int, key: str | None = None):
 def client(monkeypatch):
     monkeypatch.setattr(telegram_auth, "BOT_TOKEN", "test-token")
     monkeypatch.setattr(internal_wallet, "INTERNAL_API_KEY", "internal-test-key")
+    monkeypatch.setattr(config, "COIN_CREDENTIAL_ENCRYPTION_KEY", "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=")
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -62,6 +64,7 @@ def client(monkeypatch):
             Product.__table__,
             Order.__table__,
             Transaction.__table__,
+            CoinOrderCredential.__table__,
         ],
     )
     session_factory = sessionmaker(bind=engine)
@@ -138,7 +141,7 @@ def test_shop_admin_endpoints_require_internal_api_key(client):
 
 def test_order_identity_history_and_idempotency_are_user_scoped(client):
     http, sessions = client
-    body = {"product_id": 7, "region": "Japan", "telegram_id": 99}
+    body = {"product_id": 7, "region": "Japan", "telegram_id": 99, "konami_login": "u@example.com", "konami_password": "secret", "platform": "Android"}
 
     first = http.post(
         "/orders/create",
@@ -170,7 +173,7 @@ def test_order_identity_history_and_idempotency_are_user_scoped(client):
 
     conflict = http.post(
         "/orders/create",
-        json={"product_id": 7, "region": "Global"},
+        json={"product_id": 7, "region": "Global", "konami_login": "u@example.com", "konami_password": "secret", "platform": "Android"},
         headers=headers(42, "coin-order-42"),
     )
     assert conflict.status_code == 409
