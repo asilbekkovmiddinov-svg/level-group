@@ -22,12 +22,12 @@ def test_shop_and_wheel_notify_once_after_waiting_otp(monkeypatch):
     db = factory()
     db.add(User(telegram_id=42, first_name="Ali", username="ali"))
     db.add(Order(id=10, telegram_id=42, product_id=1, product_title="130 Coin", coins_amount=130,
-        price_uzs=Decimal("1000"), platform="ANDROID", region="GLOBAL", status="WAITING_OTP"))
+        price_uzs=Decimal("1000"), platform="ANDROID", region="GLOBAL", status="WAITING_OPERATOR"))
     db.add(WheelSpin(id=20, telegram_id=42, spin_type="FREE", reward_code="coin_2000",
         reward_type="COIN_ORDER", reward_amount=2000, global_spin_number=1, status="COMPLETED"))
     db.flush()
     db.add(WheelCoinOrder(id=30, spin_id=20, telegram_id=42, username="ali", coin_amount=2000,
-        device="IOS", region="JAPAN", status="WAITING_OTP"))
+        device="IOS", region="JAPAN", status="WAITING_OPERATOR"))
     db.commit()
 
     sent = []
