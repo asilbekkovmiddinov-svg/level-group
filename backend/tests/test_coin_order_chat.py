@@ -1,4 +1,5 @@
 import hashlib, hmac, json, time
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from urllib.parse import urlencode
 
@@ -102,6 +103,22 @@ def test_operator_confirmation_unlocks_otp_and_notifies_once(client, monkeypatch
     assert invalid.status_code==400
     valid=http.post("/coin-order-chat/SHOP/1/messages",json={"message":"482193"},headers=auth(42))
     assert valid.json()["status"]=="OTP_SUBMITTED"
+
+
+def test_stale_sending_allows_otp_action_retry(client, monkeypatch):
+    http,sessions=client; internal={"X-Internal-Api-Key":"key"}; calls=[]
+    db=sessions()
+    try:
+        order=db.get(Order,1); order.status="WAITING_OTP"; order.otp_notification_status="SENDING"
+        order.otp_notification_attempted_at=datetime.now(timezone.utc)-timedelta(minutes=10)
+        db.commit()
+    finally: db.close()
+    monkeypatch.setattr(coin_order_notifications.config,"COIN_OTP_NOTIFICATION_STALE_SECONDS",300)
+    monkeypatch.setattr(coin_order_notifications,"send_coin_otp_user_notification",
+        lambda db,kind,order_id: (calls.append((kind,order_id)) or type("Result",(),{"status":"SENT","sent":True})()))
+    retried=http.post("/coin-order-chat/internal/SHOP/1/action",json={"admin_id":7,"action":"OTP_SENT"},headers=internal)
+    assert retried.status_code==200 and retried.json()["notification_status"]=="SENT"
+    assert calls==[("SHOP",1)]
 
 
 def test_credentials_decrypt_audit_and_terminal_cleanup_are_irreversible(client):
