@@ -20,6 +20,8 @@ from app.schemas.wheel import (
 )
 from app.core.telegram_auth import TelegramUser, get_current_telegram_user
 from app.services.coin_order_notifications import send_coin_order_notification
+from app.services.coin_operator_flow import begin_operator_wait
+from app.models.wheel import WheelCoinOrder
 from app.routers.internal_wallet import require_internal_api_key
 
 router = APIRouter(
@@ -90,6 +92,7 @@ def coin_order_details(
     if not order:
         raise HTTPException(status_code=404, detail="Coin order topilmadi")
 
+    order = begin_operator_wait(db, "WHEEL", order)
     notification = send_coin_order_notification(db, "WHEEL", order.id)
 
     return {
@@ -106,6 +109,11 @@ def pending_coin_order_for_user(
     db: Session = Depends(get_db),
 ):
     order = get_active_coin_order(db, current_user.telegram_id)
+    if not order:
+        order = db.query(WheelCoinOrder).filter(
+            WheelCoinOrder.telegram_id == current_user.telegram_id,
+            WheelCoinOrder.status == "WAITING_OPERATOR",
+        ).order_by(WheelCoinOrder.id.desc()).first()
     return {
         "success": True,
         "data": coin_order_response(order) if order else None,
