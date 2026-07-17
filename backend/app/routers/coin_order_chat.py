@@ -131,8 +131,14 @@ def admin_action(order_type: str, order_id: int, data: OperatorChatAction, _: No
         if not result or isinstance(result, str): raise HTTPException(409, "Action is invalid for current status")
         order = result
     else:
-        if not apply_operator_action(order, action, data.admin_id): raise HTTPException(409, "Action is invalid for current status")
-        if action == "OTP_SENT":
+        otp_retry = (
+            action == "OTP_SENT"
+            and order.status == "WAITING_OTP"
+            and order.otp_notification_status in {"PENDING", "FAILED"}
+        )
+        if not otp_retry and not apply_operator_action(order, action, data.admin_id):
+            raise HTTPException(409, "Action is invalid for current status")
+        if action == "OTP_SENT" and not otp_retry:
             from app.crud.coin_order_chat import OTP_SENT_MESSAGE
             from app.models.coin_order_message import CoinOrderMessage
             db.add(CoinOrderMessage(order_type=kind, order_id=order.id, telegram_id=order.telegram_id,
@@ -140,5 +146,6 @@ def admin_action(order_type: str, order_id: int, data: OperatorChatAction, _: No
         db.commit(); db.refresh(order)
         if action == "OTP_SENT":
             from app.services.coin_order_notifications import send_coin_otp_user_notification
-            send_coin_otp_user_notification(kind, order.id, order.telegram_id)
+            notification = send_coin_otp_user_notification(db, kind, order.id)
+            return {"success": True, "status": order.status, "notification_status": notification.status}
     return {"success": True, "status": order.status}
