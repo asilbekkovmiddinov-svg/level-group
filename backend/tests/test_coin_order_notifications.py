@@ -73,3 +73,21 @@ def test_routes_dispatch_only_after_crud_returns_committed_order():
     wheel = (root / "wheel.py").read_text()
     assert 'send_coin_order_notification(db, "SHOP", order.id)' in shop
     assert 'send_coin_order_notification(db, "WHEEL", order.id)' in wheel
+
+
+def test_otp_user_notification_targets_exact_order_chat(monkeypatch):
+    sent = []
+    monkeypatch.setattr(coin_order_notifications.config, "COIN_MINIAPP_URL", "https://mini.example/app/")
+    monkeypatch.setattr(coin_order_notifications, "send_admin_message",
+        lambda text, reply_markup=None, chat_id=None: sent.append((text, reply_markup, chat_id)))
+
+    result = coin_order_notifications.send_coin_otp_user_notification("WHEEL", 30, 42)
+
+    assert result.sent is True
+    assert sent[0][2] == 42
+    assert "6 xonali kodni Order Chat ichiga yuboring" in sent[0][0]
+    button = sent[0][1]["inline_keyboard"][0][0]
+    assert button["text"] == "💬 Buyurtma suhbatini ochish"
+    assert button["web_app"]["url"] == (
+        "https://mini.example/app?coin_order_type=WHEEL&coin_order_id=30"
+    )
