@@ -73,6 +73,25 @@ def test_wheel_wrong_code_returns_to_waiting_otp(client):
     assert result.json()["status"]=="WAITING_OTP"
 
 
+def test_operator_confirmation_unlocks_otp_and_creates_system_message(client):
+    http,sessions=client; internal={"X-Internal-Api-Key":"key"}
+    db=sessions()
+    try:
+        db.get(Order,1).status="WAITING_OPERATOR"; db.commit()
+    finally: db.close()
+    assert http.post("/coin-order-chat/SHOP/1/messages",json={"message":"482193"},headers=auth(42)).status_code==409
+    opened=http.post("/coin-order-chat/internal/SHOP/1/action",json={"admin_id":7,"action":"OTP_SENT"},headers=internal)
+    assert opened.status_code==200 and opened.json()["status"]=="WAITING_OTP"
+    messages=http.get("/coin-order-chat/SHOP/1/messages",headers=auth(42)).json()
+    assert messages["unread_count"]==1
+    assert messages["data"][-1]["sender"]=="SYSTEM"
+    assert "6 xonali kodni shu chatga yuboring" in messages["data"][-1]["message"]
+    invalid=http.post("/coin-order-chat/SHOP/1/messages",json={"message":"hello"},headers=auth(42))
+    assert invalid.status_code==400
+    valid=http.post("/coin-order-chat/SHOP/1/messages",json={"message":"482193"},headers=auth(42))
+    assert valid.json()["status"]=="OTP_SUBMITTED"
+
+
 def test_credentials_decrypt_audit_and_terminal_cleanup_are_irreversible(client):
     http,sessions=client; internal={"X-Internal-Api-Key":"key"}
     opened=http.post("/coin-order-chat/internal/SHOP/1/credential-grant",json={"admin_id":7,"session_id":"s1"},headers=internal)
