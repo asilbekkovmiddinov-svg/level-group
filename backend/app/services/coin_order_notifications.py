@@ -1,9 +1,11 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import logging
+from urllib.parse import urlencode
 
 from sqlalchemy.orm import Session
 
+from app.core import config
 from app.models.order import Order
 from app.models.user import User
 from app.models.wheel import WheelCoinOrder
@@ -101,3 +103,37 @@ def send_coin_order_notification(db: Session, order_type: str, order_id: int):
         sent.coin_notification_last_error = None
         db.commit()
     return CoinOrderNotificationResult("SENT", True)
+
+
+OTP_USER_NOTIFICATION = """🔔 Operator buyurtmangizni qayta ishlamoqda.
+
+📩 MyKonami emailingizga tasdiqlash kodi yuborildi.
+
+Iltimos emailingizga kelgan 6 xonali kodni Order Chat ichiga yuboring."""
+
+
+def send_coin_otp_user_notification(order_type: str, order_id: int, telegram_id: int):
+    """Notify the owner after the committed WAITING_OTP transition.
+
+    The transition itself is the idempotency boundary: callers invoke this only
+    when OTP_SENT atomically changed WAITING_OPERATOR to WAITING_OTP.
+    """
+    kind = order_type.upper()
+    query = urlencode({"coin_order_type": kind, "coin_order_id": order_id})
+    url = f"{config.COIN_MINIAPP_URL.rstrip('/')}?{query}"
+    try:
+        send_admin_message(
+            OTP_USER_NOTIFICATION,
+            chat_id=telegram_id,
+            reply_markup={"inline_keyboard": [[{
+                "text": "💬 Buyurtma suhbatini ochish",
+                "web_app": {"url": url},
+            }]]},
+        )
+        return CoinOrderNotificationResult("SENT", True)
+    except Exception:
+        logger.exception(
+            "Coin OTP user notification failed",
+            extra={"order_type": kind, "order_id": order_id},
+        )
+        return CoinOrderNotificationResult("FAILED", False)
