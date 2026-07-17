@@ -18,6 +18,7 @@ from app.models.user import User
 from app.models.coin_credential import CoinCredentialAccessAudit, CoinCredentialAccessGrant, CoinOrderCredential
 from app.crud.coin_credentials import store_credentials
 from app.routers import coin_order_chat, internal_wallet
+from app.services import coin_order_notifications
 
 
 def auth(user_id):
@@ -73,8 +74,11 @@ def test_wheel_wrong_code_returns_to_waiting_otp(client):
     assert result.json()["status"]=="WAITING_OTP"
 
 
-def test_operator_confirmation_unlocks_otp_and_creates_system_message(client):
+def test_operator_confirmation_unlocks_otp_and_notifies_once(client, monkeypatch):
     http,sessions=client; internal={"X-Internal-Api-Key":"key"}
+    notifications=[]
+    monkeypatch.setattr(coin_order_notifications, "send_coin_otp_user_notification",
+        lambda kind, order_id, telegram_id: notifications.append((kind, order_id, telegram_id)))
     db=sessions()
     try:
         db.get(Order,1).status="WAITING_OPERATOR"; db.commit()
@@ -82,9 +86,13 @@ def test_operator_confirmation_unlocks_otp_and_creates_system_message(client):
     assert http.post("/coin-order-chat/SHOP/1/messages",json={"message":"482193"},headers=auth(42)).status_code==409
     opened=http.post("/coin-order-chat/internal/SHOP/1/action",json={"admin_id":7,"action":"OTP_SENT"},headers=internal)
     assert opened.status_code==200 and opened.json()["status"]=="WAITING_OTP"
+    repeated=http.post("/coin-order-chat/internal/SHOP/1/action",json={"admin_id":7,"action":"OTP_SENT"},headers=internal)
+    assert repeated.status_code==409
+    assert notifications==[("SHOP",1,42)]
     messages=http.get("/coin-order-chat/SHOP/1/messages",headers=auth(42)).json()
     assert messages["unread_count"]==1
     assert messages["data"][-1]["sender"]=="SYSTEM"
+    assert len([item for item in messages["data"] if item["sender"]=="SYSTEM"])==1
     assert "6 xonali kodni shu chatga yuboring" in messages["data"][-1]["message"]
     invalid=http.post("/coin-order-chat/SHOP/1/messages",json={"message":"hello"},headers=auth(42))
     assert invalid.status_code==400
