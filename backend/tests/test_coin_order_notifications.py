@@ -1,4 +1,5 @@
 from decimal import Decimal
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -124,4 +125,36 @@ def test_otp_notification_failure_can_retry_without_system_message_replay(monkey
     assert coin_order_notifications.send_coin_otp_user_notification(db, "SHOP", 32).sent is False
     assert len(attempts) == 2
     assert db.get(Order, 32).otp_notification_attempts == 2
+    db.close()
+
+
+def test_stale_sending_recovers_retries_once_and_suppresses_duplicates(monkeypatch):
+    factory = sessions(); db = factory()
+    db.add(Order(id=33, telegram_id=42, product_id=1, product_title="130 Coin", coins_amount=130,
+        price_uzs=Decimal("1000"), platform="ANDROID", region="GLOBAL", status="WAITING_OTP",
+        otp_notification_status="SENDING", otp_notification_attempts=1,
+        otp_notification_attempted_at=datetime.now(timezone.utc) - timedelta(minutes=10)))
+    db.commit(); sent = []
+    monkeypatch.setattr(coin_order_notifications.config, "COIN_OTP_NOTIFICATION_STALE_SECONDS", 300)
+    monkeypatch.setattr(coin_order_notifications, "send_admin_message",
+        lambda *args, **kwargs: (sent.append(True) or type("Result", (), {"message_id": 88})()))
+
+    assert coin_order_notifications.send_coin_otp_user_notification(db, "SHOP", 33).status == "SENT"
+    assert db.get(Order, 33).otp_notification_attempts == 2
+    assert coin_order_notifications.send_coin_otp_user_notification(db, "SHOP", 33).sent is False
+    assert sent == [True]
+    db.close()
+
+
+def test_fresh_sending_is_not_retried(monkeypatch):
+    factory = sessions(); db = factory()
+    db.add(Order(id=34, telegram_id=42, product_id=1, product_title="130 Coin", coins_amount=130,
+        price_uzs=Decimal("1000"), platform="ANDROID", region="GLOBAL", status="WAITING_OTP",
+        otp_notification_status="SENDING", otp_notification_attempts=1,
+        otp_notification_attempted_at=datetime.now(timezone.utc)))
+    db.commit(); sent = []
+    monkeypatch.setattr(coin_order_notifications, "send_admin_message", lambda *args, **kwargs: sent.append(True))
+    result = coin_order_notifications.send_coin_otp_user_notification(db, "SHOP", 34)
+    assert result.status == "SENDING" and result.sent is False
+    assert sent == [] and db.get(Order, 34).otp_notification_attempts == 1
     db.close()
