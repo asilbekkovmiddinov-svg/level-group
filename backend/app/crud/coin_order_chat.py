@@ -23,6 +23,11 @@ def get_coin_order(db: Session, order_type: str, order_id: int):
     return db.query(model).filter(model.id == order_id).first() if model else None
 
 
+def get_coin_order_for_update(db: Session, order_type: str, order_id: int):
+    model = ORDER_MODELS.get(normalize_order_type(order_type))
+    return db.query(model).filter(model.id == order_id).with_for_update().first() if model else None
+
+
 def list_messages(db: Session, order_type: str, order_id: int):
     return db.query(CoinOrderMessage).filter(
         CoinOrderMessage.order_type == normalize_order_type(order_type),
