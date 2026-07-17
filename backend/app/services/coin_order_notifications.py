@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import logging
 from urllib.parse import urlencode
 
@@ -22,6 +22,25 @@ class CoinOrderNotificationResult:
 
 def _model(order_type: str):
     return {"SHOP": Order, "WHEEL": WheelCoinOrder}.get(order_type.upper())
+
+
+def _utc(value):
+    if value is None:
+        return None
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+def otp_notification_retryable(order, now=None):
+    status = str(order.otp_notification_status or "PENDING").upper()
+    if status in {"PENDING", "FAILED"}:
+        return True
+    if status != "SENDING":
+        return False
+    attempted_at = _utc(order.otp_notification_attempted_at)
+    current = now or datetime.now(timezone.utc)
+    return attempted_at is None or current - attempted_at >= timedelta(
+        seconds=config.COIN_OTP_NOTIFICATION_STALE_SECONDS
+    )
 
 
 def _snapshot(order_type: str, order, user):
@@ -123,10 +142,14 @@ def send_coin_otp_user_notification(db: Session, order_type: str, order_id: int)
     if not order or order.status != "WAITING_OTP":
         db.rollback()
         return CoinOrderNotificationResult("SKIPPED", False)
-    if order.otp_notification_status in {"SENDING", "SENT"}:
+    if not otp_notification_retryable(order):
         status = order.otp_notification_status
         db.rollback()
         return CoinOrderNotificationResult(status, False)
+
+    if order.otp_notification_status == "SENDING":
+        order.otp_notification_status = "FAILED"
+        order.otp_notification_last_error = "stale_sending_recovered"
 
     order.otp_notification_status = "SENDING"
     order.otp_notification_attempts = (order.otp_notification_attempts or 0) + 1
