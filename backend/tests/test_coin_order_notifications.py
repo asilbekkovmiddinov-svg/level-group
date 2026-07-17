@@ -76,12 +76,19 @@ def test_routes_dispatch_only_after_crud_returns_committed_order():
 
 
 def test_otp_user_notification_targets_exact_order_chat(monkeypatch):
+    factory = sessions()
+    db = factory()
+    db.add(Order(id=31, telegram_id=42, product_id=1, product_title="130 Coin", coins_amount=130,
+        price_uzs=Decimal("1000"), platform="ANDROID", region="GLOBAL", status="WAITING_OTP"))
+    db.commit()
     sent = []
     monkeypatch.setattr(coin_order_notifications.config, "COIN_MINIAPP_URL", "https://mini.example/app/")
-    monkeypatch.setattr(coin_order_notifications, "send_admin_message",
-        lambda text, reply_markup=None, chat_id=None: sent.append((text, reply_markup, chat_id)))
+    def telegram(text, reply_markup=None, chat_id=None):
+        sent.append((text, reply_markup, chat_id))
+        return type("Result", (), {"message_id": 76})()
+    monkeypatch.setattr(coin_order_notifications, "send_admin_message", telegram)
 
-    result = coin_order_notifications.send_coin_otp_user_notification("WHEEL", 30, 42)
+    result = coin_order_notifications.send_coin_otp_user_notification(db, "SHOP", 31)
 
     assert result.sent is True
     assert sent[0][2] == 42
@@ -89,5 +96,32 @@ def test_otp_user_notification_targets_exact_order_chat(monkeypatch):
     button = sent[0][1]["inline_keyboard"][0][0]
     assert button["text"] == "💬 Buyurtma suhbatini ochish"
     assert button["web_app"]["url"] == (
-        "https://mini.example/app?coin_order_type=WHEEL&coin_order_id=30"
+        "https://mini.example/app?coin_order_type=SHOP&coin_order_id=31"
     )
+    assert db.get(Order, 31).otp_notification_status == "SENT"
+    assert db.get(Order, 31).otp_notification_attempts == 1
+    assert coin_order_notifications.send_coin_otp_user_notification(db, "SHOP", 31).sent is False
+    assert len(sent) == 1
+    db.close()
+
+
+def test_otp_notification_failure_can_retry_without_system_message_replay(monkeypatch):
+    factory = sessions(); db = factory()
+    db.add(Order(id=32, telegram_id=42, product_id=1, product_title="130 Coin", coins_amount=130,
+        price_uzs=Decimal("1000"), platform="ANDROID", region="GLOBAL", status="WAITING_OTP"))
+    db.commit()
+    attempts = []
+
+    def telegram(*args, **kwargs):
+        attempts.append(True)
+        if len(attempts) == 1:
+            raise RuntimeError("temporary")
+        return type("Result", (), {"message_id": 77})()
+
+    monkeypatch.setattr(coin_order_notifications, "send_admin_message", telegram)
+    assert coin_order_notifications.send_coin_otp_user_notification(db, "SHOP", 32).status == "FAILED"
+    assert coin_order_notifications.send_coin_otp_user_notification(db, "SHOP", 32).status == "SENT"
+    assert coin_order_notifications.send_coin_otp_user_notification(db, "SHOP", 32).sent is False
+    assert len(attempts) == 2
+    assert db.get(Order, 32).otp_notification_attempts == 2
+    db.close()
