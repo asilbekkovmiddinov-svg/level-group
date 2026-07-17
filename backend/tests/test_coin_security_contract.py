@@ -20,6 +20,7 @@ from app.models.transaction import Transaction
 from app.models.user import User
 from app.models.wallet import Wallet
 from app.models.coin_credential import CoinOrderCredential
+from app.models.coin_order_message import CoinOrderMessage
 from app.routers import order as order_router
 from app.routers import product as product_router
 from app.routers import internal_wallet
@@ -65,6 +66,7 @@ def client(monkeypatch):
             Order.__table__,
             Transaction.__table__,
             CoinOrderCredential.__table__,
+            CoinOrderMessage.__table__,
         ],
     )
     session_factory = sessionmaker(bind=engine)
@@ -154,6 +156,7 @@ def test_order_identity_history_and_idempotency_are_user_scoped(client):
         headers=headers(42, "coin-order-42"),
     )
     assert first.status_code == replay.status_code == 200
+    assert first.json()["data"]["status"] == "WAITING_OPERATOR"
     assert first.json()["data"]["id"] == replay.json()["data"]["id"]
     assert first.json()["data"]["telegram_id"] == 42
 
