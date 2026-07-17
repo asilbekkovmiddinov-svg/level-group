@@ -131,11 +131,9 @@ def admin_action(order_type: str, order_id: int, data: OperatorChatAction, _: No
         if not result or isinstance(result, str): raise HTTPException(409, "Action is invalid for current status")
         order = result
     else:
-        otp_retry = (
-            action == "OTP_SENT"
-            and order.status == "WAITING_OTP"
-            and order.otp_notification_status in {"PENDING", "FAILED"}
-        )
+        if action == "OTP_SENT":
+            from app.services.coin_order_notifications import otp_notification_retryable
+        otp_retry = action == "OTP_SENT" and order.status == "WAITING_OTP" and otp_notification_retryable(order)
         if not otp_retry and not apply_operator_action(order, action, data.admin_id):
             raise HTTPException(409, "Action is invalid for current status")
         if action == "OTP_SENT" and not otp_retry:
