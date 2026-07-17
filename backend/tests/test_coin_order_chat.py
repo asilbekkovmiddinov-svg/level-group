@@ -77,8 +77,12 @@ def test_wheel_wrong_code_returns_to_waiting_otp(client):
 def test_operator_confirmation_unlocks_otp_and_notifies_once(client, monkeypatch):
     http,sessions=client; internal={"X-Internal-Api-Key":"key"}
     notifications=[]
-    monkeypatch.setattr(coin_order_notifications, "send_coin_otp_user_notification",
-        lambda kind, order_id, telegram_id: notifications.append((kind, order_id, telegram_id)))
+    def notify(db, kind, order_id):
+        notifications.append((kind, order_id))
+        db.get(Order, order_id).otp_notification_status = "SENT"
+        db.commit()
+        return type("Result", (), {"status": "SENT", "sent": True})()
+    monkeypatch.setattr(coin_order_notifications, "send_coin_otp_user_notification", notify)
     db=sessions()
     try:
         db.get(Order,1).status="WAITING_OPERATOR"; db.commit()
@@ -88,7 +92,7 @@ def test_operator_confirmation_unlocks_otp_and_notifies_once(client, monkeypatch
     assert opened.status_code==200 and opened.json()["status"]=="WAITING_OTP"
     repeated=http.post("/coin-order-chat/internal/SHOP/1/action",json={"admin_id":7,"action":"OTP_SENT"},headers=internal)
     assert repeated.status_code==409
-    assert notifications==[("SHOP",1,42)]
+    assert notifications==[("SHOP",1)]
     messages=http.get("/coin-order-chat/SHOP/1/messages",headers=auth(42)).json()
     assert messages["unread_count"]==1
     assert messages["data"][-1]["sender"]=="SYSTEM"
