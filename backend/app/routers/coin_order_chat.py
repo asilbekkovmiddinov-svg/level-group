@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.telegram_auth import TelegramUser, get_current_telegram_user, verify_init_data
 from app.crud.coin_order_chat import (
-    active_orders, add_message, apply_operator_action, get_coin_order,
+    active_orders, add_message, apply_operator_action, get_coin_order, get_coin_order_for_update,
     list_messages, mark_read, normalize_order_type, unread_count,
 )
 from app.routers.internal_wallet import require_internal_api_key
@@ -115,7 +115,7 @@ def admin_read(order_type: str, order_id: int, _: None = Depends(require_interna
 
 @router.post("/internal/{order_type}/{order_id}/action")
 def admin_action(order_type: str, order_id: int, data: OperatorChatAction, _: None = Depends(require_internal_api_key), db: Session = Depends(get_db)):
-    order = get_coin_order(db, order_type, order_id)
+    order = get_coin_order_for_update(db, order_type, order_id)
     if not order: raise HTTPException(404, "Order not found")
     action = data.action.upper(); kind = normalize_order_type(order_type)
     if action in {"CLAIM", "COMPLETE", "REJECT"}:
@@ -138,4 +138,7 @@ def admin_action(order_type: str, order_id: int, data: OperatorChatAction, _: No
             db.add(CoinOrderMessage(order_type=kind, order_id=order.id, telegram_id=order.telegram_id,
                 sender="SYSTEM", sender_id=data.admin_id, message=OTP_SENT_MESSAGE))
         db.commit(); db.refresh(order)
+        if action == "OTP_SENT":
+            from app.services.coin_order_notifications import send_coin_otp_user_notification
+            send_coin_otp_user_notification(kind, order.id, order.telegram_id)
     return {"success": True, "status": order.status}
