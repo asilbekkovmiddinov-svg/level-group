@@ -43,7 +43,8 @@ def user_messages(order_type: str, order_id: int, current_user: TelegramUser = D
 @router.post("/{order_type}/{order_id}/messages")
 def user_send(order_type: str, order_id: int, data: CoinOrderMessageCreate, current_user: TelegramUser = Depends(get_current_telegram_user), db: Session = Depends(get_db)):
     order = user_order(db, order_type, order_id, current_user.telegram_id)
-    if order.status in {"COMPLETED", "REJECTED", "CANCELLED"}: raise HTTPException(409, "Order chat is closed")
+    if order.status != "WAITING_OTP": raise HTTPException(409, "OTP input is not available")
+    if not (data.message.isdigit() and len(data.message) == 6): raise HTTPException(400, "OTP must contain 6 digits")
     item = add_message(db, order_type, order, "USER", current_user.telegram_id, data.message)
     return {"success": True, "status": order.status, "data": message_response(item)}
 
@@ -131,5 +132,10 @@ def admin_action(order_type: str, order_id: int, data: OperatorChatAction, _: No
         order = result
     else:
         if not apply_operator_action(order, action, data.admin_id): raise HTTPException(409, "Action is invalid for current status")
+        if action == "OTP_SENT":
+            from app.crud.coin_order_chat import OTP_SENT_MESSAGE
+            from app.models.coin_order_message import CoinOrderMessage
+            db.add(CoinOrderMessage(order_type=kind, order_id=order.id, telegram_id=order.telegram_id,
+                sender="SYSTEM", sender_id=data.admin_id, message=OTP_SENT_MESSAGE))
         db.commit(); db.refresh(order)
     return {"success": True, "status": order.status}
