@@ -148,7 +148,7 @@ def test_pending_restore_details_ownership_and_duplicate_contract(client):
         "/wheel/coin-order/details", json=body, headers=headers(42)
     )
     assert completed.status_code == 200
-    assert completed.json()["data"]["status"] == wheel.STATUS_WAITING_OPERATOR
+    assert completed.json()["data"]["status"] == "WAITING_OPERATOR"
     assert completed.json()["data"]["platform"] == "Android"
 
     duplicate = http.post(
@@ -174,7 +174,7 @@ def test_130_completed_and_2000_rejected_lifecycle_requires_internal_auth(client
         }
         assert http.post(
             "/wheel/coin-order/details", json=details, headers=headers(42)
-        ).json()["data"]["status"] == wheel.STATUS_WAITING_OPERATOR
+        ).json()["data"]["status"] == "WAITING_OPERATOR"
 
         db = _sessions()
         try:
