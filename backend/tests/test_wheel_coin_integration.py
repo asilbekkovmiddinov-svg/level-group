@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.core import config, telegram_auth
 from app.core.database import Base, get_db
@@ -160,6 +161,25 @@ def test_pending_restore_details_ownership_and_duplicate_contract(client):
     assert http.post(
         "/wheel/coin-order/details", json=spoofed, headers=headers(42)
     ).status_code == 422
+
+
+def test_wheel_details_transaction_rolls_back_credentials_status_and_message(client, monkeypatch):
+    http, sessions = client
+    monkeypatch.setattr(wheel, "store_credentials",
+        lambda *args, **kwargs: (_ for _ in ()).throw(SQLAlchemyError("encrypt failed")))
+    body = {"spin_id": 1, "konami_login": "player@example.com",
+        "konami_password": "one-time-secret", "platform": "Android", "region": "Global"}
+    with pytest.raises(SQLAlchemyError):
+        http.post("/wheel/coin-order/details", json=body, headers=headers(42))
+    db = sessions()
+    try:
+        order = db.query(WheelCoinOrder).filter_by(spin_id=1).one()
+        assert order.status == wheel.STATUS_WAITING_DETAILS
+        assert order.region is None and order.device is None
+        assert db.query(CoinOrderCredential).count() == 0
+        assert db.query(CoinOrderMessage).count() == 0
+    finally:
+        db.close()
 
 
 def test_130_completed_and_2000_rejected_lifecycle_requires_internal_auth(client):
