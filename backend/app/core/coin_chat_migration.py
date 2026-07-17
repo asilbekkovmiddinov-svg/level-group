@@ -16,7 +16,13 @@ def run_coin_chat_migration() -> None:
                 ADD COLUMN IF NOT EXISTS coin_notification_message_id VARCHAR(100),
                 ADD COLUMN IF NOT EXISTS coin_notification_attempts INTEGER NOT NULL DEFAULT 0,
                 ADD COLUMN IF NOT EXISTS coin_notification_last_error VARCHAR(255),
-                ADD COLUMN IF NOT EXISTS coin_notification_sent_at TIMESTAMP WITH TIME ZONE;"""))
+                ADD COLUMN IF NOT EXISTS coin_notification_sent_at TIMESTAMP WITH TIME ZONE,
+                ADD COLUMN IF NOT EXISTS otp_notification_status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+                ADD COLUMN IF NOT EXISTS otp_notification_message_id VARCHAR(100),
+                ADD COLUMN IF NOT EXISTS otp_notification_attempts INTEGER NOT NULL DEFAULT 0,
+                ADD COLUMN IF NOT EXISTS otp_notification_last_error VARCHAR(255),
+                ADD COLUMN IF NOT EXISTS otp_notification_attempted_at TIMESTAMP WITH TIME ZONE,
+                ADD COLUMN IF NOT EXISTS otp_notification_sent_at TIMESTAMP WITH TIME ZONE;"""))
         connection.execute(text("""
             CREATE TABLE IF NOT EXISTS coin_order_messages (
                 id SERIAL PRIMARY KEY, order_type VARCHAR(10) NOT NULL,

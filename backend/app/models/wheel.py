@@ -240,6 +240,13 @@ class WheelCoinOrder(Base):
     coin_notification_last_error = Column(String(255), nullable=True)
     coin_notification_sent_at = Column(DateTime(timezone=True), nullable=True)
 
+    otp_notification_status = Column(String(20), nullable=False, default="PENDING")
+    otp_notification_message_id = Column(String(100), nullable=True)
+    otp_notification_attempts = Column(Integer, nullable=False, default=0)
+    otp_notification_last_error = Column(String(255), nullable=True)
+    otp_notification_attempted_at = Column(DateTime(timezone=True), nullable=True)
+    otp_notification_sent_at = Column(DateTime(timezone=True), nullable=True)
+
     admin_id = Column(
         BigInteger,
         nullable=True,

@@ -1,4 +1,6 @@
 import base64
+import hashlib
+import hmac
 import os
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -25,3 +27,9 @@ def encrypt_value(value: str, *, order_type: str, order_id: int, field: str):
 def decrypt_value(ciphertext: bytes, nonce: bytes, *, order_type: str, order_id: int, field: str):
     aad = f"{order_type}:{order_id}:{field}:v1".encode()
     return AESGCM(_key()).decrypt(nonce, ciphertext, aad).decode()
+
+
+def credential_fingerprint(email: str, password: str) -> str:
+    """Create a stable, non-reversible idempotency digest for credentials."""
+    payload = f"{email.strip().lower()}\0{password}".encode()
+    return hmac.new(_key(), payload, hashlib.sha256).hexdigest()

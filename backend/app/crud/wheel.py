@@ -8,6 +8,7 @@ from app.models.wheel import WheelSettings, WheelDailyLimit, WheelSpin, WheelCoi
 from app.crud.wallet import add_efc_balance, add_uzs_balance
 from app.crud.transaction import create_transaction
 from app.crud.coin_credentials import cleanup_sensitive_order_data, store_credentials
+from app.services.coin_operator_flow import prepare_operator_wait
 
 
 SPIN_TYPE_FREE = "FREE"
@@ -458,27 +459,26 @@ def fill_coin_order_details(
     region: str,
     platform: str,
 ):
-    order = (
-        db.query(WheelCoinOrder)
-        .filter(WheelCoinOrder.spin_id == spin_id)
-        .with_for_update()
-        .first()
-    )
-    if not order:
-        return None
-    if order.telegram_id != telegram_id:
-        return "forbidden"
-    if order.status != STATUS_WAITING_DETAILS:
-        return "not_waiting"
+    with db.begin():
+        order = (
+            db.query(WheelCoinOrder)
+            .filter(WheelCoinOrder.spin_id == spin_id)
+            .with_for_update()
+            .first()
+        )
+        if not order:
+            return None
+        if order.telegram_id != telegram_id:
+            return "forbidden"
+        if order.status != STATUS_WAITING_DETAILS:
+            return "not_waiting"
 
-    order.konami_login = None
-    order.konami_password = None
-    store_credentials(db, "WHEEL", order.id, konami_login, konami_password)
-    order.region = region
-    order.device = platform
-    order.status = STATUS_WAITING_OTP
-
-    db.commit()
+        order.konami_login = None
+        order.konami_password = None
+        store_credentials(db, "WHEEL", order.id, konami_login, konami_password)
+        order.region = region
+        order.device = platform
+        prepare_operator_wait(db, "WHEEL", order)
     db.refresh(order)
     return order
 

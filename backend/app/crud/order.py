@@ -11,6 +11,8 @@ from app.schemas.order import OrderCreate
 from app.crud.wallet import get_wallet_for_update, add_uzs
 from app.crud.transaction import create_transaction
 from app.crud.coin_credentials import cleanup_sensitive_order_data, store_credentials
+from app.services.coin_operator_flow import prepare_operator_wait
+from app.services.coin_credentials import credential_fingerprint
 
 
 def create_order(
@@ -23,7 +25,10 @@ def create_order(
     platform = data.platform.strip().upper()
     if region not in {"GLOBAL", "JAPAN"} or platform not in {"ANDROID", "IOS"}:
         return "invalid_details"
-    fingerprint = sha256(f"{data.product_id}:{region or ''}".encode()).hexdigest()
+    credentials_digest = credential_fingerprint(data.konami_login, data.konami_password)
+    fingerprint = sha256(
+        f"SHOP:{data.product_id}:{platform}:{region}:{credentials_digest}".encode()
+    ).hexdigest()
 
     try:
         with db.begin():
@@ -33,6 +38,7 @@ def create_order(
                     Order.idempotency_key == idempotency_key,
                 ).first()
                 if replay:
+                    replay._idempotency_replay = True
                     return replay if replay.request_fingerprint == fingerprint else "idempotency_conflict"
 
             product = db.query(Product).filter(
@@ -60,13 +66,14 @@ def create_order(
                 price_uzs=product.price_uzs,
                 region=region,
                 platform=platform,
-                status="WAITING_OTP",
+                status="WAITING_OPERATOR",
                 idempotency_key=idempotency_key,
                 request_fingerprint=fingerprint,
             )
             db.add(order)
             db.flush()
             store_credentials(db, "SHOP", order.id, data.konami_login.strip(), data.konami_password)
+            prepare_operator_wait(db, "SHOP", order)
             create_transaction(
                 db=db,
                 telegram_id=telegram_id,
@@ -78,6 +85,7 @@ def create_order(
                 description=f"Order payment for {product.title}",
                 commit=False,
             )
+            order._idempotency_replay = False
             return order
     except SQLAlchemyError:
         return "operation_failed"

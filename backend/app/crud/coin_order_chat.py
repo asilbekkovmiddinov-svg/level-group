@@ -7,7 +7,10 @@ from app.models.order import Order
 from app.models.wheel import WheelCoinOrder
 
 ORDER_MODELS = {"SHOP": Order, "WHEEL": WheelCoinOrder}
-ACTIVE_STATUSES = {"WAITING_DETAILS", "WAITING_OTP", "OTP_SUBMITTED", "PENDING", "CLAIMED"}
+ACTIVE_STATUSES = {"WAITING_DETAILS", "WAITING_OPERATOR", "WAITING_OTP", "OTP_SUBMITTED", "PENDING", "CLAIMED"}
+
+ORDER_CREATED_MESSAGE = "✅ Buyurtmangiz muvaffaqiyatli yaratildi.\n\nIltimos kuting.\n\nOperator tez orada buyurtma suhbati orqali siz bilan bog‘lanadi."
+OTP_SENT_MESSAGE = "📩 Email manzilingizga tasdiqlash kodi yuborildi.\n\nIltimos emailingizga kelgan 6 xonali kodni shu chatga yuboring."
 
 
 def normalize_order_type(value: str) -> str | None:
@@ -18,6 +21,11 @@ def normalize_order_type(value: str) -> str | None:
 def get_coin_order(db: Session, order_type: str, order_id: int):
     model = ORDER_MODELS.get(normalize_order_type(order_type))
     return db.query(model).filter(model.id == order_id).first() if model else None
+
+
+def get_coin_order_for_update(db: Session, order_type: str, order_id: int):
+    model = ORDER_MODELS.get(normalize_order_type(order_type))
+    return db.query(model).filter(model.id == order_id).with_for_update().first() if model else None
 
 
 def list_messages(db: Session, order_type: str, order_id: int):
@@ -41,24 +49,24 @@ def add_message(db: Session, order_type: str, order, sender: str, sender_id: int
 
 
 def mark_read(db: Session, order_type: str, order_id: int, reader: str):
-    sender = "OPERATOR" if reader == "USER" else "USER"
-    count = db.query(CoinOrderMessage).filter(
+    query = db.query(CoinOrderMessage).filter(
         CoinOrderMessage.order_type == normalize_order_type(order_type),
         CoinOrderMessage.order_id == order_id,
-        CoinOrderMessage.sender == sender,
         CoinOrderMessage.read_at.is_(None),
-    ).update({CoinOrderMessage.read_at: datetime.now(timezone.utc)}, synchronize_session=False)
+    )
+    query = query.filter(CoinOrderMessage.sender.in_(("OPERATOR", "SYSTEM"))) if reader == "USER" else query.filter(CoinOrderMessage.sender == "USER")
+    count = query.update({CoinOrderMessage.read_at: datetime.now(timezone.utc)}, synchronize_session=False)
     db.commit(); return count
 
 
 def unread_count(db: Session, order_type: str, order_id: int, reader: str):
-    sender = "OPERATOR" if reader == "USER" else "USER"
-    return db.query(CoinOrderMessage).filter(
+    query = db.query(CoinOrderMessage).filter(
         CoinOrderMessage.order_type == normalize_order_type(order_type),
         CoinOrderMessage.order_id == order_id,
-        CoinOrderMessage.sender == sender,
         CoinOrderMessage.read_at.is_(None),
-    ).count()
+    )
+    query = query.filter(CoinOrderMessage.sender.in_(("OPERATOR", "SYSTEM"))) if reader == "USER" else query.filter(CoinOrderMessage.sender == "USER")
+    return query.count()
 
 
 def active_orders(db: Session):
@@ -71,8 +79,13 @@ def active_orders(db: Session):
 
 def apply_operator_action(order, action: str, admin_id: int):
     action = action.upper()
-    if action in {"REQUEST_CODE", "WRONG_CODE", "RESEND_CODE"}:
-        if order.status not in {"WAITING_DETAILS", "WAITING_OTP", "OTP_SUBMITTED"}:
+    if action == "OTP_SENT":
+        if order.status != "WAITING_OPERATOR":
+            return False
+        order.status = "WAITING_OTP"
+        return True
+    if action in {"WRONG_CODE", "RESEND_CODE"}:
+        if order.status not in {"WAITING_OTP", "OTP_SUBMITTED"}:
             return False
         order.status = "WAITING_OTP"
         return True

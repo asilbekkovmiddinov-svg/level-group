@@ -20,9 +20,12 @@ from app.models.transaction import Transaction
 from app.models.user import User
 from app.models.wallet import Wallet
 from app.models.coin_credential import CoinOrderCredential
+from app.models.coin_order_message import CoinOrderMessage
 from app.routers import order as order_router
 from app.routers import product as product_router
 from app.routers import internal_wallet
+from app.crud import order as order_crud
+from sqlalchemy.exc import SQLAlchemyError
 
 
 def make_init_data(telegram_id: int):
@@ -65,6 +68,7 @@ def client(monkeypatch):
             Order.__table__,
             Transaction.__table__,
             CoinOrderCredential.__table__,
+            CoinOrderMessage.__table__,
         ],
     )
     session_factory = sessionmaker(bind=engine)
@@ -154,6 +158,7 @@ def test_order_identity_history_and_idempotency_are_user_scoped(client):
         headers=headers(42, "coin-order-42"),
     )
     assert first.status_code == replay.status_code == 200
+    assert first.json()["data"]["status"] == "WAITING_OPERATOR"
     assert first.json()["data"]["id"] == replay.json()["data"]["id"]
     assert first.json()["data"]["telegram_id"] == 42
 
@@ -177,3 +182,62 @@ def test_order_identity_history_and_idempotency_are_user_scoped(client):
         headers=headers(42, "coin-order-42"),
     )
     assert conflict.status_code == 409
+
+
+def test_idempotency_replay_never_regresses_lifecycle(client):
+    http, sessions = client
+    body = {"product_id": 7, "region": "Japan", "konami_login": "u@example.com",
+        "konami_password": "secret", "platform": "Android"}
+    first = http.post("/orders/create", json=body, headers=headers(42, "replay-safe"))
+    assert first.json()["data"]["status"] == "WAITING_OPERATOR"
+    db = sessions()
+    try:
+        order = db.get(Order, first.json()["data"]["id"])
+        order.status = "COMPLETED"
+        db.commit()
+    finally:
+        db.close()
+
+    replay = http.post("/orders/create", json=body, headers=headers(42, "replay-safe"))
+    assert replay.status_code == 200
+    assert replay.json()["data"]["status"] == "COMPLETED"
+    db = sessions()
+    try:
+        assert db.get(Order, first.json()["data"]["id"]).status == "COMPLETED"
+        assert db.query(Order).count() == 1
+        assert db.query(Transaction).filter(Transaction.type == "ORDER_PAYMENT").count() == 1
+    finally:
+        db.close()
+
+
+@pytest.mark.parametrize("field,value", [
+    ("platform", "iOS"),
+    ("konami_login", "other@example.com"),
+    ("konami_password", "different-secret"),
+])
+def test_idempotency_payload_mismatch_returns_409(client, field, value):
+    http, _sessions = client
+    body = {"product_id": 7, "region": "Global", "konami_login": "u@example.com",
+        "konami_password": "secret", "platform": "Android"}
+    assert http.post("/orders/create", json=body, headers=headers(42, "full-fingerprint")).status_code == 200
+    changed = {**body, field: value}
+    assert http.post("/orders/create", json=changed, headers=headers(42, "full-fingerprint")).status_code == 409
+
+
+def test_order_transaction_rolls_back_all_side_effects(client, monkeypatch):
+    http, sessions = client
+    monkeypatch.setattr(order_crud, "store_credentials",
+        lambda *args, **kwargs: (_ for _ in ()).throw(SQLAlchemyError("encrypt failed")))
+    body = {"product_id": 7, "region": "Global", "konami_login": "u@example.com",
+        "konami_password": "secret", "platform": "Android"}
+    response = http.post("/orders/create", json=body, headers=headers(42, "rollback-all"))
+    assert response.status_code == 500
+    db = sessions()
+    try:
+        assert db.query(Order).count() == 0
+        assert db.query(CoinOrderCredential).count() == 0
+        assert db.query(CoinOrderMessage).count() == 0
+        assert db.query(Transaction).count() == 0
+        assert float(db.get(Wallet, 42).uzs_balance) == 100000
+    finally:
+        db.close()
