@@ -15,6 +15,8 @@ def prepare_operator_wait(db: Session, order_type: str, order):
 
 
 def begin_operator_wait(db: Session, order_type: str, order):
+    if order.status == "WAITING_OPERATOR":
+        return order
     prepare_operator_wait(db, order_type, order)
     db.commit()
     db.refresh(order)
