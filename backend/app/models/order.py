@@ -56,6 +56,12 @@ class Order(Base):
 
     processing_seconds = Column(Integer, nullable=True)
 
+    coin_notification_status = Column(String(20), nullable=False, default="PENDING")
+    coin_notification_message_id = Column(String(100), nullable=True)
+    coin_notification_attempts = Column(Integer, nullable=False, default=0)
+    coin_notification_last_error = Column(String(255), nullable=True)
+    coin_notification_sent_at = Column(DateTime(timezone=True), nullable=True)
+
     created_at = Column(
         DateTime(timezone=True),
         server_default=func.now(),

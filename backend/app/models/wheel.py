@@ -234,6 +234,12 @@ class WheelCoinOrder(Base):
         index=True,
     )
 
+    coin_notification_status = Column(String(20), nullable=False, default="PENDING")
+    coin_notification_message_id = Column(String(100), nullable=True)
+    coin_notification_attempts = Column(Integer, nullable=False, default=0)
+    coin_notification_last_error = Column(String(255), nullable=True)
+    coin_notification_sent_at = Column(DateTime(timezone=True), nullable=True)
+
     admin_id = Column(
         BigInteger,
         nullable=True,

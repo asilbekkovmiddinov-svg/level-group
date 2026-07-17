@@ -22,6 +22,7 @@ from app.schemas.order import (
 )
 from app.core.telegram_auth import TelegramUser, get_current_telegram_user
 from app.routers.internal_wallet import require_internal_api_key
+from app.services.coin_order_notifications import send_coin_order_notification
 
 router = APIRouter(
     prefix="/orders",
@@ -114,10 +115,13 @@ def create_new_order(
             "message": "Order yaratilmadi",
         }
 
+    notification = send_coin_order_notification(db, "SHOP", order.id)
+
     return {
         "success": True,
         "message": "Order created",
         "data": order_response(order),
+        "notification_status": notification.status,
     }
 
 
