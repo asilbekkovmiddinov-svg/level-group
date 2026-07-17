@@ -1,6 +1,7 @@
 from decimal import Decimal
 from datetime import datetime, timezone
 from hashlib import sha256
+import logging
 
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -13,6 +14,27 @@ from app.crud.transaction import create_transaction
 from app.crud.coin_credentials import cleanup_sensitive_order_data, store_credentials
 from app.services.coin_operator_flow import prepare_operator_wait
 from app.services.coin_credentials import credential_fingerprint
+
+
+logger = logging.getLogger(__name__)
+
+
+def _sqlalchemy_error_diagnostics(error: SQLAlchemyError) -> dict[str, str | None]:
+    """Return driver metadata without logging SQL parameters or request payloads."""
+    original = getattr(error, "orig", None)
+    diagnostic = getattr(original, "diag", None)
+    return {
+        "exception_type": type(error).__name__,
+        "driver_exception_type": type(original).__name__ if original else None,
+        "exception_message": str(original) if original else type(error).__name__,
+        "postgresql_error_code": (
+            getattr(original, "sqlstate", None)
+            or getattr(original, "pgcode", None)
+        ),
+        "constraint": getattr(diagnostic, "constraint_name", None),
+        "table": getattr(diagnostic, "table_name", None),
+        "column": getattr(diagnostic, "column_name", None),
+    }
 
 
 def create_order(
@@ -87,7 +109,20 @@ def create_order(
             )
             order._idempotency_replay = False
             return order
-    except SQLAlchemyError:
+    except SQLAlchemyError as error:
+        details = _sqlalchemy_error_diagnostics(error)
+        logger.exception(
+            "Coin Shop order transaction failed: "
+            "exception_type=%s driver_exception_type=%s exception_message=%s "
+            "postgresql_error_code=%s constraint=%s table=%s column=%s",
+            details["exception_type"],
+            details["driver_exception_type"],
+            details["exception_message"],
+            details["postgresql_error_code"],
+            details["constraint"],
+            details["table"],
+            details["column"],
+        )
         return "operation_failed"
 
 
