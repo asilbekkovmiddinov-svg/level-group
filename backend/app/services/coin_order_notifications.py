@@ -112,17 +112,33 @@ OTP_USER_NOTIFICATION = """🔔 Operator buyurtmangizni qayta ishlamoqda.
 Iltimos emailingizga kelgan 6 xonali kodni Order Chat ichiga yuboring."""
 
 
-def send_coin_otp_user_notification(order_type: str, order_id: int, telegram_id: int):
-    """Notify the owner after the committed WAITING_OTP transition.
-
-    The transition itself is the idempotency boundary: callers invoke this only
-    when OTP_SENT atomically changed WAITING_OPERATOR to WAITING_OTP.
-    """
+def send_coin_otp_user_notification(db: Session, order_type: str, order_id: int):
+    """Deliver a persisted, retryable, duplicate-suppressed OTP notification."""
     kind = order_type.upper()
+    model = _model(kind)
+    if not model:
+        return CoinOrderNotificationResult("SKIPPED", False)
+
+    order = db.query(model).filter(model.id == order_id).with_for_update().first()
+    if not order or order.status != "WAITING_OTP":
+        db.rollback()
+        return CoinOrderNotificationResult("SKIPPED", False)
+    if order.otp_notification_status in {"SENDING", "SENT"}:
+        status = order.otp_notification_status
+        db.rollback()
+        return CoinOrderNotificationResult(status, False)
+
+    order.otp_notification_status = "SENDING"
+    order.otp_notification_attempts = (order.otp_notification_attempts or 0) + 1
+    order.otp_notification_last_error = None
+    order.otp_notification_attempted_at = datetime.now(timezone.utc)
+    telegram_id = order.telegram_id
+    db.commit()
+
     query = urlencode({"coin_order_type": kind, "coin_order_id": order_id})
     url = f"{config.COIN_MINIAPP_URL.rstrip('/')}?{query}"
     try:
-        send_admin_message(
+        telegram = send_admin_message(
             OTP_USER_NOTIFICATION,
             chat_id=telegram_id,
             reply_markup={"inline_keyboard": [[{
@@ -130,10 +146,23 @@ def send_coin_otp_user_notification(order_type: str, order_id: int, telegram_id:
                 "web_app": {"url": url},
             }]]},
         )
-        return CoinOrderNotificationResult("SENT", True)
-    except Exception:
+    except Exception as error:
+        failed = db.query(model).filter(model.id == order_id).with_for_update().first()
+        if failed and failed.otp_notification_status == "SENDING":
+            failed.otp_notification_status = "FAILED"
+            failed.otp_notification_last_error = type(error).__name__[:255]
+            db.commit()
         logger.exception(
             "Coin OTP user notification failed",
             extra={"order_type": kind, "order_id": order_id},
         )
         return CoinOrderNotificationResult("FAILED", False)
+
+    sent = db.query(model).filter(model.id == order_id).with_for_update().first()
+    if sent and sent.otp_notification_status == "SENDING":
+        sent.otp_notification_status = "SENT"
+        sent.otp_notification_message_id = str(telegram.message_id)
+        sent.otp_notification_sent_at = datetime.now(timezone.utc)
+        sent.otp_notification_last_error = None
+        db.commit()
+    return CoinOrderNotificationResult("SENT", True)
