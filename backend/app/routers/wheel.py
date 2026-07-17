@@ -19,6 +19,7 @@ from app.schemas.wheel import (
     WheelCoinOrderCreate,
 )
 from app.core.telegram_auth import TelegramUser, get_current_telegram_user
+from app.services.coin_order_notifications import send_coin_order_notification
 from app.routers.internal_wallet import require_internal_api_key
 
 router = APIRouter(
@@ -89,10 +90,13 @@ def coin_order_details(
     if not order:
         raise HTTPException(status_code=404, detail="Coin order topilmadi")
 
+    notification = send_coin_order_notification(db, "WHEEL", order.id)
+
     return {
         "success": True,
         "message": "Coin buyurtma adminga yuborildi",
         "data": coin_order_response(order),
+        "notification_status": notification.status,
     }
 
 
