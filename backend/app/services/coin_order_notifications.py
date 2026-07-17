@@ -61,7 +61,7 @@ def send_coin_order_notification(db: Session, order_type: str, order_id: int):
         return CoinOrderNotificationResult("SKIPPED", False)
 
     order = db.query(model).filter(model.id == order_id).with_for_update().first()
-    if not order or order.status != "WAITING_OTP":
+    if not order or order.status != "WAITING_OPERATOR":
         db.rollback()
         return CoinOrderNotificationResult("SKIPPED", False)
     if order.coin_notification_status in {"SENDING", "SENT"}:
