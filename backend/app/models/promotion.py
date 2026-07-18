@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, CheckConstraint, Column, DateTime, Integer, String, Text
+from sqlalchemy import BigInteger, CheckConstraint, Column, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.sql import func
 
 from app.core.database import Base
@@ -64,8 +64,23 @@ class Promotion(Base):
     max_clicks = Column(Integer, nullable=True)
     view_count = Column(Integer, nullable=False, default=0)
     click_count = Column(Integer, nullable=False, default=0)
+    last_viewed_at = Column(DateTime(timezone=True), nullable=True)
+    last_clicked_at = Column(DateTime(timezone=True), nullable=True)
     created_by = Column(BigInteger, nullable=True)
     updated_by = Column(BigInteger, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
     deleted_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class PromotionEvent(Base):
+    __tablename__ = "promotion_events"
+    __table_args__ = (
+        CheckConstraint("event_type IN ('VIEW','CLICK')", name="ck_promotion_events_type"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    promotion_id = Column(Integer, ForeignKey("promotions.id", ondelete="CASCADE"), nullable=False, index=True)
+    telegram_id = Column(BigInteger, nullable=False, index=True)
+    event_type = Column(String(10), nullable=False, index=True)
+    occurred_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), index=True)

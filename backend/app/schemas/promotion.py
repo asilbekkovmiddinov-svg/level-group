@@ -92,6 +92,8 @@ class PromotionResponse(BaseModel):
     max_clicks: int | None
     view_count: int
     click_count: int
+    last_viewed_at: datetime | None = None
+    last_clicked_at: datetime | None = None
     created_by: int | None
     updated_by: int | None
     created_at: datetime
