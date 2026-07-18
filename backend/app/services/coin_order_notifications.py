@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import logging
 from urllib.parse import urlencode
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
@@ -12,6 +13,7 @@ from app.models.wheel import WheelCoinOrder
 from app.services.telegram_notifications import send_admin_message
 
 logger = logging.getLogger(__name__)
+TASHKENT = ZoneInfo("Asia/Tashkent")
 
 
 @dataclass(frozen=True)
@@ -43,23 +45,36 @@ def otp_notification_retryable(order, now=None):
     )
 
 
-def _snapshot(order_type: str, order, user):
+def _snapshot(order_type: str, order, user, username=None):
     return {
         "id": order.id,
         "type": order_type,
         "coins": order.coins_amount if order_type == "SHOP" else order.coin_amount,
+        "product_title": getattr(order, "product_title", None),
+        "price_uzs": getattr(order, "price_uzs", None),
         "platform": order.platform if order_type == "SHOP" else order.device,
         "region": order.region,
         "status": order.status,
         "telegram_id": order.telegram_id,
-        "username": (user.username if user else None) or getattr(order, "username", None),
+        "username": username or (user.username if user else None) or getattr(order, "username", None),
         "created_at": order.created_at,
     }
 
 
 def _text(value):
     username = f"@{value['username'].lstrip('@')}" if value["username"] else "—"
-    created_at = value["created_at"] or datetime.now(timezone.utc)
+    created_at = _utc(value["created_at"] or datetime.now(timezone.utc)).astimezone(TASHKENT)
+    created_text = created_at.strftime("%d.%m.%Y %H:%M:%S")
+    if value["type"] == "SHOP":
+        return "\n".join((
+            "🪙 Yangi Coin buyurtma",
+            "",
+            f"🔢 Tartib raqami: {value['id']}",
+            f"👤 Username: {username}",
+            f"📦 Coin paketi: {value['product_title'] or value['coins']}",
+            f"🪙 Miqdori: {value['coins']} Coin",
+            f"🕒 Buyurtma vaqti: {created_text}",
+        ))
     return "\n".join((
         "🪙 Yangi Coin buyurtma",
         "",
@@ -75,7 +90,7 @@ def _text(value):
     ))
 
 
-def send_coin_order_notification(db: Session, order_type: str, order_id: int):
+def send_coin_order_notification(db: Session, order_type: str, order_id: int, username=None):
     kind = order_type.upper()
     model = _model(kind)
     if not model:
@@ -91,7 +106,7 @@ def send_coin_order_notification(db: Session, order_type: str, order_id: int):
         return CoinOrderNotificationResult(status, False)
 
     user = db.query(User).filter(User.telegram_id == order.telegram_id).first()
-    snapshot = _snapshot(kind, order, user)
+    snapshot = _snapshot(kind, order, user, username=username)
     order.coin_notification_status = "SENDING"
     order.coin_notification_attempts = (order.coin_notification_attempts or 0) + 1
     order.coin_notification_last_error = None
@@ -100,7 +115,7 @@ def send_coin_order_notification(db: Session, order_type: str, order_id: int):
     try:
         button = ({
             "text": "✅ Qabul qilish",
-            "callback_data": f"coinchat:{kind}:{order_id}:CLAIM",
+            "callback_data": f"coinshop:{order_id}:CLAIM",
         } if kind == "SHOP" else {
             "text": "💬 Buyurtmani ochish",
             "callback_data": f"coinchatopen:{kind}:{order_id}",
