@@ -242,11 +242,7 @@ def test_idempotency_replay_never_regresses_lifecycle(client):
         db.close()
 
 
-@pytest.mark.parametrize("field,value", [
-    ("platform", "iOS"),
-    ("konami_login", "other@example.com"),
-    ("konami_password", "different-secret"),
-])
+@pytest.mark.parametrize("field,value", [("platform", "iOS")])
 def test_idempotency_payload_mismatch_returns_409(client, field, value):
     http, _sessions = client
     body = {"product_id": 7, "region": "Global", "konami_login": "u@example.com",
@@ -254,6 +250,17 @@ def test_idempotency_payload_mismatch_returns_409(client, field, value):
     assert http.post("/orders/create", json=body, headers=headers(42, "full-fingerprint")).status_code == 200
     changed = {**body, field: value}
     assert http.post("/orders/create", json=changed, headers=headers(42, "full-fingerprint")).status_code == 409
+
+
+def test_credentials_are_not_part_of_shop_create_or_idempotency(client):
+    http, sessions = client
+    body={"product_id":7,"region":"Global","platform":"Android","konami_login":"first@example.com","konami_password":"first-secret"}
+    assert http.post("/orders/create",json=body,headers=headers(42,"chat-only-details")).status_code==200
+    changed={**body,"konami_login":"other@example.com","konami_password":"other-secret"}
+    assert http.post("/orders/create",json=changed,headers=headers(42,"chat-only-details")).status_code==200
+    db=sessions()
+    try: assert db.query(CoinOrderCredential).count()==0
+    finally: db.close()
 
 
 def test_order_transaction_rolls_back_all_side_effects(client, monkeypatch):
