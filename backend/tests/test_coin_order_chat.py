@@ -16,6 +16,8 @@ from app.models.coin_order_message import CoinOrderMessage
 from app.models.order import Order
 from app.models.wheel import WheelCoinOrder, WheelSpin
 from app.models.user import User
+from app.models.wallet import Wallet
+from app.models.transaction import Transaction
 from app.models.coin_credential import CoinCredentialAccessAudit, CoinCredentialAccessGrant, CoinOrderCredential
 from app.crud.coin_credentials import store_credentials
 from app.routers import coin_order_chat, internal_wallet
@@ -34,9 +36,9 @@ def client(monkeypatch):
     monkeypatch.setattr(telegram_auth,"BOT_TOKEN","token"); monkeypatch.setattr(internal_wallet,"INTERNAL_API_KEY","key")
     monkeypatch.setattr(config,"COIN_CREDENTIAL_ENCRYPTION_KEY","MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=")
     engine=create_engine("sqlite://",connect_args={"check_same_thread":False},poolclass=StaticPool)
-    Base.metadata.create_all(engine,tables=[User.__table__,Order.__table__,WheelSpin.__table__,WheelCoinOrder.__table__,CoinOrderMessage.__table__,CoinOrderCredential.__table__,CoinCredentialAccessAudit.__table__,CoinCredentialAccessGrant.__table__])
+    Base.metadata.create_all(engine,tables=[User.__table__,Wallet.__table__,Transaction.__table__,Order.__table__,WheelSpin.__table__,WheelCoinOrder.__table__,CoinOrderMessage.__table__,CoinOrderCredential.__table__,CoinCredentialAccessAudit.__table__,CoinCredentialAccessGrant.__table__])
     factory=sessionmaker(bind=engine); db=factory()
-    db.add_all([User(telegram_id=42,first_name="A"),User(telegram_id=99,first_name="B"),
+    db.add_all([User(telegram_id=42,first_name="A"),User(telegram_id=99,first_name="B"),Wallet(telegram_id=42,uzs_balance=Decimal("10"),efc_balance=0,locked_uzs=0,locked_efc=0),
         Order(id=1,telegram_id=42,product_id=1,product_title="130",coins_amount=130,price_uzs=Decimal("1"),status="WAITING_OTP"),
         WheelSpin(id=1,telegram_id=42,spin_type="FREE",reward_code="coin_130",reward_type="COIN_ORDER",reward_amount=130,global_spin_number=1,status="COMPLETED")])
     db.flush(); db.add(WheelCoinOrder(id=2,spin_id=1,telegram_id=42,coin_amount=130,status="WAITING_OTP")); db.flush()
@@ -161,4 +163,18 @@ def test_rejected_wheel_order_destroys_credentials_and_redacts_otp(client):
     try:
         assert db.query(CoinOrderCredential).filter_by(order_type="WHEEL",order_id=2).first() is None
         assert db.query(CoinOrderMessage).filter_by(order_type="WHEEL",order_id=2).one().message=="OTP qabul qilindi"
+    finally: db.close()
+
+
+def test_rejected_shop_order_refunds_wallet_and_commits_cleanup_atomically(client):
+    http,sessions=client; internal={"X-Internal-Api-Key":"key"}
+    rejected=http.post("/coin-order-chat/internal/SHOP/1/action",json={"admin_id":7,"action":"REJECT"},headers=internal)
+    assert rejected.status_code==200 and rejected.json()["status"]=="REJECTED"
+    db=sessions()
+    try:
+        assert Decimal(str(db.get(Wallet,42).uzs_balance))==Decimal("11")
+        refund=db.query(Transaction).filter_by(telegram_id=42,type="ORDER_REJECT_REFUND").one()
+        assert Decimal(str(refund.balance_before))==Decimal("10")
+        assert Decimal(str(refund.balance_after))==Decimal("11")
+        assert db.query(CoinOrderCredential).filter_by(order_type="SHOP",order_id=1).first() is None
     finally: db.close()
