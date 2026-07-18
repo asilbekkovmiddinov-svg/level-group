@@ -15,10 +15,9 @@ from sqlalchemy.pool import StaticPool
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 
-from app.core import telegram_auth
+from app.core import admin_auth, telegram_auth
 from app.core.database import Base, get_db
 from app.models.promotion import Promotion
-from app.routers import internal_wallet
 from app.routers.promotion import admin_router, public_router
 
 
@@ -30,8 +29,8 @@ def build_client(monkeypatch):
     )
     Base.metadata.create_all(engine, tables=[Promotion.__table__])
     sessions = sessionmaker(bind=engine)
-    monkeypatch.setattr(internal_wallet, "INTERNAL_API_KEY", "test-internal-key")
     monkeypatch.setattr(telegram_auth, "BOT_TOKEN", "test-token")
+    monkeypatch.setattr(admin_auth, "ADMIN_TELEGRAM_IDS", frozenset({9001, 9002}))
     app = FastAPI()
     app.include_router(admin_router)
     app.include_router(public_router)
@@ -60,8 +59,7 @@ def init_data(telegram_id=1001):
 
 def admin_headers(actor=9001):
     return {
-        "X-Internal-Api-Key": "test-internal-key",
-        "X-Admin-Telegram-Id": str(actor),
+        "X-Telegram-Init-Data": init_data(actor),
     }
 
 
@@ -75,9 +73,19 @@ def payload(title="Promotion", priority=0, **extra):
     return result
 
 
-def test_admin_crud_requires_internal_key_and_tracks_actor(monkeypatch):
+def test_admin_crud_requires_verified_admin_and_tracks_actor(monkeypatch):
     client, _ = build_client(monkeypatch)
-    assert client.post("/admin/promotions", json=payload()).status_code == 403
+    assert client.post("/admin/promotions", json=payload()).status_code == 401
+    assert client.post(
+        "/admin/promotions",
+        json=payload(),
+        headers={"X-Telegram-Init-Data": init_data(7777)},
+    ).status_code == 403
+    assert client.post(
+        "/admin/promotions",
+        json=payload(),
+        headers={"X-Internal-Api-Key": "test-internal-key"},
+    ).status_code == 401
     created = client.post(
         "/admin/promotions", json=payload(), headers=admin_headers()
     )
@@ -98,6 +106,26 @@ def test_admin_crud_requires_internal_key_and_tracks_actor(monkeypatch):
     assert client.get(
         f"/admin/promotions/{promotion_id}", headers=admin_headers()
     ).json()["priority"] == 25
+
+
+def test_invalid_init_data_is_unauthorized(monkeypatch):
+    client, _ = build_client(monkeypatch)
+    response = client.get(
+        "/admin/promotions",
+        headers={"X-Telegram-Init-Data": "invalid"},
+    )
+    assert response.status_code == 401
+
+
+def test_spoofed_actor_headers_are_ignored(monkeypatch):
+    client, _ = build_client(monkeypatch)
+    headers = admin_headers(9001)
+    headers["X-Admin-Telegram-Id"] = "7777"
+    created = client.post(
+        "/admin/promotions", json=payload(), headers=headers
+    )
+    assert created.status_code == 201
+    assert created.json()["created_by"] == 9001
 
 
 def test_priority_and_authenticated_public_active_endpoint(monkeypatch):

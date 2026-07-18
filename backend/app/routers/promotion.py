@@ -1,11 +1,9 @@
-from typing import Annotated
-
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from app.core.admin_auth import require_promotions_admin
 from app.core.database import get_db
 from app.core.telegram_auth import TelegramUser, get_current_telegram_user
-from app.routers.internal_wallet import require_internal_api_key
 from app.schemas.promotion import (
     PromotionCreate,
     PromotionResponse,
@@ -18,61 +16,54 @@ from app.services import promotions
 admin_router = APIRouter(
     prefix="/admin/promotions",
     tags=["Marketing CMS"],
-    dependencies=[Depends(require_internal_api_key)],
 )
 public_router = APIRouter(prefix="/promotions", tags=["Promotions"])
-
-
-def actor_id(
-    x_admin_telegram_id: Annotated[int | None, Header()] = None,
-) -> int | None:
-    return x_admin_telegram_id
 
 
 @admin_router.post("", response_model=PromotionResponse, status_code=201)
 def create_promotion(
     data: PromotionCreate,
-    actor: int | None = Depends(actor_id),
+    admin: TelegramUser = Depends(require_promotions_admin),
     db: Session = Depends(get_db),
 ):
-    return promotions.create(db, data, actor)
+    return promotions.create(db, data, admin.telegram_id)
 
 
 @admin_router.patch("/{promotion_id}", response_model=PromotionResponse)
 def update_promotion(
     promotion_id: int,
     data: PromotionUpdate,
-    actor: int | None = Depends(actor_id),
+    admin: TelegramUser = Depends(require_promotions_admin),
     db: Session = Depends(get_db),
 ):
-    return promotions.update(db, promotion_id, data, actor)
+    return promotions.update(db, promotion_id, data, admin.telegram_id)
 
 
 @admin_router.delete("/{promotion_id}", response_model=PromotionResponse)
 def delete_promotion(
     promotion_id: int,
-    actor: int | None = Depends(actor_id),
+    admin: TelegramUser = Depends(require_promotions_admin),
     db: Session = Depends(get_db),
 ):
-    return promotions.soft_delete(db, promotion_id, actor)
+    return promotions.soft_delete(db, promotion_id, admin.telegram_id)
 
 
 @admin_router.post("/{promotion_id}/restore", response_model=PromotionResponse)
 def restore_promotion(
     promotion_id: int,
-    actor: int | None = Depends(actor_id),
+    admin: TelegramUser = Depends(require_promotions_admin),
     db: Session = Depends(get_db),
 ):
-    return promotions.restore(db, promotion_id, actor)
+    return promotions.restore(db, promotion_id, admin.telegram_id)
 
 
 def status_endpoint(target: str):
     def endpoint(
         promotion_id: int,
-        actor: int | None = Depends(actor_id),
+        admin: TelegramUser = Depends(require_promotions_admin),
         db: Session = Depends(get_db),
     ):
-        return promotions.change_status(db, promotion_id, target, actor)
+        return promotions.change_status(db, promotion_id, target, admin.telegram_id)
 
     return endpoint
 
@@ -100,6 +91,7 @@ admin_router.add_api_route(
 @admin_router.get("", response_model=list[PromotionResponse])
 def list_promotions(
     include_deleted: bool = False,
+    _admin: TelegramUser = Depends(require_promotions_admin),
     db: Session = Depends(get_db),
 ):
     return promotions.list_promotions(db, include_deleted)
@@ -109,6 +101,7 @@ def list_promotions(
 def promotion_detail(
     promotion_id: int,
     include_deleted: bool = False,
+    _admin: TelegramUser = Depends(require_promotions_admin),
     db: Session = Depends(get_db),
 ):
     return promotions.detail(db, promotion_id, include_deleted)

@@ -17,6 +17,23 @@ TELEGRAM_INIT_DATA_MAX_AGE_SECONDS = int(
 INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY")
 COIN_CREDENTIAL_ENCRYPTION_KEY = os.getenv("COIN_CREDENTIAL_ENCRYPTION_KEY")
 
+
+def _telegram_id_allowlist(value: str | None) -> frozenset[int]:
+    if not value or not value.strip():
+        return frozenset()
+    try:
+        result = frozenset(int(item.strip()) for item in value.split(",") if item.strip())
+    except ValueError as exc:
+        raise ValueError("ADMIN_TELEGRAM_IDS must contain comma-separated integers") from exc
+    if any(telegram_id <= 0 for telegram_id in result):
+        raise ValueError("ADMIN_TELEGRAM_IDS must contain positive Telegram IDs")
+    return result
+
+
+# Browser clients authenticate with Telegram initData. This allowlist remains
+# server-side and must never be embedded in the MiniApp bundle.
+ADMIN_TELEGRAM_IDS = _telegram_id_allowlist(os.getenv("ADMIN_TELEGRAM_IDS"))
+
 # Public payment requisites returned only to authenticated MiniApp users when
 # they create a deposit. Values must be configured by the deployment.
 DEPOSIT_CARD_NUMBER = os.getenv("DEPOSIT_CARD_NUMBER")
