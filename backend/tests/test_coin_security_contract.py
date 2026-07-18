@@ -258,8 +258,8 @@ def test_idempotency_payload_mismatch_returns_409(client, field, value):
 
 def test_order_transaction_rolls_back_all_side_effects(client, monkeypatch):
     http, sessions = client
-    monkeypatch.setattr(order_crud, "store_credentials",
-        lambda *args, **kwargs: (_ for _ in ()).throw(SQLAlchemyError("encrypt failed")))
+    monkeypatch.setattr(order_crud, "prepare_operator_wait",
+        lambda *args, **kwargs: (_ for _ in ()).throw(SQLAlchemyError("operator flow failed")))
     body = {"product_id": 7, "region": "Global", "konami_login": "u@example.com",
         "konami_password": "secret", "platform": "Android"}
     response = http.post("/orders/create", json=body, headers=headers(42, "rollback-all"))
