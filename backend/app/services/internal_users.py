@@ -10,6 +10,7 @@ from app.crud.wallet import ZERO, get_wallet_for_update
 from app.models.user import User
 from app.models.wallet import Wallet
 from app.schemas.user import InternalUserRegister
+from app.services.referrals import attach_registration_referral
 
 
 class InternalUserServiceError(RuntimeError):
@@ -111,6 +112,7 @@ def register_internal_user(
         db.add(user)
         db.flush()
         wallet_created = _ensure_wallet(db, data.telegram_id)
+        attach_registration_referral(db, data.telegram_id, data.referral_code)
         db.commit()
         return InternalUserRegisterResult(data.telegram_id, True, wallet_created)
     except IntegrityError:

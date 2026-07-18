@@ -21,6 +21,7 @@ from app.models.user import User
 from app.models.wallet import Wallet
 from app.models.coin_credential import CoinOrderCredential
 from app.models.coin_order_message import CoinOrderMessage
+from app.models.referral import Referral, ReferralProfile, ReferralReward
 from app.routers import order as order_router
 from app.routers import product as product_router
 from app.routers import internal_wallet
@@ -69,6 +70,9 @@ def client(monkeypatch):
             Transaction.__table__,
             CoinOrderCredential.__table__,
             CoinOrderMessage.__table__,
+            ReferralProfile.__table__,
+            Referral.__table__,
+            ReferralReward.__table__,
         ],
     )
     session_factory = sessionmaker(bind=engine)

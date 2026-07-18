@@ -12,6 +12,7 @@ from app.models.product import Product
 from app.schemas.order import OrderCreate
 from app.crud.wallet import get_wallet_for_update, add_uzs
 from app.crud.transaction import create_transaction
+from app.services.referrals import award_first_shop_bonus
 
 
 logger = logging.getLogger(__name__)
@@ -191,6 +192,7 @@ def approve_order(db: Session, order_id: int, admin_id: int):
     order.status = "COMPLETED"
     order.completed_by = admin_id
     order.completed_at = now
+    award_first_shop_bonus(db, order.telegram_id)
 
     if order.claimed_at:
         claimed_at = order.claimed_at if order.claimed_at.tzinfo else order.claimed_at.replace(tzinfo=timezone.utc)

@@ -25,3 +25,4 @@ class InternalUserRegister(BaseModel):
     username: Optional[str] = Field(default=None, max_length=100)
     first_name: Optional[str] = Field(default=None, max_length=100)
     last_name: Optional[str] = Field(default=None, max_length=100)
+    referral_code: Optional[str] = Field(default=None, max_length=24)
