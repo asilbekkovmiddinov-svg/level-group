@@ -1,19 +1,15 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.crud.order import (
     create_order,
-    get_orders,
     get_user_orders,
-    get_pending_orders,
-    get_claimed_orders,
     claim_order,
     approve_order,
     reject_order,
-    cancel_order,
 )
 from app.schemas.order import (
     OrderCreate,
@@ -33,6 +29,7 @@ router = APIRouter(
 def order_response(order):
     return {
         "id": order.id,
+        "order_number": order.order_number,
         "telegram_id": order.telegram_id,
         "product_id": order.product_id,
         "product_title": order.product_title,
@@ -68,7 +65,6 @@ def order_response(order):
         ),
     }
 
-
 @router.post("/create")
 def create_new_order(
     data: OrderCreate,
@@ -76,6 +72,11 @@ def create_new_order(
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
     db: Session = Depends(get_db),
 ):
+    if not current_user.username:
+        raise HTTPException(
+            status_code=400,
+            detail="Coin Shop uchun Telegram username kerak",
+        )
     if idempotency_key:
         idempotency_key = idempotency_key.strip()
         if not idempotency_key or len(idempotency_key) > 128:
@@ -115,52 +116,18 @@ def create_new_order(
             "message": "Order yaratilmadi",
         }
 
-    notification = send_coin_order_notification(db, "SHOP", order.id)
+    notification = send_coin_order_notification(
+        db,
+        "SHOP",
+        order.id,
+        username=current_user.username,
+    )
 
     return {
         "success": True,
         "message": "Order created",
         "data": order_response(order),
         "notification_status": notification.status,
-    }
-
-
-@router.get("/all")
-def all_orders(
-    _: None = Depends(require_internal_api_key),
-    db: Session = Depends(get_db),
-):
-    orders = get_orders(db)
-
-    return {
-        "success": True,
-        "data": [order_response(order) for order in orders],
-    }
-
-
-@router.get("/pending")
-def pending_orders(
-    _: None = Depends(require_internal_api_key),
-    db: Session = Depends(get_db),
-):
-    orders = get_pending_orders(db)
-
-    return {
-        "success": True,
-        "data": [order_response(order) for order in orders],
-    }
-
-
-@router.get("/claimed")
-def claimed_orders(
-    _: None = Depends(require_internal_api_key),
-    db: Session = Depends(get_db),
-):
-    orders = get_claimed_orders(db)
-
-    return {
-        "success": True,
-        "data": [order_response(order) for order in orders],
     }
 
 
@@ -231,6 +198,8 @@ def approve_existing_order(
             "success": False,
             "message": "Invalid order status",
         }
+    if order == "forbidden":
+        raise HTTPException(status_code=403, detail="Order belongs to another operator")
 
     return {
         "success": True,
@@ -264,6 +233,8 @@ def reject_existing_order(
             "success": False,
             "message": "Invalid order status",
         }
+    if order == "forbidden":
+        raise HTTPException(status_code=403, detail="Order belongs to another operator")
 
     if order == "wallet_not_found":
         return {
@@ -276,42 +247,3 @@ def reject_existing_order(
         "message": "Order rejected",
         "data": order_response(order),
     }
-
-
-@router.post("/cancel/{order_id}")
-def cancel_existing_order(
-    order_id: int,
-    _: None = Depends(require_internal_api_key),
-    db: Session = Depends(get_db),
-):
-    order = cancel_order(db, order_id)
-
-    if not order:
-        return {
-            "success": False,
-            "message": "Order not found",
-        }
-
-    if order == "already_cancelled":
-        return {
-            "success": False,
-            "message": "Order already cancelled",
-        }
-
-    if order == "already_completed":
-        return {
-            "success": False,
-            "message": "Completed order cannot be cancelled",
-        }
-
-    if order == "wallet_not_found":
-        return {
-            "success": False,
-            "message": "Wallet not found",
-        }
-
-    return {
-        "success": True,
-        "message": "Order cancelled",
-        "data": order_response(order),
-}

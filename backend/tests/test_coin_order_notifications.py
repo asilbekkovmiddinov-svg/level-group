@@ -42,10 +42,14 @@ def test_shop_and_wheel_notify_once_after_waiting_otp(monkeypatch):
     assert coin_order_notifications.send_coin_order_notification(db, "SHOP", 10).sent is False
     assert coin_order_notifications.send_coin_order_notification(db, "WHEEL", 30).sent is False
     assert len(sent) == 2
-    assert "Order ID: #10" in sent[0][0] and "Manba: SHOP" in sent[0][0]
+    shop_number = db.get(Order, 10).order_number
+    assert "Tartib raqami: 10" in sent[0][0]
+    assert "Username: @ali" in sent[0][0]
+    assert "Coin paketi: 130 Coin" in sent[0][0]
+    assert shop_number not in sent[0][0]
     assert "Coin: 2000" in sent[1][0] and "Manba: WHEEL" in sent[1][0]
     assert sent[0][1]["inline_keyboard"][0][0] == {
-        "text": "✅ Qabul qilish", "callback_data": "coinchat:SHOP:10:CLAIM",
+        "text": "✅ Qabul qilish", "callback_data": "coinshop:10:CLAIM",
     }
     assert sent[1][1]["inline_keyboard"][0][0] == {
         "text": "💬 Buyurtmani ochish", "callback_data": "coinchatopen:WHEEL:30",
@@ -74,15 +78,17 @@ def test_routes_dispatch_only_after_crud_returns_committed_order():
     root = Path(__file__).parents[1] / "app" / "routers"
     shop = (root / "order.py").read_text()
     wheel = (root / "wheel.py").read_text()
-    assert 'send_coin_order_notification(db, "SHOP", order.id)' in shop
+    assert 'send_coin_order_notification(' in shop
+    assert '"SHOP"' in shop
+    assert "username=current_user.username" in shop
     assert 'send_coin_order_notification(db, "WHEEL", order.id)' in wheel
 
 
-def test_otp_user_notification_targets_exact_order_chat(monkeypatch):
+def test_otp_user_notification_targets_exact_wheel_order_chat(monkeypatch):
     factory = sessions()
     db = factory()
-    db.add(Order(id=31, telegram_id=42, product_id=1, product_title="130 Coin", coins_amount=130,
-        price_uzs=Decimal("1000"), platform="ANDROID", region="GLOBAL", status="WAITING_OTP"))
+    db.add(WheelCoinOrder(id=31, spin_id=31, telegram_id=42, coin_amount=130,
+        device="ANDROID", region="GLOBAL", status="WAITING_OTP"))
     db.commit()
     sent = []
     monkeypatch.setattr(coin_order_notifications.config, "COIN_MINIAPP_URL", "https://mini.example/app/")
@@ -91,7 +97,7 @@ def test_otp_user_notification_targets_exact_order_chat(monkeypatch):
         return type("Result", (), {"message_id": 76})()
     monkeypatch.setattr(coin_order_notifications, "send_admin_message", telegram)
 
-    result = coin_order_notifications.send_coin_otp_user_notification(db, "SHOP", 31)
+    result = coin_order_notifications.send_coin_otp_user_notification(db, "WHEEL", 31)
 
     assert result.sent is True
     assert sent[0][2] == 42
@@ -99,19 +105,19 @@ def test_otp_user_notification_targets_exact_order_chat(monkeypatch):
     button = sent[0][1]["inline_keyboard"][0][0]
     assert button["text"] == "💬 Buyurtma suhbatini ochish"
     assert button["web_app"]["url"] == (
-        "https://mini.example/app?coin_order_type=SHOP&coin_order_id=31"
+        "https://mini.example/app?coin_order_type=WHEEL&coin_order_id=31"
     )
-    assert db.get(Order, 31).otp_notification_status == "SENT"
-    assert db.get(Order, 31).otp_notification_attempts == 1
-    assert coin_order_notifications.send_coin_otp_user_notification(db, "SHOP", 31).sent is False
+    assert db.get(WheelCoinOrder, 31).otp_notification_status == "SENT"
+    assert db.get(WheelCoinOrder, 31).otp_notification_attempts == 1
+    assert coin_order_notifications.send_coin_otp_user_notification(db, "WHEEL", 31).sent is False
     assert len(sent) == 1
     db.close()
 
 
 def test_otp_notification_failure_can_retry_without_system_message_replay(monkeypatch):
     factory = sessions(); db = factory()
-    db.add(Order(id=32, telegram_id=42, product_id=1, product_title="130 Coin", coins_amount=130,
-        price_uzs=Decimal("1000"), platform="ANDROID", region="GLOBAL", status="WAITING_OTP"))
+    db.add(WheelCoinOrder(id=32, spin_id=32, telegram_id=42, coin_amount=130,
+        device="ANDROID", region="GLOBAL", status="WAITING_OTP"))
     db.commit()
     attempts = []
 
@@ -122,18 +128,18 @@ def test_otp_notification_failure_can_retry_without_system_message_replay(monkey
         return type("Result", (), {"message_id": 77})()
 
     monkeypatch.setattr(coin_order_notifications, "send_admin_message", telegram)
-    assert coin_order_notifications.send_coin_otp_user_notification(db, "SHOP", 32).status == "FAILED"
-    assert coin_order_notifications.send_coin_otp_user_notification(db, "SHOP", 32).status == "SENT"
-    assert coin_order_notifications.send_coin_otp_user_notification(db, "SHOP", 32).sent is False
+    assert coin_order_notifications.send_coin_otp_user_notification(db, "WHEEL", 32).status == "FAILED"
+    assert coin_order_notifications.send_coin_otp_user_notification(db, "WHEEL", 32).status == "SENT"
+    assert coin_order_notifications.send_coin_otp_user_notification(db, "WHEEL", 32).sent is False
     assert len(attempts) == 2
-    assert db.get(Order, 32).otp_notification_attempts == 2
+    assert db.get(WheelCoinOrder, 32).otp_notification_attempts == 2
     db.close()
 
 
 def test_stale_sending_recovers_retries_once_and_suppresses_duplicates(monkeypatch):
     factory = sessions(); db = factory()
-    db.add(Order(id=33, telegram_id=42, product_id=1, product_title="130 Coin", coins_amount=130,
-        price_uzs=Decimal("1000"), platform="ANDROID", region="GLOBAL", status="WAITING_OTP",
+    db.add(WheelCoinOrder(id=33, spin_id=33, telegram_id=42, coin_amount=130,
+        device="ANDROID", region="GLOBAL", status="WAITING_OTP",
         otp_notification_status="SENDING", otp_notification_attempts=1,
         otp_notification_attempted_at=datetime.now(timezone.utc) - timedelta(minutes=10)))
     db.commit(); sent = []
@@ -141,22 +147,22 @@ def test_stale_sending_recovers_retries_once_and_suppresses_duplicates(monkeypat
     monkeypatch.setattr(coin_order_notifications, "send_admin_message",
         lambda *args, **kwargs: (sent.append(True) or type("Result", (), {"message_id": 88})()))
 
-    assert coin_order_notifications.send_coin_otp_user_notification(db, "SHOP", 33).status == "SENT"
-    assert db.get(Order, 33).otp_notification_attempts == 2
-    assert coin_order_notifications.send_coin_otp_user_notification(db, "SHOP", 33).sent is False
+    assert coin_order_notifications.send_coin_otp_user_notification(db, "WHEEL", 33).status == "SENT"
+    assert db.get(WheelCoinOrder, 33).otp_notification_attempts == 2
+    assert coin_order_notifications.send_coin_otp_user_notification(db, "WHEEL", 33).sent is False
     assert sent == [True]
     db.close()
 
 
 def test_fresh_sending_is_not_retried(monkeypatch):
     factory = sessions(); db = factory()
-    db.add(Order(id=34, telegram_id=42, product_id=1, product_title="130 Coin", coins_amount=130,
-        price_uzs=Decimal("1000"), platform="ANDROID", region="GLOBAL", status="WAITING_OTP",
+    db.add(WheelCoinOrder(id=34, spin_id=34, telegram_id=42, coin_amount=130,
+        device="ANDROID", region="GLOBAL", status="WAITING_OTP",
         otp_notification_status="SENDING", otp_notification_attempts=1,
         otp_notification_attempted_at=datetime.now(timezone.utc)))
     db.commit(); sent = []
     monkeypatch.setattr(coin_order_notifications, "send_admin_message", lambda *args, **kwargs: sent.append(True))
-    result = coin_order_notifications.send_coin_otp_user_notification(db, "SHOP", 34)
+    result = coin_order_notifications.send_coin_otp_user_notification(db, "WHEEL", 34)
     assert result.status == "SENDING" and result.sent is False
-    assert sent == [] and db.get(Order, 34).otp_notification_attempts == 1
+    assert sent == [] and db.get(WheelCoinOrder, 34).otp_notification_attempts == 1
     db.close()

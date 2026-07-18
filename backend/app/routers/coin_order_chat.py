@@ -10,7 +10,6 @@ from app.crud.coin_order_chat import (
 from app.routers.internal_wallet import require_internal_api_key
 from app.schemas.coin_order_chat import CoinOrderMessageCreate, OperatorChatAction, OperatorMessageCreate
 from app.models.coin_order_message import CoinOrderMessage
-from app.crud.order import claim_order, approve_order, reject_order
 from app.crud.wheel import claim_coin_order, approve_coin_order, reject_coin_order
 
 router = APIRouter(prefix="/coin-order-chat", tags=["Coin Order Chat"])
@@ -18,7 +17,7 @@ TERMINAL_STATUSES = {"COMPLETED", "REJECTED", "CANCELLED"}
 
 
 def credential_operator(order_type, order):
-    return order.claimed_by if order_type == "SHOP" else order.admin_id
+    return order.admin_id
 
 
 def message_response(item):
@@ -46,12 +45,8 @@ def user_messages(order_type: str, order_id: int, current_user: TelegramUser = D
 @router.post("/{order_type}/{order_id}/messages")
 def user_send(order_type: str, order_id: int, data: CoinOrderMessageCreate, current_user: TelegramUser = Depends(get_current_telegram_user), db: Session = Depends(get_db)):
     order = user_order(db, order_type, order_id, current_user.telegram_id)
-    kind = normalize_order_type(order_type)
-    if kind == "SHOP":
-        if order.status != "CLAIMED": raise HTTPException(409, "Order chat is not available")
-    else:
-        if order.status != "WAITING_OTP": raise HTTPException(409, "OTP input is not available")
-        if not (data.message.isdigit() and len(data.message) == 6): raise HTTPException(400, "OTP must contain 6 digits")
+    if order.status != "WAITING_OTP": raise HTTPException(409, "OTP input is not available")
+    if not (data.message.isdigit() and len(data.message) == 6): raise HTTPException(400, "OTP must contain 6 digits")
     item = add_message(db, order_type, order, "USER", current_user.telegram_id, data.message)
     return {"success": True, "status": order.status, "data": message_response(item)}
 
@@ -86,10 +81,6 @@ def admin_messages(order_type: str, order_id: int, _: None = Depends(require_int
 def admin_send(order_type: str, order_id: int, data: OperatorMessageCreate, _: None = Depends(require_internal_api_key), db: Session = Depends(get_db)):
     order = get_coin_order(db, order_type, order_id)
     if not order: raise HTTPException(404, "Order not found")
-    kind = normalize_order_type(order_type)
-    if kind == "SHOP":
-        if order.claimed_by != data.admin_id: raise HTTPException(403, "Order belongs to another operator")
-        if order.status != "CLAIMED": raise HTTPException(409, "Order chat is not available")
     item = add_message(db, order_type, order, "OPERATOR", data.admin_id, data.message)
     return {"success": True, "status": order.status, "data": message_response(item)}
 
@@ -105,17 +96,12 @@ def admin_action(order_type: str, order_id: int, data: OperatorChatAction, _: No
     order = get_coin_order_for_update(db, order_type, order_id)
     if not order: raise HTTPException(404, "Order not found")
     action = data.action.upper(); kind = normalize_order_type(order_type)
-    if kind == "SHOP" and action not in {"CLAIM", "COMPLETE", "REJECT"}:
-        raise HTTPException(409, "Action is not available for SHOP orders")
     if action in {"CLAIM", "COMPLETE", "REJECT"}:
         if action == "CLAIM":
             assigned = credential_operator(kind, order)
             if assigned is not None and assigned != data.admin_id:
                 raise HTTPException(403, "Order belongs to another operator")
         funcs = {
-            "SHOP": {"CLAIM": lambda: claim_order(db, order_id, data.admin_id),
-                     "COMPLETE": lambda: approve_order(db, order_id, data.admin_id),
-                     "REJECT": lambda: reject_order(db, order_id, data.admin_id, "Operator rad etdi")},
             "WHEEL": {"CLAIM": lambda: claim_coin_order(db, order_id, data.admin_id),
                       "COMPLETE": lambda: approve_coin_order(db, order_id, data.admin_id),
                       "REJECT": lambda: reject_coin_order(db, order_id, data.admin_id, "Operator rad etdi")},

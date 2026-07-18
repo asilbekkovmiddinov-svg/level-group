@@ -32,7 +32,7 @@ def make_init_data(telegram_id: int):
     values = {
         "auth_date": str(int(time.time())),
         "user": json.dumps(
-            {"id": telegram_id, "first_name": f"User {telegram_id}"},
+            {"id": telegram_id, "first_name": f"User {telegram_id}", "username": f"user{telegram_id}"},
             separators=(",", ":"),
         ),
     }
@@ -139,21 +139,23 @@ def test_coin_endpoints_require_verified_init_data(client):
 
 def test_shop_admin_endpoints_require_internal_api_key(client):
     http, _sessions = client
-    for path in ("/products/all", "/orders/all", "/orders/pending", "/orders/claimed"):
-        assert http.get(path).status_code == 403
-        assert http.get(path, headers={"X-Internal-Api-Key": "internal-test-key"}).status_code == 200
+    assert http.get("/products/all").status_code == 403
+    assert http.get("/products/all", headers={"X-Internal-Api-Key": "internal-test-key"}).status_code == 200
 
     assert http.post("/orders/1/claim", json={"admin_id": 7}).status_code == 403
     assert http.post("/orders/1/approve", json={"admin_id": 7}).status_code == 403
     assert http.post(
         "/orders/1/reject", json={"admin_id": 7, "reason": "test"}
     ).status_code == 403
-    assert http.post("/orders/cancel/1").status_code == 403
+    assert http.get("/orders/all", headers={"X-Internal-Api-Key": "internal-test-key"}).status_code == 404
+    assert http.get("/orders/pending", headers={"X-Internal-Api-Key": "internal-test-key"}).status_code == 404
+    assert http.get("/orders/claimed", headers={"X-Internal-Api-Key": "internal-test-key"}).status_code == 404
+    assert http.post("/orders/cancel/1", headers={"X-Internal-Api-Key": "internal-test-key"}).status_code == 404
 
 
 def test_order_identity_history_and_idempotency_are_user_scoped(client):
     http, sessions = client
-    body = {"product_id": 7, "region": "Japan", "telegram_id": 99, "konami_login": "u@example.com", "konami_password": "secret", "platform": "Android"}
+    body = {"product_id": 7, "region": "Japan", "platform": "Android"}
 
     first = http.post(
         "/orders/create",
@@ -169,6 +171,8 @@ def test_order_identity_history_and_idempotency_are_user_scoped(client):
     assert first.json()["data"]["status"] == "WAITING_OPERATOR"
     assert first.json()["data"]["id"] == replay.json()["data"]["id"]
     assert first.json()["data"]["telegram_id"] == 42
+    assert len(first.json()["data"]["order_number"]) == 8
+    assert first.json()["data"]["order_number"].isdigit()
 
     db = sessions()
     try:
@@ -186,7 +190,7 @@ def test_order_identity_history_and_idempotency_are_user_scoped(client):
 
     conflict = http.post(
         "/orders/create",
-        json={"product_id": 7, "region": "Global", "konami_login": "u@example.com", "konami_password": "secret", "platform": "Android"},
+        json={"product_id": 7, "region": "Global", "platform": "Android"},
         headers=headers(42, "coin-order-42"),
     )
     assert conflict.status_code == 409
@@ -200,8 +204,6 @@ def test_order_create_accepts_telegram_id_above_integer_range(client):
         json={
             "product_id": 7,
             "region": "Global",
-            "konami_login": "big-id@example.com",
-            "konami_password": "secret",
             "platform": "Android",
         },
         headers=headers(telegram_id, "coin-order-big-telegram-id"),
@@ -216,10 +218,61 @@ def test_order_create_accepts_telegram_id_above_integer_range(client):
         db.close()
 
 
+def test_shop_order_numbers_are_unique_eight_digit_values(client):
+    http, sessions = client
+    first = http.post(
+        "/orders/create",
+        json={"product_id": 7, "region": "Global", "platform": "Android"},
+        headers=headers(42, "order-number-one"),
+    )
+    second = http.post(
+        "/orders/create",
+        json={"product_id": 7, "region": "Japan", "platform": "Android"},
+        headers=headers(42, "order-number-two"),
+    )
+    numbers = {first.json()["data"]["order_number"], second.json()["data"]["order_number"]}
+    assert len(numbers) == 2
+    assert all(len(value) == 8 and value.isdigit() for value in numbers)
+    db = sessions()
+    try:
+        assert db.query(Order.order_number).distinct().count() == 2
+        assert db.query(CoinOrderMessage).count() == 0
+    finally:
+        db.close()
+
+
+def test_only_claimed_operator_can_finish_shop_order(client):
+    http, _sessions = client
+    created = http.post(
+        "/orders/create",
+        json={"product_id": 7, "region": "Global", "platform": "Android"},
+        headers=headers(42, "operator-owner"),
+    ).json()["data"]
+    internal = {"X-Internal-Api-Key": "internal-test-key"}
+    claimed = http.post(
+        f"/orders/{created['id']}/claim",
+        json={"admin_id": 700},
+        headers=internal,
+    )
+    assert claimed.status_code == 200
+    assert claimed.json()["data"]["status"] == "CLAIMED"
+    assert http.post(
+        f"/orders/{created['id']}/approve",
+        json={"admin_id": 701},
+        headers=internal,
+    ).status_code == 403
+    completed = http.post(
+        f"/orders/{created['id']}/approve",
+        json={"admin_id": 700},
+        headers=internal,
+    )
+    assert completed.status_code == 200
+    assert completed.json()["data"]["status"] == "COMPLETED"
+
+
 def test_idempotency_replay_never_regresses_lifecycle(client):
     http, sessions = client
-    body = {"product_id": 7, "region": "Japan", "konami_login": "u@example.com",
-        "konami_password": "secret", "platform": "Android"}
+    body = {"product_id": 7, "region": "Japan", "platform": "Android"}
     first = http.post("/orders/create", json=body, headers=headers(42, "replay-safe"))
     assert first.json()["data"]["status"] == "WAITING_OPERATOR"
     db = sessions()
@@ -245,30 +298,28 @@ def test_idempotency_replay_never_regresses_lifecycle(client):
 @pytest.mark.parametrize("field,value", [("platform", "iOS")])
 def test_idempotency_payload_mismatch_returns_409(client, field, value):
     http, _sessions = client
-    body = {"product_id": 7, "region": "Global", "konami_login": "u@example.com",
-        "konami_password": "secret", "platform": "Android"}
+    body = {"product_id": 7, "region": "Global", "platform": "Android"}
     assert http.post("/orders/create", json=body, headers=headers(42, "full-fingerprint")).status_code == 200
     changed = {**body, field: value}
     assert http.post("/orders/create", json=changed, headers=headers(42, "full-fingerprint")).status_code == 409
 
 
-def test_credentials_are_not_part_of_shop_create_or_idempotency(client):
+def test_legacy_credential_payload_is_rejected(client):
     http, sessions = client
     body={"product_id":7,"region":"Global","platform":"Android","konami_login":"first@example.com","konami_password":"first-secret"}
-    assert http.post("/orders/create",json=body,headers=headers(42,"chat-only-details")).status_code==200
-    changed={**body,"konami_login":"other@example.com","konami_password":"other-secret"}
-    assert http.post("/orders/create",json=changed,headers=headers(42,"chat-only-details")).status_code==200
+    assert http.post("/orders/create",json=body,headers=headers(42,"no-legacy-details")).status_code==422
     db=sessions()
-    try: assert db.query(CoinOrderCredential).count()==0
+    try:
+        assert db.query(Order).count()==0
+        assert db.query(CoinOrderCredential).count()==0
     finally: db.close()
 
 
 def test_order_transaction_rolls_back_all_side_effects(client, monkeypatch):
     http, sessions = client
-    monkeypatch.setattr(order_crud, "prepare_operator_wait",
-        lambda *args, **kwargs: (_ for _ in ()).throw(SQLAlchemyError("operator flow failed")))
-    body = {"product_id": 7, "region": "Global", "konami_login": "u@example.com",
-        "konami_password": "secret", "platform": "Android"}
+    monkeypatch.setattr(order_crud, "create_transaction",
+        lambda *args, **kwargs: (_ for _ in ()).throw(SQLAlchemyError("transaction failed")))
+    body = {"product_id": 7, "region": "Global", "platform": "Android"}
     response = http.post("/orders/create", json=body, headers=headers(42, "rollback-all"))
     assert response.status_code == 500
     db = sessions()
