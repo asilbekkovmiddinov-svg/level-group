@@ -45,9 +45,11 @@ def test_shop_and_wheel_notify_once_after_waiting_otp(monkeypatch):
     assert "Order ID: #10" in sent[0][0] and "Manba: SHOP" in sent[0][0]
     assert "Coin: 2000" in sent[1][0] and "Manba: WHEEL" in sent[1][0]
     assert sent[0][1]["inline_keyboard"][0][0] == {
-        "text": "💬 Buyurtmani ochish", "callback_data": "coinchatopen:SHOP:10",
+        "text": "✅ Qabul qilish", "callback_data": "coinchat:SHOP:10:CLAIM",
     }
-    assert sent[1][1]["inline_keyboard"][0][0]["callback_data"] == "coinchatopen:WHEEL:30"
+    assert sent[1][1]["inline_keyboard"][0][0] == {
+        "text": "💬 Buyurtmani ochish", "callback_data": "coinchatopen:WHEEL:30",
+    }
     assert db.get(Order, 10).coin_notification_status == "SENT"
     assert db.get(WheelCoinOrder, 30).coin_notification_status == "SENT"
     db.close()

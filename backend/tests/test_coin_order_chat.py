@@ -178,3 +178,27 @@ def test_rejected_shop_order_refunds_wallet_and_commits_cleanup_atomically(clien
         assert Decimal(str(refund.balance_after))==Decimal("11")
         assert db.query(CoinOrderCredential).filter_by(order_type="SHOP",order_id=1).first() is None
     finally: db.close()
+
+
+def test_shop_claim_then_user_submits_encrypted_details_in_order_chat(client):
+    http,sessions=client; internal={"X-Internal-Api-Key":"key"}
+    db=sessions()
+    try:
+        db.add(Order(id=3,telegram_id=42,product_id=1,product_title="130",coins_amount=130,
+            price_uzs=Decimal("1"),platform="ANDROID",region="GLOBAL",status="WAITING_OPERATOR"))
+        db.commit()
+    finally: db.close()
+    claimed=http.post("/coin-order-chat/internal/SHOP/3/action",json={"admin_id":7,"action":"CLAIM"},headers=internal)
+    assert claimed.status_code==200 and claimed.json()["status"]=="WAITING_DETAILS"
+    payload={"konami_login":"player@example.com","konami_password":"one-time-secret"}
+    assert http.post("/coin-order-chat/SHOP/3/details",json=payload,headers=auth(99)).status_code==403
+    saved=http.post("/coin-order-chat/SHOP/3/details",json=payload,headers=auth(42))
+    assert saved.status_code==200 and saved.json()["status"]=="WAITING_OPERATOR"
+    assert http.post("/coin-order-chat/SHOP/3/details",json=payload,headers=auth(42)).status_code==409
+    db=sessions()
+    try:
+        credential=db.query(CoinOrderCredential).filter_by(order_type="SHOP",order_id=3).one()
+        assert b"player@example.com" not in credential.email_ciphertext
+        messages=db.query(CoinOrderMessage).filter_by(order_type="SHOP",order_id=3).all()
+        assert all("one-time-secret" not in item.message for item in messages)
+    finally: db.close()

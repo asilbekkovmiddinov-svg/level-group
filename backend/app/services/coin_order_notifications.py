@@ -98,12 +98,16 @@ def send_coin_order_notification(db: Session, order_type: str, order_id: int):
     db.commit()
 
     try:
+        button = ({
+            "text": "✅ Qabul qilish",
+            "callback_data": f"coinchat:{kind}:{order_id}:CLAIM",
+        } if kind == "SHOP" else {
+            "text": "💬 Buyurtmani ochish",
+            "callback_data": f"coinchatopen:{kind}:{order_id}",
+        })
         telegram = send_admin_message(
             _text(snapshot),
-            reply_markup={"inline_keyboard": [[{
-                "text": "💬 Buyurtmani ochish",
-                "callback_data": f"coinchatopen:{kind}:{order_id}",
-            }]]},
+            reply_markup={"inline_keyboard": [[button]]},
         )
     except Exception as error:
         failed = db.query(model).filter(model.id == order_id).with_for_update().first()

@@ -10,11 +10,13 @@ from app.crud.coin_order_chat import (
     list_messages, mark_read, normalize_order_type, unread_count,
 )
 from app.routers.internal_wallet import require_internal_api_key
-from app.schemas.coin_order_chat import CoinOrderMessageCreate, CredentialOpenRequest, OperatorChatAction, OperatorMessageCreate
+from app.schemas.coin_order_chat import CoinOrderDetailsCreate, CoinOrderMessageCreate, CredentialOpenRequest, OperatorChatAction, OperatorMessageCreate
 from app.crud.coin_credentials import (
     consume_access_grant, create_access_grant, get_consumed_access_grant,
     open_credentials, record_credential_access_event,
 )
+from app.crud.coin_credentials import store_credentials
+from app.models.coin_order_message import CoinOrderMessage
 from app.crud.order import claim_order, approve_order, reject_order
 from app.crud.wheel import claim_coin_order, approve_coin_order, reject_coin_order
 
@@ -79,6 +81,24 @@ def user_send(order_type: str, order_id: int, data: CoinOrderMessageCreate, curr
 def user_read(order_type: str, order_id: int, current_user: TelegramUser = Depends(get_current_telegram_user), db: Session = Depends(get_db)):
     user_order(db, order_type, order_id, current_user.telegram_id)
     return {"success": True, "read": mark_read(db, order_type, order_id, "USER")}
+
+
+@router.post("/{order_type}/{order_id}/details")
+def user_details(order_type: str, order_id: int, data: CoinOrderDetailsCreate,
+    current_user: TelegramUser = Depends(get_current_telegram_user), db: Session = Depends(get_db)):
+    kind = normalize_order_type(order_type)
+    if kind != "SHOP": raise HTTPException(404, "Order not found")
+    order = get_coin_order_for_update(db, kind, order_id)
+    if not order: raise HTTPException(404, "Order not found")
+    if order.telegram_id != current_user.telegram_id: raise HTTPException(403, "Order belongs to another user")
+    if order.status != "WAITING_DETAILS" or order.claimed_by is None:
+        raise HTTPException(409, "Order is not waiting for details")
+    store_credentials(db, kind, order.id, data.konami_login, data.konami_password)
+    order.status = "WAITING_OPERATOR"
+    db.add(CoinOrderMessage(order_type=kind, order_id=order.id, telegram_id=order.telegram_id,
+        sender="SYSTEM", sender_id=None, message="MyKonami ma’lumotlari xavfsiz qabul qilindi."))
+    db.commit(); db.refresh(order)
+    return {"success": True, "status": order.status}
 
 
 @router.get("/internal/active")
