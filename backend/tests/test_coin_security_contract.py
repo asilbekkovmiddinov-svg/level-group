@@ -77,6 +77,7 @@ def client(monkeypatch):
         [
             User(telegram_id=42, first_name="Ali"),
             User(telegram_id=99, first_name="Vali"),
+            User(telegram_id=5_000_000_001, first_name="Big ID"),
             Wallet(
                 telegram_id=42,
                 uzs_balance=Decimal("100000"),
@@ -86,6 +87,13 @@ def client(monkeypatch):
             ),
             Wallet(
                 telegram_id=99,
+                uzs_balance=Decimal("100000"),
+                locked_uzs=0,
+                efc_balance=0,
+                locked_efc=0,
+            ),
+            Wallet(
+                telegram_id=5_000_000_001,
                 uzs_balance=Decimal("100000"),
                 locked_uzs=0,
                 efc_balance=0,
@@ -182,6 +190,30 @@ def test_order_identity_history_and_idempotency_are_user_scoped(client):
         headers=headers(42, "coin-order-42"),
     )
     assert conflict.status_code == 409
+
+
+def test_order_create_accepts_telegram_id_above_integer_range(client):
+    http, sessions = client
+    telegram_id = 5_000_000_001
+    response = http.post(
+        "/orders/create",
+        json={
+            "product_id": 7,
+            "region": "Global",
+            "konami_login": "big-id@example.com",
+            "konami_password": "secret",
+            "platform": "Android",
+        },
+        headers=headers(telegram_id, "coin-order-big-telegram-id"),
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["telegram_id"] == telegram_id
+    db = sessions()
+    try:
+        assert db.query(Order).filter(Order.telegram_id == telegram_id).one()
+        assert db.query(Transaction).filter(Transaction.telegram_id == telegram_id).one()
+    finally:
+        db.close()
 
 
 def test_idempotency_replay_never_regresses_lifecycle(client):
