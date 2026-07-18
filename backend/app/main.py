@@ -31,6 +31,7 @@ from app.routers.coin_order_chat import router as coin_order_chat_router
 from app.routers.referral import router as referral_router
 from app.routers.promotion import admin_router as promotion_admin_router
 from app.routers.promotion import public_router as promotion_public_router
+from app.routers.promotion_banner import router as promotion_banner_router
 from app.core.observability import configure_logging, correlation_middleware
 
 
@@ -84,6 +85,7 @@ app.include_router(coin_order_chat_router)
 app.include_router(referral_router)
 app.include_router(promotion_admin_router)
 app.include_router(promotion_public_router)
+app.include_router(promotion_banner_router)
 
 
 @app.get("/")

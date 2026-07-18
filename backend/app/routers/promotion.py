@@ -11,6 +11,7 @@ from app.schemas.promotion import (
     PublicPromotionResponse,
 )
 from app.services import promotions
+from app.services.object_storage import generate_presigned_get_url
 
 
 admin_router = APIRouter(
@@ -20,13 +21,24 @@ admin_router = APIRouter(
 public_router = APIRouter(prefix="/promotions", tags=["Promotions"])
 
 
+def promotion_response(promotion, public: bool = False) -> dict:
+    schema = PublicPromotionResponse if public else PromotionResponse
+    data = schema.model_validate(promotion).model_dump()
+    object_key = getattr(promotion, "banner_object_key", None)
+    if object_key:
+        data["banner_url"] = generate_presigned_get_url(object_key)
+    if not public:
+        data["banner_uploaded"] = bool(object_key)
+    return data
+
+
 @admin_router.post("", response_model=PromotionResponse, status_code=201)
 def create_promotion(
     data: PromotionCreate,
     admin: TelegramUser = Depends(require_promotions_admin),
     db: Session = Depends(get_db),
 ):
-    return promotions.create(db, data, admin.telegram_id)
+    return promotion_response(promotions.create(db, data, admin.telegram_id))
 
 
 @admin_router.patch("/{promotion_id}", response_model=PromotionResponse)
@@ -36,7 +48,7 @@ def update_promotion(
     admin: TelegramUser = Depends(require_promotions_admin),
     db: Session = Depends(get_db),
 ):
-    return promotions.update(db, promotion_id, data, admin.telegram_id)
+    return promotion_response(promotions.update(db, promotion_id, data, admin.telegram_id))
 
 
 @admin_router.delete("/{promotion_id}", response_model=PromotionResponse)
@@ -45,7 +57,7 @@ def delete_promotion(
     admin: TelegramUser = Depends(require_promotions_admin),
     db: Session = Depends(get_db),
 ):
-    return promotions.soft_delete(db, promotion_id, admin.telegram_id)
+    return promotion_response(promotions.soft_delete(db, promotion_id, admin.telegram_id))
 
 
 @admin_router.post("/{promotion_id}/restore", response_model=PromotionResponse)
@@ -54,7 +66,7 @@ def restore_promotion(
     admin: TelegramUser = Depends(require_promotions_admin),
     db: Session = Depends(get_db),
 ):
-    return promotions.restore(db, promotion_id, admin.telegram_id)
+    return promotion_response(promotions.restore(db, promotion_id, admin.telegram_id))
 
 
 def status_endpoint(target: str):
@@ -63,7 +75,7 @@ def status_endpoint(target: str):
         admin: TelegramUser = Depends(require_promotions_admin),
         db: Session = Depends(get_db),
     ):
-        return promotions.change_status(db, promotion_id, target, admin.telegram_id)
+        return promotion_response(promotions.change_status(db, promotion_id, target, admin.telegram_id))
 
     return endpoint
 
@@ -94,7 +106,7 @@ def list_promotions(
     _admin: TelegramUser = Depends(require_promotions_admin),
     db: Session = Depends(get_db),
 ):
-    return promotions.list_promotions(db, include_deleted)
+    return [promotion_response(item) for item in promotions.list_promotions(db, include_deleted)]
 
 
 @admin_router.get("/{promotion_id}", response_model=PromotionResponse)
@@ -104,7 +116,7 @@ def promotion_detail(
     _admin: TelegramUser = Depends(require_promotions_admin),
     db: Session = Depends(get_db),
 ):
-    return promotions.detail(db, promotion_id, include_deleted)
+    return promotion_response(promotions.detail(db, promotion_id, include_deleted))
 
 
 @public_router.get("/active", response_model=list[PublicPromotionResponse])
@@ -112,4 +124,4 @@ def active_promotions(
     _current_user: TelegramUser = Depends(get_current_telegram_user),
     db: Session = Depends(get_db),
 ):
-    return promotions.public_active(db)
+    return [promotion_response(item, public=True) for item in promotions.public_active(db)]

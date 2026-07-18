@@ -76,6 +76,10 @@ class PromotionResponse(BaseModel):
     subtitle: str | None
     description: str | None
     banner_url: str | None
+    banner_uploaded: bool = False
+    banner_content_type: str | None = None
+    banner_size: int | None = None
+    banner_updated_at: datetime | None = None
     badge: str | None
     button_text: str | None
     button_action: ButtonAction
