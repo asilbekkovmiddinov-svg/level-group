@@ -19,6 +19,16 @@ from app.services.coin_credentials import credential_fingerprint
 logger = logging.getLogger(__name__)
 
 
+def _order_fingerprint(product_id, platform, region, login=None, password=None):
+    credentials_digest = (
+        credential_fingerprint(login, password)
+        if login and password else "DETAILS_PENDING"
+    )
+    return sha256(
+        f"SHOP:{product_id}:{platform}:{region}:{credentials_digest}".encode()
+    ).hexdigest()
+
+
 def _sqlalchemy_error_diagnostics(error: SQLAlchemyError) -> dict[str, str | None]:
     """Return driver metadata without logging SQL parameters or request payloads."""
     original = getattr(error, "orig", None)
@@ -43,15 +53,6 @@ def create_order(
     telegram_id: int,
     idempotency_key: str | None = None,
 ):
-    region = data.region.strip().upper() if data.region else "GLOBAL"
-    platform = data.platform.strip().upper()
-    if region not in {"GLOBAL", "JAPAN"} or platform not in {"ANDROID", "IOS"}:
-        return "invalid_details"
-    credentials_digest = credential_fingerprint(data.konami_login, data.konami_password)
-    fingerprint = sha256(
-        f"SHOP:{data.product_id}:{platform}:{region}:{credentials_digest}".encode()
-    ).hexdigest()
-
     try:
         with db.begin():
             if idempotency_key:
@@ -60,6 +61,12 @@ def create_order(
                     Order.idempotency_key == idempotency_key,
                 ).first()
                 if replay:
+                    platform = str(data.platform or replay.platform or "ANDROID").strip().upper()
+                    region = str(data.region or replay.region or "GLOBAL").strip().upper()
+                    fingerprint = _order_fingerprint(
+                        data.product_id, platform, region,
+                        data.konami_login, data.konami_password,
+                    )
                     replay._idempotency_replay = True
                     return replay if replay.request_fingerprint == fingerprint else "idempotency_conflict"
 
@@ -69,6 +76,18 @@ def create_order(
             ).first()
             if not product:
                 return "product_not_found"
+
+            raw_platform = data.platform or product.platform or "ANDROID"
+            platform = str(raw_platform).strip().upper()
+            if platform not in {"ANDROID", "IOS"}:
+                platform = "ANDROID" if product.category == "ANDROID_COINS" else "IOS"
+            region = str(data.region or product.region or "GLOBAL").strip().upper()
+            if not region or len(region) > 100:
+                return "invalid_details"
+            fingerprint = _order_fingerprint(
+                data.product_id, platform, region,
+                data.konami_login, data.konami_password,
+            )
 
             wallet = get_wallet_for_update(db, telegram_id)
             if not wallet:
@@ -94,7 +113,6 @@ def create_order(
             )
             db.add(order)
             db.flush()
-            store_credentials(db, "SHOP", order.id, data.konami_login.strip(), data.konami_password)
             prepare_operator_wait(db, "SHOP", order)
             create_transaction(
                 db=db,
@@ -184,6 +202,14 @@ def claim_order(db: Session, order_id: int, admin_id: int):
 
     if not order:
         return None
+
+    if order.status == "WAITING_OPERATOR":
+        order.status = "WAITING_DETAILS"
+        order.claimed_by = admin_id
+        order.claimed_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(order)
+        return order
 
     if order.status != "PENDING":
         return "already_claimed"
