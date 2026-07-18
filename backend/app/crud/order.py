@@ -188,6 +188,9 @@ def claim_order(db: Session, order_id: int, admin_id: int):
     if order.status != "PENDING":
         return "already_claimed"
 
+    if order.claimed_by is not None and order.claimed_by != admin_id:
+        return "already_claimed"
+
     order.status = "CLAIMED"
     order.claimed_by = admin_id
     order.claimed_at = datetime.now(timezone.utc)
