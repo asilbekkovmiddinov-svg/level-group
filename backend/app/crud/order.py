@@ -11,21 +11,16 @@ from app.models.product import Product
 from app.schemas.order import OrderCreate
 from app.crud.wallet import get_wallet_for_update, add_uzs
 from app.crud.transaction import create_transaction
-from app.crud.coin_credentials import cleanup_sensitive_order_data, store_credentials
+from app.crud.coin_credentials import cleanup_sensitive_order_data
 from app.services.coin_operator_flow import prepare_operator_wait
-from app.services.coin_credentials import credential_fingerprint
 
 
 logger = logging.getLogger(__name__)
 
 
-def _order_fingerprint(product_id, platform, region, login=None, password=None):
-    credentials_digest = (
-        credential_fingerprint(login, password)
-        if login and password else "DETAILS_PENDING"
-    )
+def _order_fingerprint(product_id, platform, region):
     return sha256(
-        f"SHOP:{product_id}:{platform}:{region}:{credentials_digest}".encode()
+        f"SHOP:{product_id}:{platform}:{region}".encode()
     ).hexdigest()
 
 
@@ -63,10 +58,7 @@ def create_order(
                 if replay:
                     platform = str(data.platform or replay.platform or "ANDROID").strip().upper()
                     region = str(data.region or replay.region or "GLOBAL").strip().upper()
-                    fingerprint = _order_fingerprint(
-                        data.product_id, platform, region,
-                        data.konami_login, data.konami_password,
-                    )
+                    fingerprint = _order_fingerprint(data.product_id, platform, region)
                     replay._idempotency_replay = True
                     return replay if replay.request_fingerprint == fingerprint else "idempotency_conflict"
 
@@ -84,10 +76,7 @@ def create_order(
             region = str(data.region or product.region or "GLOBAL").strip().upper()
             if not region or len(region) > 100:
                 return "invalid_details"
-            fingerprint = _order_fingerprint(
-                data.product_id, platform, region,
-                data.konami_login, data.konami_password,
-            )
+            fingerprint = _order_fingerprint(data.product_id, platform, region)
 
             wallet = get_wallet_for_update(db, telegram_id)
             if not wallet:
@@ -204,7 +193,7 @@ def claim_order(db: Session, order_id: int, admin_id: int):
         return None
 
     if order.status == "WAITING_OPERATOR":
-        order.status = "WAITING_DETAILS"
+        order.status = "CLAIMED"
         order.claimed_by = admin_id
         order.claimed_at = datetime.now(timezone.utc)
         db.commit()

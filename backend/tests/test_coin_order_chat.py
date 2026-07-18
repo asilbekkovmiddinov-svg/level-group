@@ -39,7 +39,7 @@ def client(monkeypatch):
     Base.metadata.create_all(engine,tables=[User.__table__,Wallet.__table__,Transaction.__table__,Order.__table__,WheelSpin.__table__,WheelCoinOrder.__table__,CoinOrderMessage.__table__,CoinOrderCredential.__table__,CoinCredentialAccessAudit.__table__,CoinCredentialAccessGrant.__table__])
     factory=sessionmaker(bind=engine); db=factory()
     db.add_all([User(telegram_id=42,first_name="A"),User(telegram_id=99,first_name="B"),Wallet(telegram_id=42,uzs_balance=Decimal("10"),efc_balance=0,locked_uzs=0,locked_efc=0),
-        Order(id=1,telegram_id=42,product_id=1,product_title="130",coins_amount=130,price_uzs=Decimal("1"),status="WAITING_OTP"),
+        Order(id=1,telegram_id=42,product_id=1,product_title="130",coins_amount=130,price_uzs=Decimal("1"),status="CLAIMED",claimed_by=7),
         WheelSpin(id=1,telegram_id=42,spin_type="FREE",reward_code="coin_130",reward_type="COIN_ORDER",reward_amount=130,global_spin_number=1,status="COMPLETED")])
     db.flush(); db.add(WheelCoinOrder(id=2,spin_id=1,telegram_id=42,coin_amount=130,status="WAITING_OTP")); db.flush()
     store_credentials(db,"SHOP",1,"user@example.com","shop-secret")
@@ -54,17 +54,16 @@ def client(monkeypatch):
     yield TestClient(app),factory
 
 
-def test_user_operator_message_otp_reload_unread_and_ownership(client):
+def test_user_operator_message_reload_unread_and_ownership(client):
     http,sessions=client; internal={"X-Internal-Api-Key":"key"}
     assert http.post("/coin-order-chat/SHOP/1/messages",json={"message":"482193"},headers=auth(99)).status_code==403
-    sent=http.post("/coin-order-chat/SHOP/1/messages",json={"message":"482193"},headers=auth(42))
-    assert sent.status_code==200 and sent.json()["status"]=="OTP_SUBMITTED"
+    sent=http.post("/coin-order-chat/SHOP/1/messages",json={"message":"MyKonami ma’lumotlari"},headers=auth(42))
+    assert sent.status_code==200 and sent.json()["status"]=="CLAIMED"
     loaded=http.get("/coin-order-chat/SHOP/1/messages",headers=auth(42)).json()
-    assert loaded["data"][0]["message"]=="482193"
+    assert loaded["data"][0]["message"]=="MyKonami ma’lumotlari"
     active=http.get("/coin-order-chat/internal/active",headers=internal).json()["data"]
     assert next(x for x in active if x["order_type"]=="SHOP")["unread_count"]==1
-    assert http.post("/coin-order-chat/internal/SHOP/1/action",json={"admin_id":7,"action":"ACCEPT_CODE"},headers=internal).json()["status"]=="PENDING"
-    reply=http.post("/coin-order-chat/internal/SHOP/1/messages",json={"admin_id":7,"message":"Kod qabul qilindi"},headers=internal)
+    reply=http.post("/coin-order-chat/internal/SHOP/1/messages",json={"admin_id":7,"message":"Buyurtma ustida ishlayapman"},headers=internal)
     assert reply.status_code==200
     assert http.get("/coin-order-chat/SHOP/1/messages",headers=auth(42)).json()["unread_count"]==1
     assert http.post("/coin-order-chat/SHOP/1/read",headers=auth(42)).json()["read"]==1
@@ -77,80 +76,43 @@ def test_wheel_wrong_code_returns_to_waiting_otp(client):
     assert result.json()["status"]=="WAITING_OTP"
 
 
-def test_operator_confirmation_unlocks_otp_and_notifies_once(client, monkeypatch):
+def test_shop_claim_opens_plain_order_chat_without_otp_stage(client):
     http,sessions=client; internal={"X-Internal-Api-Key":"key"}
-    notifications=[]
-    def notify(db, kind, order_id):
-        notifications.append((kind, order_id))
-        db.get(Order, order_id).otp_notification_status = "SENT"
-        db.commit()
-        return type("Result", (), {"status": "SENT", "sent": True})()
-    monkeypatch.setattr(coin_order_notifications, "send_coin_otp_user_notification", notify)
     db=sessions()
     try:
         db.get(Order,1).status="WAITING_OPERATOR"; db.commit()
     finally: db.close()
     assert http.post("/coin-order-chat/SHOP/1/messages",json={"message":"482193"},headers=auth(42)).status_code==409
-    opened=http.post("/coin-order-chat/internal/SHOP/1/action",json={"admin_id":7,"action":"OTP_SENT"},headers=internal)
-    assert opened.status_code==200 and opened.json()["status"]=="WAITING_OTP"
-    repeated=http.post("/coin-order-chat/internal/SHOP/1/action",json={"admin_id":7,"action":"OTP_SENT"},headers=internal)
-    assert repeated.status_code==409
-    assert notifications==[("SHOP",1)]
-    messages=http.get("/coin-order-chat/SHOP/1/messages",headers=auth(42)).json()
-    assert messages["unread_count"]==1
-    assert messages["data"][-1]["sender"]=="SYSTEM"
-    assert len([item for item in messages["data"] if item["sender"]=="SYSTEM"])==1
-    assert "6 xonali kodni shu chatga yuboring" in messages["data"][-1]["message"]
-    invalid=http.post("/coin-order-chat/SHOP/1/messages",json={"message":"hello"},headers=auth(42))
-    assert invalid.status_code==400
-    valid=http.post("/coin-order-chat/SHOP/1/messages",json={"message":"482193"},headers=auth(42))
-    assert valid.json()["status"]=="OTP_SUBMITTED"
+    assert http.post("/coin-order-chat/internal/SHOP/1/action",json={"admin_id":7,"action":"OTP_SENT"},headers=internal).status_code==409
+    claimed=http.post("/coin-order-chat/internal/SHOP/1/action",json={"admin_id":7,"action":"CLAIM"},headers=internal)
+    assert claimed.status_code==200 and claimed.json()["status"]=="CLAIMED"
+    valid=http.post("/coin-order-chat/SHOP/1/messages",json={"message":"Oddiy chat xabari"},headers=auth(42))
+    assert valid.status_code==200 and valid.json()["status"]=="CLAIMED"
 
 
-def test_stale_sending_allows_otp_action_retry(client, monkeypatch):
+def test_wheel_stale_sending_allows_otp_action_retry(client, monkeypatch):
     http,sessions=client; internal={"X-Internal-Api-Key":"key"}; calls=[]
     db=sessions()
     try:
-        order=db.get(Order,1); order.status="WAITING_OTP"; order.otp_notification_status="SENDING"
+        order=db.get(WheelCoinOrder,2); order.status="WAITING_OTP"; order.otp_notification_status="SENDING"
         order.otp_notification_attempted_at=datetime.now(timezone.utc)-timedelta(minutes=10)
         db.commit()
     finally: db.close()
     monkeypatch.setattr(coin_order_notifications.config,"COIN_OTP_NOTIFICATION_STALE_SECONDS",300)
     monkeypatch.setattr(coin_order_notifications,"send_coin_otp_user_notification",
         lambda db,kind,order_id: (calls.append((kind,order_id)) or type("Result",(),{"status":"SENT","sent":True})()))
-    retried=http.post("/coin-order-chat/internal/SHOP/1/action",json={"admin_id":7,"action":"OTP_SENT"},headers=internal)
+    retried=http.post("/coin-order-chat/internal/WHEEL/2/action",json={"admin_id":7,"action":"OTP_SENT"},headers=internal)
     assert retried.status_code==200 and retried.json()["notification_status"]=="SENT"
-    assert calls==[("SHOP",1)]
+    assert calls==[("WHEEL",2)]
 
 
-def test_credentials_decrypt_audit_and_terminal_cleanup_are_irreversible(client):
+def test_terminal_cleanup_removes_legacy_credentials_without_view_endpoint(client):
     http,sessions=client; internal={"X-Internal-Api-Key":"key"}
-    opened=http.post("/coin-order-chat/internal/SHOP/1/credential-grant",json={"admin_id":7,"session_id":"s1"},headers=internal)
-    assert opened.status_code==200
-    assert http.post("/coin-order-chat/internal/SHOP/1/credential-grant",json={"admin_id":8},headers=internal).status_code==403
-    view_path=opened.json()["view_path"]
-    assert "shop-secret" not in http.get(view_path).text
-    assert http.post(view_path,data={"init_data":auth(8)["X-Telegram-Init-Data"]}).status_code==410
-    view=http.post(view_path,data={"init_data":auth(7)["X-Telegram-Init-Data"]})
-    assert view.status_code==200 and "shop-secret" in view.text and "type='password'" in view.text
-    audit_path=view_path+"/audit"
-    assert http.post(audit_path,data={"init_data":auth(8)["X-Telegram-Init-Data"],"action":"PASSWORD_REVEAL"}).status_code==410
-    for action in ("EMAIL_COPY","PASSWORD_REVEAL","PASSWORD_COPY","PASSWORD_REVEAL"):
-        assert http.post(audit_path,data={"init_data":auth(7)["X-Telegram-Init-Data"],"action":action}).status_code==200
-    assert http.post(view_path,data={"init_data":auth(7)["X-Telegram-Init-Data"]}).status_code==410
-    assert http.post("/coin-order-chat/SHOP/1/messages",json={"message":"482193"},headers=auth(42)).json()["status"]=="OTP_SUBMITTED"
-    assert http.post("/coin-order-chat/internal/SHOP/1/action",json={"admin_id":7,"action":"ACCEPT_CODE"},headers=internal).json()["status"]=="PENDING"
-    assert http.post("/coin-order-chat/internal/SHOP/1/action",json={"admin_id":7,"action":"CLAIM"},headers=internal).status_code==200
+    assert http.post("/coin-order-chat/internal/SHOP/1/credential-grant",json={"admin_id":7},headers=internal).status_code==404
     assert http.post("/coin-order-chat/internal/SHOP/1/action",json={"admin_id":7,"action":"COMPLETE"},headers=internal).status_code==200
-    assert http.post("/coin-order-chat/internal/SHOP/1/credential-grant",json={"admin_id":7},headers=internal).status_code==410
     db=sessions()
     try:
         assert db.query(CoinOrderCredential).filter_by(order_type="SHOP",order_id=1).first() is None
-        assert db.query(CoinOrderMessage).filter_by(order_type="SHOP",order_id=1).one().message=="OTP qabul qilindi"
-        assert db.query(CoinCredentialAccessAudit).filter_by(admin_id=7,result="OPENED").count()==1
-        assert db.query(CoinCredentialAccessAudit).filter_by(admin_id=7,result="EMAIL_COPY").count()==1
-        assert db.query(CoinCredentialAccessAudit).filter_by(admin_id=7,result="PASSWORD_REVEAL").count()==2
-        assert db.query(CoinCredentialAccessAudit).filter_by(admin_id=7,result="PASSWORD_COPY").count()==1
     finally: db.close()
 
 
@@ -180,7 +142,7 @@ def test_rejected_shop_order_refunds_wallet_and_commits_cleanup_atomically(clien
     finally: db.close()
 
 
-def test_shop_claim_then_user_submits_encrypted_details_in_order_chat(client):
+def test_shop_claim_then_user_and_operator_use_only_order_chat(client):
     http,sessions=client; internal={"X-Internal-Api-Key":"key"}
     db=sessions()
     try:
@@ -189,16 +151,14 @@ def test_shop_claim_then_user_submits_encrypted_details_in_order_chat(client):
         db.commit()
     finally: db.close()
     claimed=http.post("/coin-order-chat/internal/SHOP/3/action",json={"admin_id":7,"action":"CLAIM"},headers=internal)
-    assert claimed.status_code==200 and claimed.json()["status"]=="WAITING_DETAILS"
-    payload={"konami_login":"player@example.com","konami_password":"one-time-secret"}
-    assert http.post("/coin-order-chat/SHOP/3/details",json=payload,headers=auth(99)).status_code==403
-    saved=http.post("/coin-order-chat/SHOP/3/details",json=payload,headers=auth(42))
-    assert saved.status_code==200 and saved.json()["status"]=="WAITING_OPERATOR"
-    assert http.post("/coin-order-chat/SHOP/3/details",json=payload,headers=auth(42)).status_code==409
+    assert claimed.status_code==200 and claimed.json()["status"]=="CLAIMED"
+    assert http.post("/coin-order-chat/SHOP/3/messages",json={"message":"Salom operator"},headers=auth(99)).status_code==403
+    assert http.post("/coin-order-chat/SHOP/3/messages",json={"message":"Salom operator"},headers=auth(42)).status_code==200
+    assert http.post("/coin-order-chat/internal/SHOP/3/messages",json={"admin_id":8,"message":"Begona"},headers=internal).status_code==403
+    assert http.post("/coin-order-chat/internal/SHOP/3/messages",json={"admin_id":7,"message":"Qabul qilindi"},headers=internal).status_code==200
     db=sessions()
     try:
-        credential=db.query(CoinOrderCredential).filter_by(order_type="SHOP",order_id=3).one()
-        assert b"player@example.com" not in credential.email_ciphertext
         messages=db.query(CoinOrderMessage).filter_by(order_type="SHOP",order_id=3).all()
-        assert all("one-time-secret" not in item.message for item in messages)
+        assert [item.message for item in messages]==["Salom operator","Qabul qilindi"]
+        assert db.query(CoinOrderCredential).filter_by(order_type="SHOP",order_id=3).first() is None
     finally: db.close()
