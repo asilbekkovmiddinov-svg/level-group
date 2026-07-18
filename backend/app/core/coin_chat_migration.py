@@ -10,8 +10,13 @@ def run_coin_chat_migration() -> None:
     """Additive, isolated schema changes for Coin Order Chat."""
     with engine.begin() as connection:
         connection.execute(text("""ALTER TABLE orders ADD COLUMN IF NOT EXISTS platform VARCHAR(20);"""))
-        for table in ("orders", "wheel_coin_orders"):
-            connection.execute(text(f"""ALTER TABLE {table}
+        connection.execute(text("""ALTER TABLE orders
+                ADD COLUMN IF NOT EXISTS coin_notification_status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+                ADD COLUMN IF NOT EXISTS coin_notification_message_id VARCHAR(100),
+                ADD COLUMN IF NOT EXISTS coin_notification_attempts INTEGER NOT NULL DEFAULT 0,
+                ADD COLUMN IF NOT EXISTS coin_notification_last_error VARCHAR(255),
+                ADD COLUMN IF NOT EXISTS coin_notification_sent_at TIMESTAMP WITH TIME ZONE;"""))
+        connection.execute(text("""ALTER TABLE wheel_coin_orders
                 ADD COLUMN IF NOT EXISTS coin_notification_status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
                 ADD COLUMN IF NOT EXISTS coin_notification_message_id VARCHAR(100),
                 ADD COLUMN IF NOT EXISTS coin_notification_attempts INTEGER NOT NULL DEFAULT 0,
