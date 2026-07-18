@@ -125,11 +125,16 @@ def test_credentials_decrypt_audit_and_terminal_cleanup_are_irreversible(client)
     http,sessions=client; internal={"X-Internal-Api-Key":"key"}
     opened=http.post("/coin-order-chat/internal/SHOP/1/credential-grant",json={"admin_id":7,"session_id":"s1"},headers=internal)
     assert opened.status_code==200
+    assert http.post("/coin-order-chat/internal/SHOP/1/credential-grant",json={"admin_id":8},headers=internal).status_code==403
     view_path=opened.json()["view_path"]
     assert "shop-secret" not in http.get(view_path).text
     assert http.post(view_path,data={"init_data":auth(8)["X-Telegram-Init-Data"]}).status_code==410
     view=http.post(view_path,data={"init_data":auth(7)["X-Telegram-Init-Data"]})
-    assert view.status_code==200 and "shop-secret" in view.text
+    assert view.status_code==200 and "shop-secret" in view.text and "type='password'" in view.text
+    audit_path=view_path+"/audit"
+    assert http.post(audit_path,data={"init_data":auth(8)["X-Telegram-Init-Data"],"action":"PASSWORD_REVEAL"}).status_code==410
+    for action in ("EMAIL_COPY","PASSWORD_REVEAL","PASSWORD_COPY","PASSWORD_REVEAL"):
+        assert http.post(audit_path,data={"init_data":auth(7)["X-Telegram-Init-Data"],"action":action}).status_code==200
     assert http.post(view_path,data={"init_data":auth(7)["X-Telegram-Init-Data"]}).status_code==410
     assert http.post("/coin-order-chat/SHOP/1/messages",json={"message":"482193"},headers=auth(42)).json()["status"]=="OTP_SUBMITTED"
     assert http.post("/coin-order-chat/internal/SHOP/1/action",json={"admin_id":7,"action":"ACCEPT_CODE"},headers=internal).json()["status"]=="PENDING"
@@ -141,6 +146,9 @@ def test_credentials_decrypt_audit_and_terminal_cleanup_are_irreversible(client)
         assert db.query(CoinOrderCredential).filter_by(order_type="SHOP",order_id=1).first() is None
         assert db.query(CoinOrderMessage).filter_by(order_type="SHOP",order_id=1).one().message=="OTP qabul qilindi"
         assert db.query(CoinCredentialAccessAudit).filter_by(admin_id=7,result="OPENED").count()==1
+        assert db.query(CoinCredentialAccessAudit).filter_by(admin_id=7,result="EMAIL_COPY").count()==1
+        assert db.query(CoinCredentialAccessAudit).filter_by(admin_id=7,result="PASSWORD_REVEAL").count()==2
+        assert db.query(CoinCredentialAccessAudit).filter_by(admin_id=7,result="PASSWORD_COPY").count()==1
     finally: db.close()
 
 

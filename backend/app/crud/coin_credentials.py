@@ -43,6 +43,32 @@ def open_credentials(db: Session, order_type: str, order_id: int, admin_id: int,
     return result
 
 
+def record_credential_access_event(
+    db: Session,
+    order_type: str,
+    order_id: int,
+    admin_id: int,
+    action: str,
+    ip_address=None,
+    session_id=None,
+):
+    db.add(CoinCredentialAccessAudit(
+        order_type=order_type,
+        order_id=order_id,
+        admin_id=admin_id,
+        ip_address=ip_address,
+        session_id=session_id,
+        result=action,
+    ))
+    db.commit()
+    return db.query(CoinCredentialAccessAudit).filter_by(
+        order_type=order_type,
+        order_id=order_id,
+        admin_id=admin_id,
+        result=action,
+    ).count()
+
+
 def cleanup_sensitive_order_data(db: Session, order_type: str, order_id: int):
     db.query(CoinOrderCredential).filter_by(order_type=order_type, order_id=order_id).delete(synchronize_session=False)
     for message in db.query(CoinOrderMessage).filter_by(order_type=order_type, order_id=order_id, sender="USER").all():
@@ -72,5 +98,17 @@ def consume_access_grant(db: Session, token: str, admin_id: int):
     if expires <= now:
         return None
     item.used_at = now
+    item.expires_at = now + timedelta(minutes=5)
     db.commit()
     return item
+
+
+def get_consumed_access_grant(db: Session, token: str, admin_id: int):
+    item = db.query(CoinCredentialAccessGrant).filter_by(
+        token_hash=hashlib.sha256(token.encode()).hexdigest(),
+        admin_id=admin_id,
+    ).first()
+    if not item or item.used_at is None:
+        return None
+    expires = item.expires_at if item.expires_at.tzinfo else item.expires_at.replace(tzinfo=timezone.utc)
+    return item if expires > datetime.now(timezone.utc) else None
