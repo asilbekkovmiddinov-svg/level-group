@@ -7,6 +7,7 @@ from .withdraw import Withdraw
 from .product import Product
 from .order import Order
 from .referral import Referral, ReferralProfile, ReferralReward
+from .promotion import Promotion
 from .coin_order_message import CoinOrderMessage
 from .coin_credential import CoinOrderCredential, CoinCredentialAccessAudit, CoinCredentialAccessGrant
 from .p2p import P2POrder
