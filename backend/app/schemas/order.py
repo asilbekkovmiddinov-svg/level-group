@@ -1,20 +1,13 @@
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class OrderCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     product_id: int
     region: Optional[str] = None
-    # Legacy clients may still send this field. Authentication is authoritative.
-    telegram_id: Optional[int] = None
-    konami_login: Optional[str] = None
-    konami_password: Optional[str] = None
     platform: Optional[str] = None
-
-
-class OrderStatusUpdate(BaseModel):
-    status: str
 
 
 class OrderReject(BaseModel):
@@ -24,17 +17,3 @@ class OrderReject(BaseModel):
 
 class OrderAdminAction(BaseModel):
     admin_id: int
-
-
-class OrderResponse(BaseModel):
-    id: int
-    telegram_id: int
-    product_id: int
-    product_title: str
-    coins_amount: int
-    price_uzs: float
-    status: str
-    region: Optional[str] = None
-
-    class Config:
-        from_attributes = True
