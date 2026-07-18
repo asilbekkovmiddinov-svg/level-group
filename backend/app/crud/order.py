@@ -2,6 +2,7 @@ from decimal import Decimal
 from datetime import datetime, timezone
 from hashlib import sha256
 import logging
+import secrets
 
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -11,11 +12,17 @@ from app.models.product import Product
 from app.schemas.order import OrderCreate
 from app.crud.wallet import get_wallet_for_update, add_uzs
 from app.crud.transaction import create_transaction
-from app.crud.coin_credentials import cleanup_sensitive_order_data
-from app.services.coin_operator_flow import prepare_operator_wait
 
 
 logger = logging.getLogger(__name__)
+
+
+def _new_order_number(db: Session) -> str:
+    for _ in range(32):
+        value = str(secrets.randbelow(90_000_000) + 10_000_000)
+        if not db.query(Order.id).filter(Order.order_number == value).first():
+            return value
+    raise RuntimeError("Unique order number could not be generated")
 
 
 def _order_fingerprint(product_id, platform, region):
@@ -89,6 +96,7 @@ def create_order(
             wallet.uzs_balance = balance_before - price
 
             order = Order(
+                order_number=_new_order_number(db),
                 telegram_id=telegram_id,
                 product_id=product.id,
                 product_title=product.title,
@@ -102,7 +110,6 @@ def create_order(
             )
             db.add(order)
             db.flush()
-            prepare_operator_wait(db, "SHOP", order)
             create_transaction(
                 db=db,
                 telegram_id=telegram_id,
@@ -133,14 +140,6 @@ def create_order(
         return "operation_failed"
 
 
-def get_orders(db: Session):
-    return (
-        db.query(Order)
-        .order_by(Order.id.desc())
-        .all()
-    )
-
-
 def get_user_orders(db: Session, telegram_id: int):
     return (
         db.query(Order)
@@ -148,40 +147,6 @@ def get_user_orders(db: Session, telegram_id: int):
         .order_by(Order.id.desc())
         .all()
     )
-
-
-def get_pending_orders(db: Session):
-    return (
-        db.query(Order)
-        .filter(Order.status == "PENDING")
-        .order_by(Order.id.asc())
-        .all()
-    )
-
-
-def get_claimed_orders(db: Session):
-    return (
-        db.query(Order)
-        .filter(Order.status == "CLAIMED")
-        .order_by(Order.claimed_at.asc())
-        .all()
-    )
-
-
-def update_order_status(db: Session, order_id: int, status: str):
-    order = db.query(Order).filter(
-        Order.id == order_id
-    ).first()
-
-    if not order:
-        return None
-
-    order.status = status
-
-    db.commit()
-    db.refresh(order)
-
-    return order
 
 
 def claim_order(db: Session, order_id: int, admin_id: int):
@@ -192,6 +157,9 @@ def claim_order(db: Session, order_id: int, admin_id: int):
     if not order:
         return None
 
+    if order.status == "CLAIMED" and order.claimed_by == admin_id:
+        return order
+
     if order.status == "WAITING_OPERATOR":
         order.status = "CLAIMED"
         order.claimed_by = admin_id
@@ -200,18 +168,7 @@ def claim_order(db: Session, order_id: int, admin_id: int):
         db.refresh(order)
         return order
 
-    if order.status != "PENDING":
-        return "already_claimed"
-
-    order.status = "CLAIMED"
-    order.claimed_by = admin_id
-    order.claimed_at = datetime.now(timezone.utc)
-
-    db.commit()
-    db.refresh(order)
-
-    return order
-
+    return "already_claimed"
 
 def approve_order(db: Session, order_id: int, admin_id: int):
     order = db.query(Order).filter(
@@ -224,8 +181,10 @@ def approve_order(db: Session, order_id: int, admin_id: int):
     if order.status == "COMPLETED":
         return "already_completed"
 
-    if order.status not in ["CLAIMED", "PENDING"]:
+    if order.status != "CLAIMED":
         return "invalid_status"
+    if order.claimed_by is not None and order.claimed_by != admin_id:
+        return "forbidden"
 
     now = datetime.now(timezone.utc)
 
@@ -238,8 +197,6 @@ def approve_order(db: Session, order_id: int, admin_id: int):
         order.processing_seconds = int(
             (now - claimed_at).total_seconds()
         )
-
-    cleanup_sensitive_order_data(db, "SHOP", order.id)
 
     db.commit()
     db.refresh(order)
@@ -260,8 +217,10 @@ def reject_order(
     if not order:
         return None
 
-    if order.status in ["COMPLETED", "REJECTED", "CANCELLED"]:
+    if order.status != "CLAIMED":
         return "invalid_status"
+    if order.claimed_by is not None and order.claimed_by != admin_id:
+        return "forbidden"
 
     wallet = get_wallet_for_update(db, order.telegram_id)
     if not wallet:
@@ -303,52 +262,6 @@ def reject_order(
         order.processing_seconds = int(
             (now - claimed_at).total_seconds()
         )
-
-    cleanup_sensitive_order_data(db, "SHOP", order.id)
-
-    db.commit()
-    db.refresh(order)
-
-    return order
-
-
-def cancel_order(db: Session, order_id: int):
-    order = db.query(Order).filter(
-        Order.id == order_id
-    ).first()
-
-    if not order:
-        return None
-
-    if order.status == "CANCELLED":
-        return "already_cancelled"
-
-    if order.status == "COMPLETED":
-        return "already_completed"
-
-    result = add_uzs(
-        db=db,
-        telegram_id=order.telegram_id,
-        amount=float(order.price_uzs),
-    )
-
-    if not result:
-        return "wallet_not_found"
-
-    before, after = result
-
-    create_transaction(
-        db=db,
-        telegram_id=order.telegram_id,
-        currency="UZS",
-        amount=float(order.price_uzs),
-        balance_before=before,
-        balance_after=after,
-        type="ORDER_REFUND",
-        description=f"Refund for Order #{order.id}",
-    )
-
-    order.status = "CANCELLED"
 
     db.commit()
     db.refresh(order)
