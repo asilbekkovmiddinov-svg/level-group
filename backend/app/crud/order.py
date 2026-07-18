@@ -248,26 +248,32 @@ def reject_order(
     if order.status in ["COMPLETED", "REJECTED", "CANCELLED"]:
         return "invalid_status"
 
+    wallet = get_wallet_for_update(db, order.telegram_id)
+    if not wallet:
+        return "wallet_not_found"
+    before = Decimal(str(wallet.uzs_balance))
+
     result = add_uzs(
         db=db,
         telegram_id=order.telegram_id,
-        amount=float(order.price_uzs),
+        amount=order.price_uzs,
     )
 
     if not result:
         return "wallet_not_found"
 
-    before, after = result
+    after = Decimal(str(result.uzs_balance))
 
     create_transaction(
         db=db,
         telegram_id=order.telegram_id,
         currency="UZS",
-        amount=float(order.price_uzs),
+        amount=order.price_uzs,
         balance_before=before,
         balance_after=after,
         type="ORDER_REJECT_REFUND",
         description=f"Refund for rejected Order #{order.id}",
+        commit=False,
     )
 
     now = datetime.now(timezone.utc)
