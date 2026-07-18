@@ -3,13 +3,12 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from app.models.coin_order_message import CoinOrderMessage
-from app.models.order import Order
 from app.models.wheel import WheelCoinOrder
 
-ORDER_MODELS = {"SHOP": Order, "WHEEL": WheelCoinOrder}
+ORDER_MODELS = {"WHEEL": WheelCoinOrder}
 ACTIVE_STATUSES = {"WAITING_DETAILS", "WAITING_OPERATOR", "WAITING_OTP", "OTP_SUBMITTED", "PENDING", "CLAIMED"}
 
-ORDER_CREATED_MESSAGE = "✅ Buyurtmangiz muvaffaqiyatli yaratildi.\n\nIltimos kuting.\n\nOperator tez orada buyurtma suhbati orqali siz bilan bog‘lanadi."
+ORDER_CREATED_MESSAGE = "✅ Wheel Coin buyurtmangiz yaratildi.\n\nOperator tez orada buyurtma suhbati orqali siz bilan bog‘lanadi."
 OTP_SENT_MESSAGE = "📩 Email manzilingizga tasdiqlash kodi yuborildi.\n\nIltimos emailingizga kelgan 6 xonali kodni shu chatga yuboring."
 
 
