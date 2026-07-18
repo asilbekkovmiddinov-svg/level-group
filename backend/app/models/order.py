@@ -8,8 +8,13 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 from sqlalchemy.sql import func
+import secrets
 
 from app.core.database import Base
+
+
+def random_order_number() -> str:
+    return str(secrets.randbelow(90_000_000) + 10_000_000)
 
 
 class Order(Base):
@@ -23,6 +28,13 @@ class Order(Base):
     )
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    order_number = Column(
+        String(8),
+        nullable=False,
+        unique=True,
+        index=True,
+        default=random_order_number,
+    )
 
     telegram_id = Column(BigInteger, nullable=False, index=True)
 
@@ -41,7 +53,7 @@ class Order(Base):
     request_fingerprint = Column(String(64), nullable=True)
 
     status = Column(String(30), default="PENDING")
-    # PENDING, CLAIMED, COMPLETED, REJECTED, CANCELLED
+    # WAITING_OPERATOR, CLAIMED, COMPLETED, REJECTED, CANCELLED
 
     claimed_by = Column(BigInteger, nullable=True)
     claimed_at = Column(DateTime(timezone=True), nullable=True)
@@ -61,13 +73,6 @@ class Order(Base):
     coin_notification_attempts = Column(Integer, nullable=False, default=0)
     coin_notification_last_error = Column(String(255), nullable=True)
     coin_notification_sent_at = Column(DateTime(timezone=True), nullable=True)
-
-    otp_notification_status = Column(String(20), nullable=False, default="PENDING")
-    otp_notification_message_id = Column(String(100), nullable=True)
-    otp_notification_attempts = Column(Integer, nullable=False, default=0)
-    otp_notification_last_error = Column(String(255), nullable=True)
-    otp_notification_attempted_at = Column(DateTime(timezone=True), nullable=True)
-    otp_notification_sent_at = Column(DateTime(timezone=True), nullable=True)
 
     created_at = Column(
         DateTime(timezone=True),
