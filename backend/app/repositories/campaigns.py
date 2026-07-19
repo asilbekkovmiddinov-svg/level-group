@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 
-from app.models.campaign import Campaign
+from app.models.campaign import Campaign, CampaignRecipient
 
 
 def add(db: Session, campaign: Campaign) -> Campaign:
@@ -23,3 +23,11 @@ def list_all(db: Session, include_deleted: bool = False) -> list[Campaign]:
     if not include_deleted:
         query = query.filter(Campaign.deleted_at.is_(None))
     return query.order_by(Campaign.created_at.desc(), Campaign.id.desc()).all()
+
+
+def recipient_count(db: Session, campaign_id: int) -> int:
+    return db.query(CampaignRecipient).filter(CampaignRecipient.campaign_id == campaign_id).count()
+
+
+def recipients(db: Session, campaign_id: int) -> list[CampaignRecipient]:
+    return db.query(CampaignRecipient).filter(CampaignRecipient.campaign_id == campaign_id).order_by(CampaignRecipient.id).all()

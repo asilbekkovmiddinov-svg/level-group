@@ -79,11 +79,20 @@ def detail(db: Session, campaign_id: int, include_deleted: bool = False) -> Camp
     campaign = repository.get(db, campaign_id, include_deleted=include_deleted)
     if campaign is None:
         _not_found()
+    from app.services.campaign_execution import synchronize_statistics
+    synchronize_statistics(db, campaign)
+    db.commit()
+    db.refresh(campaign)
     return campaign
 
 
 def list_campaigns(db: Session, include_deleted: bool = False) -> list[Campaign]:
-    return repository.list_all(db, include_deleted=include_deleted)
+    from app.services.campaign_execution import synchronize_statistics
+    campaigns = repository.list_all(db, include_deleted=include_deleted)
+    for campaign in campaigns:
+        synchronize_statistics(db, campaign)
+    db.commit()
+    return campaigns
 
 
 def soft_delete(db: Session, campaign_id: int, actor_id: int) -> Campaign:
@@ -105,7 +114,10 @@ def restore(db: Session, campaign_id: int, actor_id: int) -> Campaign:
     if campaign is None or campaign.deleted_at is None:
         _not_found()
     campaign.deleted_at = None
-    campaign.status = "SCHEDULED" if campaign.schedule_type == "SCHEDULED" and campaign.scheduled_at and _utc(campaign.scheduled_at) > utc_now() else "DRAFT"
+    if repository.recipient_count(db, campaign.id):
+        campaign.status = "READY"
+    else:
+        campaign.status = "SCHEDULED" if campaign.schedule_type == "SCHEDULED" and campaign.scheduled_at and _utc(campaign.scheduled_at) > utc_now() else "DRAFT"
     campaign.updated_by = actor_id
     db.commit()
     db.refresh(campaign)
@@ -117,13 +129,13 @@ def transition(db: Session, campaign_id: int, action: str, actor_id: int) -> Cam
     if campaign is None:
         _not_found()
     allowed = {
-        "pause": ({"SCHEDULED", "RUNNING"}, "PAUSED"),
-        "cancel": ({"DRAFT", "SCHEDULED", "RUNNING", "PAUSED"}, "CANCELLED"),
+        "pause": ({"SCHEDULED", "READY", "RUNNING"}, "PAUSED"),
+        "cancel": ({"DRAFT", "SCHEDULED", "READY", "RUNNING", "PAUSED"}, "CANCELLED"),
     }
     if action == "resume":
         if campaign.status != "PAUSED":
             raise HTTPException(409, "Only PAUSED campaigns can be resumed")
-        target = "SCHEDULED" if campaign.schedule_type == "SCHEDULED" and campaign.scheduled_at and _utc(campaign.scheduled_at) > utc_now() else "DRAFT"
+        target = "READY" if repository.recipient_count(db, campaign.id) else "SCHEDULED"
     else:
         sources, target = allowed[action]
         if campaign.status not in sources:

@@ -17,8 +17,9 @@ from sqlalchemy.pool import StaticPool
 
 from app.core import admin_auth, telegram_auth
 from app.core.database import Base, get_db
-from app.models.campaign import Campaign
+from app.models.campaign import Campaign, CampaignRecipient
 from app.models.promotion import Promotion
+from app.models.user import User
 from app.routers.campaign import router
 
 
@@ -36,7 +37,7 @@ def headers(actor=9001):
 
 def build_client(monkeypatch):
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
-    Base.metadata.create_all(engine, tables=[Promotion.__table__, Campaign.__table__])
+    Base.metadata.create_all(engine, tables=[User.__table__, Promotion.__table__, Campaign.__table__, CampaignRecipient.__table__])
     sessions = sessionmaker(bind=engine)
     monkeypatch.setattr(telegram_auth, "BOT_TOKEN", "test-token")
     monkeypatch.setattr(admin_auth, "ADMIN_TELEGRAM_IDS", frozenset({9001, 9002}))
@@ -111,17 +112,20 @@ def test_statistics_are_calculated_safely(monkeypatch):
     client, sessions = build_client(monkeypatch)
     campaign_id = client.post("/admin/campaigns", json=payload(), headers=headers()).json()["id"]
     db = sessions()
-    campaign = db.get(Campaign, campaign_id)
-    campaign.sent_count = 200
-    campaign.opened_count = 125
-    campaign.clicked_count = 25
-    campaign.failed_count = 10
+    db.add_all(User(telegram_id=user_id, first_name=f"User {user_id}", is_banned=False) for user_id in range(1, 5))
+    db.flush()
+    db.add_all([
+        CampaignRecipient(campaign_id=campaign_id, user_id=1, status="SENT"),
+        CampaignRecipient(campaign_id=campaign_id, user_id=2, status="OPENED"),
+        CampaignRecipient(campaign_id=campaign_id, user_id=3, status="CLICKED"),
+        CampaignRecipient(campaign_id=campaign_id, user_id=4, status="FAILED"),
+    ])
     db.commit()
     db.close()
     detail = client.get(f"/admin/campaigns/{campaign_id}", headers=headers()).json()
-    assert detail["sent_count"] == 200 and detail["opened_count"] == 125
-    assert detail["ctr"] == 12.5
-    assert detail["failure_rate"] == 5.0
+    assert detail["sent_count"] == 3 and detail["opened_count"] == 2
+    assert detail["ctr"] == 33.33
+    assert detail["failure_rate"] == 33.33
 
 
 def test_optional_promotion_must_exist(monkeypatch):

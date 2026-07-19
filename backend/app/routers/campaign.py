@@ -4,8 +4,11 @@ from sqlalchemy.orm import Session
 from app.core.admin_auth import require_promotions_admin
 from app.core.database import get_db
 from app.core.telegram_auth import TelegramUser
-from app.schemas.campaign import CampaignCreate, CampaignResponse, CampaignUpdate
-from app.services import campaigns
+from app.schemas.campaign import (
+    CampaignCreate, CampaignExecutionRequest, CampaignExecutionResponse,
+    CampaignRecipientResponse, CampaignResponse, CampaignUpdate,
+)
+from app.services import campaign_execution, campaigns
 
 
 router = APIRouter(prefix="/admin/campaigns", tags=["Campaign Center"])
@@ -40,6 +43,32 @@ def lifecycle(action: str):
 router.add_api_route("/{campaign_id}/pause", lifecycle("pause"), methods=["POST"], response_model=CampaignResponse)
 router.add_api_route("/{campaign_id}/resume", lifecycle("resume"), methods=["POST"], response_model=CampaignResponse)
 router.add_api_route("/{campaign_id}/cancel", lifecycle("cancel"), methods=["POST"], response_model=CampaignResponse)
+
+
+@router.post("/{campaign_id}/schedule", response_model=CampaignResponse)
+def schedule_campaign(campaign_id: int, admin: TelegramUser = Depends(require_promotions_admin), db: Session = Depends(get_db)):
+    return campaign_execution.schedule(db, campaign_id, admin.telegram_id)
+
+
+@router.post("/{campaign_id}/prepare", response_model=CampaignExecutionResponse)
+def prepare_campaign(campaign_id: int, data: CampaignExecutionRequest, admin: TelegramUser = Depends(require_promotions_admin), db: Session = Depends(get_db)):
+    campaign, count = campaign_execution.prepare(db, campaign_id, data, admin.telegram_id)
+    return {"campaign": campaign, "recipient_count": count}
+
+
+@router.post("/{campaign_id}/start", response_model=CampaignResponse)
+def start_campaign(campaign_id: int, admin: TelegramUser = Depends(require_promotions_admin), db: Session = Depends(get_db)):
+    return campaign_execution.start(db, campaign_id, admin.telegram_id)
+
+
+@router.post("/{campaign_id}/complete", response_model=CampaignResponse)
+def complete_campaign(campaign_id: int, admin: TelegramUser = Depends(require_promotions_admin), db: Session = Depends(get_db)):
+    return campaign_execution.complete(db, campaign_id, admin.telegram_id)
+
+
+@router.get("/{campaign_id}/recipients", response_model=list[CampaignRecipientResponse])
+def campaign_recipients(campaign_id: int, _admin: TelegramUser = Depends(require_promotions_admin), db: Session = Depends(get_db)):
+    return campaign_execution.recipient_list(db, campaign_id)
 
 
 @router.post("/{campaign_id}/restore", response_model=CampaignResponse)

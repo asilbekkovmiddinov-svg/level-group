@@ -23,6 +23,7 @@ class ScheduleType(str, Enum):
 class CampaignStatus(str, Enum):
     DRAFT = "DRAFT"
     SCHEDULED = "SCHEDULED"
+    READY = "READY"
     RUNNING = "RUNNING"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
@@ -114,3 +115,27 @@ class CampaignResponse(BaseModel):
     @property
     def failure_rate(self) -> float:
         return round(self.failed_count / self.sent_count * 100, 2) if self.sent_count else 0.0
+
+
+class CampaignExecutionRequest(BaseModel):
+    custom_user_ids: list[int] = Field(default_factory=list, max_length=100000)
+    inactive_days: int | None = Field(default=None, ge=1, le=3650)
+    vip_min_uzs: float | None = Field(default=None, ge=0)
+    vip_min_efc: float | None = Field(default=None, ge=0)
+
+
+class CampaignRecipientResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    campaign_id: int
+    user_id: int
+    status: str
+    opened_at: datetime | None
+    clicked_at: datetime | None
+    created_at: datetime
+
+
+class CampaignExecutionResponse(BaseModel):
+    campaign: CampaignResponse
+    recipient_count: int
