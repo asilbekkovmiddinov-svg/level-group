@@ -36,6 +36,7 @@ from app.routers.promotion_analytics import admin_router as promotion_analytics_
 from app.routers.promotion_analytics import public_router as promotion_analytics_public_router
 from app.routers.campaign import router as campaign_router
 from app.routers.notification import router as notification_router
+from app.routers.campaign_delivery import router as campaign_delivery_router
 from app.core.observability import configure_logging, correlation_middleware
 from app.core.config import CAMPAIGN_WORKER_ENABLED
 from app.services.campaign_worker import CampaignWorker
@@ -108,6 +109,7 @@ app.include_router(promotion_banner_router)
 app.include_router(promotion_analytics_public_router)
 app.include_router(campaign_router)
 app.include_router(notification_router)
+app.include_router(campaign_delivery_router)
 
 
 @app.get("/")
