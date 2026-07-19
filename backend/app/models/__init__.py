@@ -12,5 +12,6 @@ from .campaign import Campaign, CampaignRecipient
 from .coin_promotion import CoinPromotion
 from .coin_order_message import CoinOrderMessage
 from .coin_credential import CoinOrderCredential, CoinCredentialAccessAudit, CoinCredentialAccessGrant
+from .wheel_coin_order_audit import WheelCoinOrderAudit
 from .p2p import P2POrder
 from .match import ArenaNotificationDelivery, Match, MatchStats

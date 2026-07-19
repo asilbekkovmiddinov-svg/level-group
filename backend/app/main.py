@@ -38,6 +38,7 @@ from app.routers.campaign import router as campaign_router
 from app.routers.notification import router as notification_router
 from app.routers.campaign_delivery import router as campaign_delivery_router
 from app.routers.coin_promotion_admin import router as coin_promotion_admin_router
+from app.routers.wheel_coin_order_admin import router as wheel_coin_order_admin_router
 from app.core.observability import configure_logging, correlation_middleware
 from app.core.config import CAMPAIGN_WORKER_ENABLED
 from app.services.campaign_worker import CampaignWorker
@@ -116,6 +117,7 @@ app.include_router(campaign_router)
 app.include_router(notification_router)
 app.include_router(campaign_delivery_router)
 app.include_router(coin_promotion_admin_router)
+app.include_router(wheel_coin_order_admin_router)
 
 
 @app.get("/")
