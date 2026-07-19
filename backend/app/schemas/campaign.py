@@ -47,6 +47,7 @@ class CampaignFields(BaseModel):
     title: str = Field(min_length=1, max_length=160)
     message: str = Field(min_length=1)
     image_url: str | None = Field(default=None, max_length=1000)
+    badge: str | None = Field(default=None, max_length=80)
     button_text: str | None = Field(default=None, max_length=100)
     button_action: CampaignAction = CampaignAction.NONE
     button_target: str | None = Field(default=None, max_length=1000)
@@ -72,6 +73,7 @@ class CampaignUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=160)
     message: str | None = Field(default=None, min_length=1)
     image_url: str | None = Field(default=None, max_length=1000)
+    badge: str | None = Field(default=None, max_length=80)
     button_text: str | None = Field(default=None, max_length=100)
     button_action: CampaignAction | None = None
     button_target: str | None = Field(default=None, max_length=1000)
@@ -88,6 +90,7 @@ class CampaignResponse(BaseModel):
     title: str
     message: str
     image_url: str | None
+    badge: str | None
     button_text: str | None
     button_action: CampaignAction
     button_target: str | None
@@ -132,7 +135,9 @@ class CampaignRecipientResponse(BaseModel):
     user_id: int
     status: str
     opened_at: datetime | None
+    read_at: datetime | None
     clicked_at: datetime | None
+    dismissed_at: datetime | None
     created_at: datetime
 
 
