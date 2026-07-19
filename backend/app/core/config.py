@@ -17,6 +17,23 @@ TELEGRAM_INIT_DATA_MAX_AGE_SECONDS = int(
 INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY")
 COIN_CREDENTIAL_ENCRYPTION_KEY = os.getenv("COIN_CREDENTIAL_ENCRYPTION_KEY")
 
+
+def _telegram_id_allowlist(value: str | None) -> frozenset[int]:
+    if not value or not value.strip():
+        return frozenset()
+    try:
+        result = frozenset(int(item.strip()) for item in value.split(",") if item.strip())
+    except ValueError as exc:
+        raise ValueError("ADMIN_TELEGRAM_IDS must contain comma-separated integers") from exc
+    if any(telegram_id <= 0 for telegram_id in result):
+        raise ValueError("ADMIN_TELEGRAM_IDS must contain positive Telegram IDs")
+    return result
+
+
+# Browser clients authenticate with Telegram initData. This allowlist remains
+# server-side and must never be embedded in the MiniApp bundle.
+ADMIN_TELEGRAM_IDS = _telegram_id_allowlist(os.getenv("ADMIN_TELEGRAM_IDS"))
+
 # Public payment requisites returned only to authenticated MiniApp users when
 # they create a deposit. Values must be configured by the deployment.
 DEPOSIT_CARD_NUMBER = os.getenv("DEPOSIT_CARD_NUMBER")
@@ -40,6 +57,11 @@ COIN_MINIAPP_URL = (
 )
 TELEGRAM_NOTIFICATION_TIMEOUT_SECONDS = int(os.getenv("TELEGRAM_NOTIFICATION_TIMEOUT_SECONDS", "15"))
 COIN_OTP_NOTIFICATION_STALE_SECONDS = int(os.getenv("COIN_OTP_NOTIFICATION_STALE_SECONDS", "300"))
+CAMPAIGN_WORKER_INTERVAL_SECONDS = float(os.getenv("CAMPAIGN_WORKER_INTERVAL_SECONDS", "30"))
+CAMPAIGN_WORKER_ENABLED = os.getenv("CAMPAIGN_WORKER_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
+CAMPAIGN_DELIVERY_BATCH_SIZE = int(os.getenv("CAMPAIGN_DELIVERY_BATCH_SIZE", "100"))
+CAMPAIGN_DELIVERY_RETRY_LIMIT = int(os.getenv("CAMPAIGN_DELIVERY_RETRY_LIMIT", "5"))
+CAMPAIGN_DELIVERY_CLAIM_TTL_SECONDS = int(os.getenv("CAMPAIGN_DELIVERY_CLAIM_TTL_SECONDS", "300"))
 RECEIPT_NOTIFICATION_MAX_ATTEMPTS = int(os.getenv("RECEIPT_NOTIFICATION_MAX_ATTEMPTS", "5"))
 RECEIPT_NOTIFICATION_STALE_SECONDS = int(os.getenv("RECEIPT_NOTIFICATION_STALE_SECONDS", "300"))
 WITHDRAW_NOTIFICATION_MAX_ATTEMPTS = int(os.getenv("WITHDRAW_NOTIFICATION_MAX_ATTEMPTS", "5"))
@@ -50,3 +72,11 @@ if WITHDRAW_NOTIFICATION_MAX_ATTEMPTS < 1 or WITHDRAW_NOTIFICATION_STALE_SECONDS
     raise ValueError("Invalid withdraw notification configuration")
 if COIN_OTP_NOTIFICATION_STALE_SECONDS <= 0:
     raise ValueError("Invalid Coin OTP notification stale timeout")
+if CAMPAIGN_WORKER_INTERVAL_SECONDS <= 0:
+    raise ValueError("CAMPAIGN_WORKER_INTERVAL_SECONDS must be positive")
+if CAMPAIGN_DELIVERY_BATCH_SIZE < 1 or CAMPAIGN_DELIVERY_BATCH_SIZE > 1000:
+    raise ValueError("CAMPAIGN_DELIVERY_BATCH_SIZE must be between 1 and 1000")
+if CAMPAIGN_DELIVERY_RETRY_LIMIT < 1:
+    raise ValueError("CAMPAIGN_DELIVERY_RETRY_LIMIT must be positive")
+if CAMPAIGN_DELIVERY_CLAIM_TTL_SECONDS < 1:
+    raise ValueError("CAMPAIGN_DELIVERY_CLAIM_TTL_SECONDS must be positive")

@@ -29,14 +29,36 @@ from app.routers.deposit_receipt import router as deposit_receipt_router
 from app.routers.health import router as health_router
 from app.routers.coin_order_chat import router as coin_order_chat_router
 from app.routers.referral import router as referral_router
+from app.routers.promotion import admin_router as promotion_admin_router
+from app.routers.promotion import public_router as promotion_public_router
+from app.routers.promotion_banner import router as promotion_banner_router
+from app.routers.promotion_analytics import admin_router as promotion_analytics_admin_router
+from app.routers.promotion_analytics import public_router as promotion_analytics_public_router
+from app.routers.campaign import router as campaign_router
+from app.routers.notification import router as notification_router
+from app.routers.campaign_delivery import router as campaign_delivery_router
 from app.core.observability import configure_logging, correlation_middleware
+from app.core.config import CAMPAIGN_WORKER_ENABLED
+from app.services.campaign_worker import CampaignWorker
 
 
 configure_logging()
+campaign_worker = CampaignWorker(SessionLocal)
 app = FastAPI(
     title="LEVEL_GROUP API",
     version="1.0.0",
 )
+
+
+@app.on_event("startup")
+def start_campaign_worker():
+    if CAMPAIGN_WORKER_ENABLED:
+        campaign_worker.start()
+
+
+@app.on_event("shutdown")
+def stop_campaign_worker():
+    campaign_worker.stop()
 app.middleware("http")(correlation_middleware)
 
 app.add_middleware(
@@ -80,6 +102,14 @@ app.include_router(deposit_receipt_router)
 app.include_router(health_router)
 app.include_router(coin_order_chat_router)
 app.include_router(referral_router)
+app.include_router(promotion_analytics_admin_router)
+app.include_router(promotion_admin_router)
+app.include_router(promotion_public_router)
+app.include_router(promotion_banner_router)
+app.include_router(promotion_analytics_public_router)
+app.include_router(campaign_router)
+app.include_router(notification_router)
+app.include_router(campaign_delivery_router)
 
 
 @app.get("/")
