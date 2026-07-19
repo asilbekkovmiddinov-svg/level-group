@@ -5,6 +5,7 @@ from sqlalchemy import (
     Numeric,
     DateTime,
     BigInteger,
+    ForeignKey,
     UniqueConstraint,
 )
 from sqlalchemy.sql import func
@@ -45,6 +46,11 @@ class Order(Base):
     coins_amount = Column(Integer, nullable=False)
 
     price_uzs = Column(Numeric(18, 2), nullable=False)
+    locked_price = Column(
+        Numeric(18, 2), nullable=False,
+        default=lambda context: context.get_current_parameters()["price_uzs"],
+    )
+    promotion_id = Column(Integer, ForeignKey("coin_promotions.id", ondelete="SET NULL"), nullable=True, index=True)
 
     region = Column(String(100), nullable=True)
     platform = Column(String(20), nullable=True)
@@ -67,6 +73,9 @@ class Order(Base):
     reject_reason = Column(String(255), nullable=True)
 
     processing_seconds = Column(Integer, nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    cancelled_at = Column(DateTime(timezone=True), nullable=True)
+    cancel_reason = Column(String(255), nullable=True)
 
     coin_notification_status = Column(String(20), nullable=False, default="PENDING")
     coin_notification_message_id = Column(String(100), nullable=True)

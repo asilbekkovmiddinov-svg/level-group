@@ -1,6 +1,6 @@
 """internal campaign delivery contract
 
-Revision ID: 20260719_internal_campaign_delivery
+Revision ID: 20260719_internal_delivery
 Revises: 20260719_user_notifications
 """
 
@@ -8,7 +8,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "20260719_internal_campaign_delivery"
+revision = "20260719_internal_delivery"
 down_revision = "20260719_user_notifications"
 branch_labels = None
 depends_on = None

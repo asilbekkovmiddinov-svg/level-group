@@ -1,8 +1,9 @@
 from decimal import Decimal
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 import logging
 import secrets
+import threading
 
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -13,9 +14,18 @@ from app.schemas.order import OrderCreate
 from app.crud.wallet import get_wallet_for_update, add_uzs
 from app.crud.transaction import create_transaction
 from app.services.referrals import award_first_shop_bonus
+from app.services.coin_promotions import confirm_locked, release_locked, reserve
+from app.core.config import COIN_PROMOTION_ORDER_TIMEOUT_SECONDS
 
 
 logger = logging.getLogger(__name__)
+_promotion_order_locks: dict[int, threading.Lock] = {}
+_promotion_order_locks_guard = threading.Lock()
+
+
+def _promotion_order_lock(product_id: int) -> threading.Lock:
+    with _promotion_order_locks_guard:
+        return _promotion_order_locks.setdefault(product_id, threading.Lock())
 
 
 def _new_order_number(db: Session) -> str:
@@ -56,6 +66,8 @@ def create_order(
     telegram_id: int,
     idempotency_key: str | None = None,
 ):
+    lock = _promotion_order_lock(data.product_id)
+    lock.acquire()
     try:
         with db.begin():
             if idempotency_key:
@@ -77,6 +89,10 @@ def create_order(
             if not product:
                 return "product_not_found"
 
+            promotion, promotion_error = reserve(db, product.id, telegram_id)
+            if promotion_error == "user_limit":
+                return "promotion_user_limit"
+
             raw_platform = data.platform or product.platform or "ANDROID"
             platform = str(raw_platform).strip().upper()
             if platform not in {"ANDROID", "IOS"}:
@@ -90,7 +106,7 @@ def create_order(
             if not wallet:
                 return "wallet_not_found"
 
-            price = Decimal(str(product.price_uzs))
+            price = Decimal(str(promotion.promotion_price if promotion else product.price_uzs))
             balance_before = Decimal(str(wallet.uzs_balance))
             if balance_before < price:
                 return "insufficient_balance"
@@ -102,12 +118,18 @@ def create_order(
                 product_id=product.id,
                 product_title=product.title,
                 coins_amount=product.coins_amount,
-                price_uzs=product.price_uzs,
+                price_uzs=price,
+                locked_price=price,
+                promotion_id=promotion.id if promotion else None,
                 region=region,
                 platform=platform,
                 status="WAITING_OPERATOR",
                 idempotency_key=idempotency_key,
                 request_fingerprint=fingerprint,
+                expires_at=(
+                    datetime.now(timezone.utc) + timedelta(seconds=COIN_PROMOTION_ORDER_TIMEOUT_SECONDS)
+                    if promotion else None
+                ),
             )
             db.add(order)
             db.flush()
@@ -139,6 +161,8 @@ def create_order(
             details["column"],
         )
         return "operation_failed"
+    finally:
+        lock.release()
 
 
 def get_user_orders(db: Session, telegram_id: int):
@@ -172,37 +196,30 @@ def claim_order(db: Session, order_id: int, admin_id: int):
     return "already_claimed"
 
 def approve_order(db: Session, order_id: int, admin_id: int):
-    order = db.query(Order).filter(
-        Order.id == order_id
-    ).first()
-
-    if not order:
-        return None
-
-    if order.status == "COMPLETED":
-        return "already_completed"
-
-    if order.status != "CLAIMED":
-        return "invalid_status"
-    if order.claimed_by is not None and order.claimed_by != admin_id:
-        return "forbidden"
-
-    now = datetime.now(timezone.utc)
-
-    order.status = "COMPLETED"
-    order.completed_by = admin_id
-    order.completed_at = now
-    award_first_shop_bonus(db, order.telegram_id)
-
-    if order.claimed_at:
-        claimed_at = order.claimed_at if order.claimed_at.tzinfo else order.claimed_at.replace(tzinfo=timezone.utc)
-        order.processing_seconds = int(
-            (now - claimed_at).total_seconds()
-        )
-
-    db.commit()
+    try:
+        order = db.query(Order).filter(Order.id == order_id).with_for_update().first()
+        if not order:
+            return None
+        if order.status == "COMPLETED":
+            return "already_completed"
+        if order.status != "CLAIMED":
+            return "invalid_status"
+        if order.claimed_by is not None and order.claimed_by != admin_id:
+            return "forbidden"
+        now = datetime.now(timezone.utc)
+        order.status = "COMPLETED"
+        order.completed_by = admin_id
+        order.completed_at = now
+        confirm_locked(db, order.promotion_id)
+        award_first_shop_bonus(db, order.telegram_id)
+        if order.claimed_at:
+            claimed_at = order.claimed_at if order.claimed_at.tzinfo else order.claimed_at.replace(tzinfo=timezone.utc)
+            order.processing_seconds = int((now - claimed_at).total_seconds())
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     db.refresh(order)
-
     return order
 
 
@@ -212,60 +229,68 @@ def reject_order(
     admin_id: int,
     reason: str,
 ):
-    order = db.query(Order).filter(
-        Order.id == order_id
-    ).first()
+    try:
+        order = db.query(Order).filter(Order.id == order_id).with_for_update().first()
+        if not order:
+            return None
+        if order.status != "CLAIMED":
+            return "invalid_status"
+        if order.claimed_by is not None and order.claimed_by != admin_id:
+            return "forbidden"
+        if not _refund_locked_order(db, order, "ORDER_REJECT_REFUND"):
+            return "wallet_not_found"
+        now = datetime.now(timezone.utc)
+        order.status = "REJECTED"
+        order.rejected_by = admin_id
+        order.rejected_at = now
+        order.reject_reason = reason
+        release_locked(db, order.promotion_id)
+        if order.claimed_at:
+            claimed_at = order.claimed_at if order.claimed_at.tzinfo else order.claimed_at.replace(tzinfo=timezone.utc)
+            order.processing_seconds = int((now - claimed_at).total_seconds())
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    db.refresh(order)
+    return order
 
-    if not order:
-        return None
 
-    if order.status != "CLAIMED":
-        return "invalid_status"
-    if order.claimed_by is not None and order.claimed_by != admin_id:
-        return "forbidden"
-
+def _refund_locked_order(db: Session, order: Order, transaction_type: str) -> bool:
     wallet = get_wallet_for_update(db, order.telegram_id)
     if not wallet:
-        return "wallet_not_found"
+        return False
     before = Decimal(str(wallet.uzs_balance))
-
-    result = add_uzs(
-        db=db,
-        telegram_id=order.telegram_id,
-        amount=order.price_uzs,
-    )
-
+    amount = Decimal(str(order.locked_price))
+    result = add_uzs(db=db, telegram_id=order.telegram_id, amount=amount)
     if not result:
-        return "wallet_not_found"
-
-    after = Decimal(str(result.uzs_balance))
-
+        return False
     create_transaction(
-        db=db,
-        telegram_id=order.telegram_id,
-        currency="UZS",
-        amount=order.price_uzs,
-        balance_before=before,
-        balance_after=after,
-        type="ORDER_REJECT_REFUND",
-        description=f"Refund for rejected Order #{order.id}",
-        commit=False,
+        db=db, telegram_id=order.telegram_id, currency="UZS", amount=amount,
+        balance_before=before, balance_after=Decimal(str(result.uzs_balance)),
+        type=transaction_type, description=f"Refund for cancelled Order #{order.id}", commit=False,
     )
+    return True
 
-    now = datetime.now(timezone.utc)
 
-    order.status = "REJECTED"
-    order.rejected_by = admin_id
-    order.rejected_at = now
-    order.reject_reason = reason
-
-    if order.claimed_at:
-        claimed_at = order.claimed_at if order.claimed_at.tzinfo else order.claimed_at.replace(tzinfo=timezone.utc)
-        order.processing_seconds = int(
-            (now - claimed_at).total_seconds()
-        )
-
-    db.commit()
+def cancel_order(db: Session, order_id: int, reason: str = "Order cancelled"):
+    try:
+        order = db.query(Order).filter(Order.id == order_id).with_for_update().first()
+        if order is None:
+            return None
+        if order.status == "CANCELLED":
+            return order
+        if order.status not in {"WAITING_OPERATOR", "CLAIMED"}:
+            return "invalid_status"
+        if not _refund_locked_order(db, order, "ORDER_CANCEL_REFUND"):
+            return "wallet_not_found"
+        release_locked(db, order.promotion_id)
+        order.status = "CANCELLED"
+        order.cancelled_at = datetime.now(timezone.utc)
+        order.cancel_reason = reason
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     db.refresh(order)
-
     return order

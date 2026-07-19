@@ -21,6 +21,7 @@ from app.models.user import User
 from app.models.wallet import Wallet
 from app.models.coin_credential import CoinOrderCredential
 from app.models.coin_order_message import CoinOrderMessage
+from app.models.coin_promotion import CoinPromotion
 from app.models.referral import Referral, ReferralProfile, ReferralReward
 from app.routers import order as order_router
 from app.routers import product as product_router
@@ -66,6 +67,7 @@ def client(monkeypatch):
             User.__table__,
             Wallet.__table__,
             Product.__table__,
+            CoinPromotion.__table__,
             Order.__table__,
             Transaction.__table__,
             CoinOrderCredential.__table__,
