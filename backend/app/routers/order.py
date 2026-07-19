@@ -10,6 +10,7 @@ from app.crud.order import (
     claim_order,
     approve_order,
     reject_order,
+    cancel_order,
 )
 from app.schemas.order import (
     OrderCreate,
@@ -35,6 +36,8 @@ def order_response(order):
         "product_title": order.product_title,
         "coins_amount": order.coins_amount,
         "price_uzs": float(order.price_uzs),
+        "locked_price": float(order.locked_price),
+        "promotion_id": order.promotion_id,
         "status": order.status,
         "region": getattr(order, "region", None),
         "platform": getattr(order, "platform", None),
@@ -58,6 +61,9 @@ def order_response(order):
         ),
         "reject_reason": getattr(order, "reject_reason", None),
         "processing_seconds": getattr(order, "processing_seconds", None),
+        "expires_at": str(order.expires_at) if getattr(order, "expires_at", None) else None,
+        "cancelled_at": str(order.cancelled_at) if getattr(order, "cancelled_at", None) else None,
+        "cancel_reason": getattr(order, "cancel_reason", None),
         "created_at": (
             str(order.created_at)
             if getattr(order, "created_at", None)
@@ -103,6 +109,9 @@ def create_new_order(
 
     if order == "idempotency_conflict":
         raise HTTPException(status_code=409, detail="Idempotency key payload mismatch")
+
+    if order == "promotion_user_limit":
+        raise HTTPException(status_code=409, detail="Promotion per-user limit reached")
 
     if order == "invalid_details":
         raise HTTPException(status_code=400, detail="Platform or region is invalid")
@@ -247,3 +256,20 @@ def reject_existing_order(
         "message": "Order rejected",
         "data": order_response(order),
     }
+
+
+@router.post("/{order_id}/cancel")
+def cancel_existing_order(
+    order_id: int,
+    data: OrderReject,
+    _: None = Depends(require_internal_api_key),
+    db: Session = Depends(get_db),
+):
+    order = cancel_order(db, order_id, data.reason)
+    if not order:
+        return {"success": False, "message": "Order not found"}
+    if order == "invalid_status":
+        return {"success": False, "message": "Invalid order status"}
+    if order == "wallet_not_found":
+        return {"success": False, "message": "Wallet not found"}
+    return {"success": True, "message": "Order cancelled", "data": order_response(order)}

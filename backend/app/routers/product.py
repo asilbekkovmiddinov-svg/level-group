@@ -12,6 +12,7 @@ from app.crud.product import (
 from app.schemas.product import ProductCreate, ProductUpdate
 from app.core.telegram_auth import TelegramUser, get_current_telegram_user
 from app.routers.internal_wallet import require_internal_api_key
+from app.services.coin_promotions import product_promotion
 
 router = APIRouter(
     prefix="/products",
@@ -19,7 +20,8 @@ router = APIRouter(
 )
 
 
-def product_response(product):
+def product_response(product, db: Session | None = None):
+    promotion = product_promotion(db, product.id) if db is not None else None
     return {
         "id": product.id,
         "name": product.title,
@@ -34,6 +36,10 @@ def product_response(product):
         "description": product.description,
         "order_index": product.order_index,
         "is_active": product.is_active,
+        "original_price": promotion["original_price"] if promotion else float(product.price_uzs),
+        "promotion_price": promotion["promotion_price"] if promotion else None,
+        "remaining_quantity": promotion["remaining_quantity"] if promotion else None,
+        "promotion_id": promotion["promotion_id"] if promotion else None,
     }
 
 
@@ -48,7 +54,7 @@ def create_new_product(
     return {
         "success": True,
         "message": "Product created",
-        "data": product_response(product),
+        "data": product_response(product, db),
     }
 
 
@@ -61,7 +67,7 @@ def all_products(
 
     return {
         "success": True,
-        "data": [product_response(product) for product in products],
+        "data": [product_response(product, db) for product in products],
     }
 
 
@@ -81,7 +87,7 @@ def active_products(
 
     return {
         "success": True,
-        "data": [product_response(product) for product in products],
+        "data": [product_response(product, db) for product in products],
     }
 
 
@@ -103,5 +109,5 @@ def update_existing_product(
     return {
         "success": True,
         "message": "Product updated",
-        "data": product_response(product),
+        "data": product_response(product, db),
     }
