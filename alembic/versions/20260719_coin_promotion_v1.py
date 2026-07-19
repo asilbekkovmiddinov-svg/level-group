@@ -1,7 +1,7 @@
 """coin shop promotion v1
 
 Revision ID: 20260719_coin_promotion_v1
-Revises: 20260719_internal_campaign_delivery
+Revises: 20260719_internal_delivery
 """
 
 from alembic import op
@@ -9,7 +9,7 @@ import sqlalchemy as sa
 
 
 revision = "20260719_coin_promotion_v1"
-down_revision = "20260719_internal_campaign_delivery"
+down_revision = "20260719_internal_delivery"
 branch_labels = None
 depends_on = None
 
