@@ -17,6 +17,14 @@ ACTIVE_WHEEL_COIN_ORDER_STATUSES = frozenset({
 })
 
 
+def list_wheel_coin_orders(db: Session) -> list[WheelCoinOrder]:
+    return (
+        db.query(WheelCoinOrder)
+        .order_by(WheelCoinOrder.created_at.desc(), WheelCoinOrder.id.desc())
+        .all()
+    )
+
+
 def cancel_wheel_coin_order(
     db: Session,
     order_id: int,

@@ -4,10 +4,37 @@ from sqlalchemy.orm import Session
 from app.core.admin_auth import require_promotions_admin
 from app.core.database import get_db
 from app.core.telegram_auth import TelegramUser
-from app.services.wheel_coin_order_admin import cancel_wheel_coin_order
+from app.services.wheel_coin_order_admin import (
+    cancel_wheel_coin_order,
+    list_wheel_coin_orders,
+)
 
 
 router = APIRouter(prefix="/admin/wheel/coin-orders", tags=["Admin Wheel Coin Orders"])
+
+
+def order_response(order):
+    return {
+        "id": order.id,
+        "telegram_id": order.telegram_id,
+        "username": order.username,
+        "first_name": order.first_name,
+        "coin_amount": order.coin_amount,
+        "status": order.status,
+        "created_at": order.created_at,
+        "updated_at": order.updated_at,
+    }
+
+
+@router.get("")
+def list_orders(
+    _admin: TelegramUser = Depends(require_promotions_admin),
+    db: Session = Depends(get_db),
+):
+    return {
+        "success": True,
+        "data": [order_response(order) for order in list_wheel_coin_orders(db)],
+    }
 
 
 @router.post("/{order_id}/cancel")
@@ -26,10 +53,5 @@ def cancel_order(
         )
     return {
         "success": True,
-        "data": {
-            "id": order.id,
-            "telegram_id": order.telegram_id,
-            "status": order.status,
-            "updated_at": order.updated_at,
-        },
+        "data": order_response(order),
     }
