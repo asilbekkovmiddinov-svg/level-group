@@ -116,8 +116,28 @@ def test_verified_admin_cancels_and_pending_no_longer_restores(setup):
     db.close()
 
 
+def test_verified_admin_lists_orders_with_user_and_timestamps(setup):
+    client, _ = setup
+    response = client.get("/admin/wheel/coin-orders", headers=headers())
+    assert response.status_code == 200
+    assert response.json()["data"] == [{
+        "id": 7,
+        "telegram_id": 42,
+        "username": None,
+        "first_name": None,
+        "coin_amount": 130,
+        "status": "WAITING_DETAILS",
+        "created_at": response.json()["data"][0]["created_at"],
+        "updated_at": response.json()["data"][0]["updated_at"],
+    }]
+    assert response.json()["data"][0]["created_at"]
+    assert response.json()["data"][0]["updated_at"]
+
+
 def test_cancel_requires_verified_admin(setup):
     client, _ = setup
+    assert client.get("/admin/wheel/coin-orders").status_code == 401
+    assert client.get("/admin/wheel/coin-orders", headers=headers(7001)).status_code == 403
     assert client.post("/admin/wheel/coin-orders/7/cancel").status_code == 401
     assert client.post("/admin/wheel/coin-orders/7/cancel", headers=headers(7001)).status_code == 403
 
