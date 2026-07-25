@@ -1,7 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from threading import Lock
+from threading import Event, Lock
 from types import SimpleNamespace
 
 from sqlalchemy.exc import OperationalError
@@ -171,3 +171,36 @@ def test_tashkent_api_time_and_legacy_naive_db_time_normalize_to_utc():
     assert api_tashkent_to_utc(explicit_local) == NOW
     assert ensure_utc(datetime(2026, 7, 15, 12, 0)) == NOW
 
+
+def test_runtime_worker_executes_timeout_scan_and_closes_session(monkeypatch):
+    completed = Event()
+
+    class Session:
+        def __init__(self):
+            self.closed = False
+
+        def rollback(self):
+            return None
+
+        def close(self):
+            self.closed = True
+            completed.set()
+
+    session = Session()
+    calls = []
+    monkeypatch.setattr(
+        arena_timeouts,
+        "run_arena_timeout_worker",
+        lambda db: calls.append(db),
+    )
+    worker = arena_timeouts.ArenaTimeoutWorker(
+        lambda: session,
+        interval_seconds=60,
+    )
+
+    worker.start()
+    assert completed.wait(timeout=1)
+    worker.stop()
+
+    assert calls == [session]
+    assert session.closed is True
