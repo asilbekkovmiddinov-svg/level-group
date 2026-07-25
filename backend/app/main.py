@@ -44,11 +44,13 @@ from app.core.observability import configure_logging, correlation_middleware
 from app.core.config import CAMPAIGN_WORKER_ENABLED
 from app.services.campaign_worker import CampaignWorker
 from app.services.coin_promotion_timeouts import CoinPromotionTimeoutWorker
+from app.services.arena_timeouts import ArenaTimeoutWorker
 
 
 configure_logging()
 campaign_worker = CampaignWorker(SessionLocal)
 coin_promotion_timeout_worker = CoinPromotionTimeoutWorker(SessionLocal)
+arena_timeout_worker = ArenaTimeoutWorker(SessionLocal)
 app = FastAPI(
     title="LEVEL_GROUP API",
     version="1.0.0",
@@ -60,12 +62,14 @@ def start_campaign_worker():
     if CAMPAIGN_WORKER_ENABLED:
         campaign_worker.start()
     coin_promotion_timeout_worker.start()
+    arena_timeout_worker.start()
 
 
 @app.on_event("shutdown")
 def stop_campaign_worker():
     campaign_worker.stop()
     coin_promotion_timeout_worker.stop()
+    arena_timeout_worker.stop()
 app.middleware("http")(correlation_middleware)
 
 app.add_middleware(
