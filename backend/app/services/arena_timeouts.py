@@ -1,9 +1,11 @@
 import logging
+import threading
 from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.core.config import ARENA_TIMEOUT_INTERVAL_SECONDS
 from app.crud import match as match_crud
 from app.core.observability import increment
 from app.models.match import Match, MatchResultType, MatchStatus
@@ -177,3 +179,42 @@ def run_arena_timeout_worker(
     )
     return ArenaTimeoutWorkerResult(len(match_ids), processed, skipped, failed, retries)
 
+
+class ArenaTimeoutWorker:
+    def __init__(
+        self,
+        session_factory,
+        interval_seconds: float = ARENA_TIMEOUT_INTERVAL_SECONDS,
+    ):
+        self.session_factory = session_factory
+        self.interval_seconds = interval_seconds
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        if self._thread and self._thread.is_alive():
+            return
+        self._stop.clear()
+        self._thread = threading.Thread(
+            target=self._run,
+            name="arena-timeouts",
+            daemon=True,
+        )
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=min(self.interval_seconds + 1, 5))
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            db = self.session_factory()
+            try:
+                run_arena_timeout_worker(db)
+            except Exception:
+                db.rollback()
+                logger.exception("arena_timeout_tick_failed")
+            finally:
+                db.close()
+            self._stop.wait(self.interval_seconds)
