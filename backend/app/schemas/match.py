@@ -1,5 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
+from enum import Enum
 from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -98,6 +99,60 @@ class MatchResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class ArenaMatchHistoryResult(str, Enum):
+    WIN = "WIN"
+    LOSE = "LOSE"
+    DRAW = "DRAW"
+
+
+class MatchHistoryResponse(MatchResponse):
+    game: MatchGameType
+    stake: Decimal
+    result: Optional[ArenaMatchHistoryResult] = None
+    reward: Decimal
+    completed_at: Optional[datetime] = None
+
+
+class MatchHistoryListResponse(BaseModel):
+    matches: list[MatchHistoryResponse]
+
+
+class ArenaStakeDashboardResponse(BaseModel):
+    stake: int
+    online_players: int
+    open_rooms: int
+    average_wait_time: int
+
+
+class ArenaDashboardResponse(BaseModel):
+    stakes: list[ArenaStakeDashboardResponse]
+
+
+class ArenaLeaderboardUserResponse(BaseModel):
+    rank: int
+    display_name: str
+    wins: int
+    losses: int
+    win_rate: Decimal
+    total_matches: int
+    total_efc_won: Decimal
+
+
+class ArenaLeaderboardResponse(BaseModel):
+    period: Literal["weekly", "monthly", "all"]
+    users: list[ArenaLeaderboardUserResponse]
+
+
+class ArenaProfileResponse(BaseModel):
+    total_matches: int
+    wins: int
+    losses: int
+    win_rate: Decimal
+    total_efc_won: Decimal
+    current_streak: int
+    best_streak: int
 
 
 class MatchInternalResponse(BaseModel):

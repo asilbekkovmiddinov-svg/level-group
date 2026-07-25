@@ -19,6 +19,9 @@ from app.schemas.match import (
     MatchCancel,
     MatchCreate,
     MatchGuideResponse,
+    MatchHistoryListResponse,
+    MatchHistoryResponse,
+    ArenaMatchHistoryResult,
     MatchInternalResponse,
     MatchInternalEvidenceUpload,
     MatchInternalListResponse,
@@ -205,7 +208,31 @@ def run_test_cleanup(
         raise HTTPException(status_code=500, detail="Arena test cleanup failed")
 
 
-@router.get("/me", response_model=MatchListResponse)
+def _history_response(match, telegram_id: int) -> MatchHistoryResponse:
+    result = None
+    reward = 0
+    if match.status == MatchStatus.COMPLETED:
+        if match.winner_telegram_id == telegram_id:
+            result = ArenaMatchHistoryResult.WIN
+            reward = match.winner_reward
+        elif match.loser_telegram_id == telegram_id:
+            result = ArenaMatchHistoryResult.LOSE
+        else:
+            result = ArenaMatchHistoryResult.DRAW
+    payload = MatchResponse.model_validate(match).model_dump()
+    payload.update(
+        {
+            "game": match.game_type,
+            "stake": match.efc_amount,
+            "result": result,
+            "reward": reward,
+            "completed_at": match.resolved_at,
+        }
+    )
+    return MatchHistoryResponse.model_validate(payload)
+
+
+@router.get("/me", response_model=MatchHistoryListResponse)
 def get_my_matches(
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=20, ge=1, le=100),
@@ -218,7 +245,12 @@ def get_my_matches(
         skip=skip,
         limit=limit,
     )
-    return {"matches": matches}
+    return {
+        "matches": [
+            _history_response(match, current_user.telegram_id)
+            for match in matches
+        ]
+    }
 
 
 @router.get("/guide", response_model=MatchGuideResponse)

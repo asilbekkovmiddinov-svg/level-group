@@ -4,7 +4,7 @@ import hashlib
 import json
 from typing import Optional
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.crud.transaction import create_transaction
 from app.crud.wallet import (
@@ -183,6 +183,7 @@ def _get_idempotent_match(
 def _get_active_user_match(db: Session, telegram_id: int) -> Optional[Match]:
     return (
         db.query(Match)
+        .options(joinedload(Match.creator), joinedload(Match.opponent))
         .filter(
             (Match.creator_telegram_id == telegram_id)
             | (Match.opponent_telegram_id == telegram_id)
