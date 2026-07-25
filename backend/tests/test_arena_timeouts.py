@@ -190,7 +190,7 @@ def test_runtime_worker_executes_timeout_scan_and_closes_session(monkeypatch):
     calls = []
     monkeypatch.setattr(
         arena_timeouts,
-        "run_arena_timeout_worker",
+        "run_waiting_player_timeout_worker",
         lambda db: calls.append(db),
     )
     worker = arena_timeouts.ArenaTimeoutWorker(
