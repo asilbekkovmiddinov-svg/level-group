@@ -51,7 +51,7 @@ def claim(db: Session) -> list[dict]:
             "message": campaign.message, "image_url": campaign.image_url,
             "button_text": campaign.button_text, "button_action": campaign.button_action,
             "button_target": campaign.button_target, "promotion_id": campaign.promotion_id,
-            "claimed_at": now,
+            "event_type": campaign.event_type, "claimed_at": now,
         })
     db.commit()
     logger.info("campaign_delivery_claim count=%s execution_seconds=%.6f", len(result), time.monotonic() - started)
