@@ -74,7 +74,7 @@ def test_claim_is_internal_batched_atomic_and_idempotent(monkeypatch):
     assert first.status_code == 200 and len(first.json()) == 2
     assert set(first.json()[0]) == {
         "recipient_id", "campaign_id", "telegram_id", "title", "message", "image_url",
-        "button_text", "button_action", "button_target", "promotion_id", "claimed_at",
+        "button_text", "button_action", "button_target", "promotion_id", "event_type", "claimed_at",
     }
     assert first.json()[0]["campaign_id"] == campaign_id
     second = client.post("/internal/campaigns/recipients/claim", headers=auth())
