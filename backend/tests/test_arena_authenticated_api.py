@@ -269,6 +269,42 @@ def test_join_ready_and_cancel_use_verified_participant_identity(client, monkeyp
     ).status_code == 200
 
 
+def test_creator_cancel_uses_verified_identity_and_server_cancel_contract(client, monkeypatch):
+    captured = {}
+    match = fake_match()
+    match.opponent_telegram_id = None
+
+    def cancel_creator_waiting_match(**kwargs):
+        captured.update(kwargs)
+        match.status = MatchStatus.CANCELLED
+        return match
+
+    monkeypatch.setattr(
+        match_router.match_crud,
+        "cancel_creator_waiting_match",
+        cancel_creator_waiting_match,
+    )
+
+    assert client.post("/matches/42/creator-cancel").status_code == 401
+    response = client.post("/matches/42/creator-cancel", headers=headers(1001))
+
+    assert response.status_code == 200
+    assert captured["creator_telegram_id"] == 1001
+    assert response.json()["status"] == "CANCELLED"
+    assert response.json()["can_cancel"] is False
+
+
+def test_participant_response_exposes_only_server_derived_cancel_permission():
+    waiting = fake_match()
+    waiting.opponent_telegram_id = None
+
+    assert match_router._participant_response(waiting, 1001).can_cancel is True
+    assert match_router._participant_response(waiting, 9999).can_cancel is False
+
+    waiting.opponent_telegram_id = 2002
+    assert match_router._participant_response(waiting, 1001).can_cancel is False
+
+
 def test_rules_acceptance_timestamps_are_written_by_service(monkeypatch):
     # This contract is exercised without wallet mutation by replacing the
     # lock helper and using a minimal commit-capable session.
