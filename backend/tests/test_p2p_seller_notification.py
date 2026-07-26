@@ -51,7 +51,8 @@ def seed(session_factory):
     return order_id
 
 
-def test_trade_and_seller_recipient_are_committed_together():
+def test_trade_and_seller_recipient_are_committed_together(monkeypatch):
+    monkeypatch.setattr("app.routers.p2p.get_trade_remaining_time", lambda _trade: (900, "15:00"))
     session_factory = sessions()
     order_id = seed(session_factory)
     db = session_factory()
@@ -73,7 +74,8 @@ def test_trade_and_seller_recipient_are_committed_together():
     db.close()
 
 
-def test_trade_notification_is_idempotent_per_trade():
+def test_trade_notification_is_idempotent_per_trade(monkeypatch):
+    monkeypatch.setattr("app.routers.p2p.get_trade_remaining_time", lambda _trade: (900, "15:00"))
     session_factory = sessions()
     order_id = seed(session_factory)
     db = session_factory()
