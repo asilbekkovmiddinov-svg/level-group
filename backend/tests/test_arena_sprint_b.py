@@ -9,10 +9,12 @@ from sqlalchemy.pool import StaticPool
 from app.core.database import Base
 from app.crud import match as match_crud
 from app.models.match import ArenaNotificationDelivery, Match
+from app.models.match import MatchStatus
 from app.models.transaction import Transaction
 from app.models.user import User
 from app.models.wallet import Wallet
 from app.services import arena_notifications
+from app.services.arena_state_machine import ArenaTransitionError
 from app.services.telegram_notifications import TelegramNotificationNetworkError, TelegramPhotoResult
 
 
@@ -72,6 +74,56 @@ def test_active_match_guard_rejects_duplicate_create(db):
         _create(db, key="arena-request-2")
 
     assert db.query(Match).count() == 1
+
+
+def test_creator_cancel_unlocks_efc_records_transaction_and_history_status(db):
+    match = _create(db)
+    match.timeout_reason = "WAITING_PLAYER_TIMEOUT"
+    match.timeout_processed_at = datetime(2026, 7, 26)
+    db.commit()
+
+    cancelled = match_crud.cancel_creator_waiting_match(db, match.id, 1001)
+
+    wallet = db.query(Wallet).filter(Wallet.telegram_id == 1001).one()
+    transactions = (
+        db.query(Transaction)
+        .filter(Transaction.telegram_id == 1001)
+        .order_by(Transaction.id)
+        .all()
+    )
+    assert cancelled.status == MatchStatus.CANCELLED
+    assert cancelled.cancel_reason == "USER_CANCELLED"
+    assert cancelled.resolved_at is not None
+    assert cancelled.timeout_deadline_at is None
+    assert cancelled.timeout_reason is None
+    assert cancelled.timeout_processed_at is None
+    assert wallet.efc_balance == Decimal("500")
+    assert wallet.locked_efc == Decimal("0")
+    assert [transaction.type for transaction in transactions] == [
+        "MATCH_LOCK",
+        "MATCH_UNLOCK",
+    ]
+
+    with pytest.raises(ArenaTransitionError):
+        match_crud.cancel_creator_waiting_match(db, match.id, 1001)
+    assert db.query(Transaction).count() == 2
+
+
+def test_creator_cancel_rejects_non_creator_and_joined_room(db):
+    match = _create(db)
+
+    with pytest.raises(ValueError, match="Faqat match yaratuvchisi"):
+        match_crud.cancel_creator_waiting_match(db, match.id, 9999)
+
+    match.opponent_telegram_id = 2002
+    db.commit()
+    with pytest.raises(ArenaTransitionError, match="Raqib qo‘shilgan"):
+        match_crud.cancel_creator_waiting_match(db, match.id, 1001)
+
+    wallet = db.query(Wallet).filter(Wallet.telegram_id == 1001).one()
+    assert wallet.efc_balance == Decimal("400")
+    assert wallet.locked_efc == Decimal("100")
+    assert db.query(Transaction).count() == 1
 
 
 def test_idempotency_key_rejects_changed_payload(db):
