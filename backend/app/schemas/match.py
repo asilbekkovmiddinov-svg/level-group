@@ -221,6 +221,7 @@ class MatchParticipantResponse(MatchResponse):
     room_code: Optional[str] = None
     my_screenshot_uploaded: bool = False
     my_video_uploaded: bool = False
+    can_cancel: bool = False
 
 
 class MatchListResponse(BaseModel):
