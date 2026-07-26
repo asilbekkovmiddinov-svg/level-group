@@ -27,6 +27,7 @@ class Campaign(Base):
         CheckConstraint("button_action IN ('NONE','COIN_SHOP','REFERRAL','ARENA','WHEEL','PROFILE','URL','CUSTOM')", name="ck_campaigns_button_action"),
         CheckConstraint("schedule_type != 'SCHEDULED' OR scheduled_at IS NOT NULL", name="ck_campaigns_scheduled_at_required"),
         CheckConstraint("sent_count >= 0 AND opened_count >= 0 AND clicked_count >= 0 AND failed_count >= 0", name="ck_campaigns_counts_non_negative"),
+        UniqueConstraint("event_key", name="uq_campaigns_event_key"),
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -38,6 +39,8 @@ class Campaign(Base):
     button_action = Column(String(30), nullable=False, default="NONE")
     button_target = Column(String(1000), nullable=True)
     promotion_id = Column(Integer, ForeignKey("promotions.id", ondelete="SET NULL"), nullable=True, index=True)
+    event_type = Column(String(50), nullable=True, index=True)
+    event_key = Column(String(160), nullable=True)
     audience_type = Column(String(30), nullable=False, default="ALL_USERS", index=True)
     schedule_type = Column(String(20), nullable=False, default="NOW")
     scheduled_at = Column(DateTime(timezone=True), nullable=True, index=True)

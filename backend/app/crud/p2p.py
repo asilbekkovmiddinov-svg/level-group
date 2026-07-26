@@ -350,8 +350,7 @@ def create_p2p_trade(
     )
 
     db.add(trade)
-    db.commit()
-    db.refresh(trade)
+    db.flush()
 
     return trade
 def release_requester_locked_balance(db: Session, trade: P2PTrade):

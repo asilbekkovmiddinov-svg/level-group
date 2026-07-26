@@ -110,6 +110,17 @@ def run_migrations():
             ADD COLUMN IF NOT EXISTS notification_last_attempt_at TIMESTAMP WITH TIME ZONE;
         """))
 
+        connection.execute(text("""
+            ALTER TABLE campaigns
+            ADD COLUMN IF NOT EXISTS event_type VARCHAR(50),
+            ADD COLUMN IF NOT EXISTS event_key VARCHAR(160);
+        """))
+        connection.execute(text("""
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_campaigns_event_key
+            ON campaigns (event_key)
+            WHERE event_key IS NOT NULL;
+        """))
+
         # =========================
         # P2P ORDERS
         # =========================

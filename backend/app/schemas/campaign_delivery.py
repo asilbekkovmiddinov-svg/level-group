@@ -14,6 +14,7 @@ class DeliveryClaimResponse(BaseModel):
     button_action: str
     button_target: str | None
     promotion_id: int | None
+    event_type: str | None
     claimed_at: datetime
 
 

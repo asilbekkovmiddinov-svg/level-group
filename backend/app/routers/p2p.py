@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.models.user import User
+from app.models.campaign import Campaign, CampaignRecipient
 from app.crud.p2p import (
     create_p2p_order,
     get_open_p2p_orders,
@@ -334,6 +335,39 @@ def one_order(
     }
 
 
+def enqueue_trade_notification(db: Session, trade):
+    event_key = f"p2p_trade_created:{trade.id}:seller"
+    campaign = db.query(Campaign).filter(Campaign.event_key == event_key).first()
+    if campaign is not None:
+        return campaign
+
+    campaign = Campaign(
+        title="🤝 Yangi P2P savdo so‘rovi",
+        message=(
+            f"Trade #{trade.id}\\n"
+            f"EFC: {float(trade.efc_amount):g}\\n"
+            f"1 EFC: {float(trade.price_uzs):g} UZS\\n"
+            f"Jami: {float(trade.total_uzs):g} UZS\\n\\n"
+            "Savdo so‘rovini tasdiqlaysizmi?"
+        ),
+        button_text="Javob berish",
+        button_action="CUSTOM",
+        button_target=str(trade.id),
+        event_type="P2P_TRADE_CREATED",
+        event_key=event_key,
+        audience_type="CUSTOM",
+        schedule_type="NOW",
+        status="RUNNING",
+        created_by=trade.requester_id,
+        updated_by=trade.requester_id,
+    )
+    db.add(campaign)
+    db.flush()
+    db.add(CampaignRecipient(campaign_id=campaign.id, user_id=trade.owner_id))
+    db.flush()
+    return campaign
+
+
 @router.post("/{order_id}/trade")
 def create_trade(
     order_id: int,
@@ -373,6 +407,10 @@ def create_trade(
 
     if not trade:
         return {"success": False, "message": "Savdo so‘rovi yaratilmadi"}
+
+    enqueue_trade_notification(db, trade)
+    db.commit()
+    db.refresh(trade)
 
     return {
         "success": True,
