@@ -193,13 +193,8 @@ def can_spin(limit: WheelDailyLimit, spin_type: str, last_free_spin_at=None, now
         return True, None
 
     if spin_type == SPIN_TYPE_AD:
-        available, next_spin_at, _remaining = get_cooldown_status(
-            limit.last_ad_spin_at,
-            timedelta(minutes=AD_COOLDOWN_MINUTES),
-            current,
-        )
-        if not available:
-            return False, f"Keyingi reklama aylantirish: {next_spin_at}"
+        if int(getattr(limit, "rewarded_ad_spins", 0) or 0) <= 0:
+            return False, "Avval rewarded reklamani oxirigacha ko‘ring"
         return True, None
 
     if spin_type == SPIN_TYPE_BONUS:
@@ -213,8 +208,8 @@ def mark_spin_used(limit: WheelDailyLimit, spin_type: str):
     if spin_type == SPIN_TYPE_FREE:
         limit.free_spin_used = True
     elif spin_type == SPIN_TYPE_AD:
+        limit.rewarded_ad_spins -= 1
         limit.ad_spin_count += 1
-        limit.last_ad_spin_at = get_now()
     elif spin_type == SPIN_TYPE_BONUS:
         limit.bonus_spin_count -= 1
 
@@ -400,11 +395,13 @@ def get_wheel_status(db: Session, telegram_id: int):
         timedelta(hours=FREE_COOLDOWN_HOURS),
         now,
     )
-    ad_available, next_ad_spin_at, remaining_ad_spins = get_cooldown_status(
+    ad_reward_available, next_ad_spin_at, _ = get_cooldown_status(
         limit.last_ad_spin_at,
         timedelta(minutes=AD_COOLDOWN_MINUTES),
         now,
     )
+    remaining_ad_spins = max(0, int(getattr(limit, "rewarded_ad_spins", 0) or 0))
+    ad_available = remaining_ad_spins > 0
 
     return {
         "success": True,
@@ -412,6 +409,7 @@ def get_wheel_status(db: Session, telegram_id: int):
         "next_free_spin_at": next_free_spin_at,
         "remaining_free_spins": remaining_free_spins,
         "ad_spin_available": ad_available,
+        "ad_reward_available": ad_reward_available and not ad_available,
         "next_ad_spin_at": next_ad_spin_at,
         "remaining_ad_spins": remaining_ad_spins,
         "server_time": format_utc(now),
