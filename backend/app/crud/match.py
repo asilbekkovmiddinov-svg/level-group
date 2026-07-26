@@ -25,6 +25,7 @@ from app.models.wallet import Wallet
 from app.models.transaction import Transaction
 from app.services.arena_state_machine import (
     ArenaAction,
+    ArenaTransitionError,
     ensure_action_allowed,
     ensure_evidence_not_repeated,
     ensure_ready_not_repeated,
@@ -810,6 +811,70 @@ def resolve_match(
     return match
 
 
+def apply_match_cancellation(
+    db: Session,
+    match: Match,
+    cancel_reason: str,
+    *,
+    resolved_at: datetime,
+    description: str,
+    admin_telegram_id: Optional[int] = None,
+) -> Match:
+    """Apply the single wallet and lifecycle transition used by every cancel flow."""
+    _unlock_efc(
+        db=db,
+        telegram_id=match.creator_telegram_id,
+        amount=match.efc_amount,
+        description=description,
+    )
+
+    if match.opponent_telegram_id:
+        _unlock_efc(
+            db=db,
+            telegram_id=match.opponent_telegram_id,
+            amount=match.efc_amount,
+            description=description,
+        )
+
+    match.status = MatchStatus.CANCELLED
+    match.result_type = MatchResultType.CANCELLED
+    match.cancel_reason = cancel_reason
+    match.admin_telegram_id = admin_telegram_id
+    match.resolved_at = resolved_at
+    match.timeout_deadline_at = None
+    match.timeout_processed_at = None
+    match.timeout_reason = None
+    match.updated_at = resolved_at
+    return match
+
+
+def cancel_creator_waiting_match(
+    db: Session,
+    match_id: int,
+    creator_telegram_id: int,
+) -> Match:
+    match = get_match_for_update(db, match_id)
+    if not match:
+        raise ValueError("Match topilmadi")
+    if match.creator_telegram_id != creator_telegram_id:
+        raise ValueError("Faqat match yaratuvchisi roomni bekor qila oladi")
+    if match.status != MatchStatus.WAITING_PLAYER:
+        raise ArenaTransitionError("Creator cancel faqat WAITING_PLAYER holatida mumkin")
+    if match.opponent_telegram_id is not None:
+        raise ArenaTransitionError("Raqib qo‘shilgan matchni bekor qilib bo‘lmaydi")
+
+    apply_match_cancellation(
+        db,
+        match,
+        "USER_CANCELLED",
+        resolved_at=utc_now(),
+        description="1vs1 Arena creator cancel, EFC unlock qilindi",
+    )
+    db.commit()
+    db.refresh(match)
+    return match
+
+
 def cancel_match(
     db: Session,
     match_id: int,
@@ -829,31 +894,14 @@ def cancel_match(
     else:
         ensure_action_allowed(match, ArenaAction.CANCEL)
 
-    _unlock_efc(
-        db=db,
-        telegram_id=match.creator_telegram_id,
-        amount=match.efc_amount,
+    apply_match_cancellation(
+        db,
+        match,
+        cancel_reason,
+        resolved_at=utc_now(),
         description="1vs1 Arena match bekor qilindi",
+        admin_telegram_id=admin_telegram_id,
     )
-
-    if match.opponent_telegram_id:
-        _unlock_efc(
-            db=db,
-            telegram_id=match.opponent_telegram_id,
-            amount=match.efc_amount,
-            description="1vs1 Arena match bekor qilindi",
-        )
-
-    now = utc_now()
-
-    match.status = MatchStatus.CANCELLED
-    match.result_type = MatchResultType.CANCELLED
-    match.cancel_reason = cancel_reason
-    match.admin_telegram_id = admin_telegram_id
-    match.resolved_at = now
-    match.timeout_deadline_at = None
-    match.updated_at = now
-
     db.commit()
     db.refresh(match)
 

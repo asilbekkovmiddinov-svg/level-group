@@ -8,7 +8,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.core.config import ARENA_TIMEOUT_INTERVAL_SECONDS
 from app.crud import match as match_crud
 from app.core.observability import increment
-from app.models.match import Match, MatchResultType, MatchStatus
+from app.models.match import Match, MatchStatus
 from app.services.arena_time import ensure_utc, utc_now
 
 
@@ -73,23 +73,13 @@ def process_arena_timeout(
         return ArenaTimeoutResult(match_id, "NOT_DUE", previous_status, previous_status)
 
     if match.status in {MatchStatus.WAITING_PLAYER, MatchStatus.ROOM_READY}:
-        match_crud._unlock_efc(
-            db=db,
-            telegram_id=match.creator_telegram_id,
-            amount=match.efc_amount,
+        match_crud.apply_match_cancellation(
+            db,
+            match,
+            f"{previous_status} timeout",
+            resolved_at=now,
             description="1vs1 Arena timeout, EFC unlock qilindi",
         )
-        if match.opponent_telegram_id:
-            match_crud._unlock_efc(
-                db=db,
-                telegram_id=match.opponent_telegram_id,
-                amount=match.efc_amount,
-                description="1vs1 Arena timeout, EFC unlock qilindi",
-            )
-        match.status = MatchStatus.CANCELLED
-        match.result_type = MatchResultType.CANCELLED
-        match.cancel_reason = f"{previous_status} timeout"
-        match.resolved_at = now
     else:
         # In-game/admin timeouts require an admin decision; no reward or
         # balance mutation is performed by the worker.
