@@ -1,9 +1,15 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class WheelSpinRequest(BaseModel):
     telegram_id: int
     spin_type: str  # FREE | AD | BONUS
+
+
+class AdsgramRewardClaim(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    token: str = Field(min_length=32, max_length=128)
 
 
 class WheelSpinResponse(BaseModel):
