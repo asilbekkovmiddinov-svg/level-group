@@ -100,6 +100,11 @@ def _participant_response(match, telegram_id: int) -> MatchParticipantResponse:
     return response.model_copy(
         update={
             "room_code": match.room_code if room_code_visible else None,
+            "can_cancel": (
+                is_creator
+                and match.status == MatchStatus.WAITING_PLAYER
+                and match.opponent_telegram_id is None
+            ),
             "my_screenshot_uploaded": bool(
                 getattr(
                     match,
@@ -476,6 +481,27 @@ def cancel_match(
             match_id=match_id,
             cancel_reason=payload.cancel_reason,
             participant_telegram_id=current_user.telegram_id,
+        )
+        _notify_arena(db, match, "CANCEL", current_user.telegram_id)
+        return _participant_response(match, current_user.telegram_id)
+    except ValueError as error:
+        _raise_match_error(error)
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Matchni bekor qilib bo‘lmadi")
+
+
+@router.post("/{match_id}/creator-cancel", response_model=MatchParticipantResponse)
+def cancel_creator_match(
+    match_id: int,
+    current_user: TelegramUser = Depends(get_current_telegram_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        match = match_crud.cancel_creator_waiting_match(
+            db=db,
+            match_id=match_id,
+            creator_telegram_id=current_user.telegram_id,
         )
         _notify_arena(db, match, "CANCEL", current_user.telegram_id)
         return _participant_response(match, current_user.telegram_id)
