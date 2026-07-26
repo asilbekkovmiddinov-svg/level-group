@@ -32,17 +32,18 @@ def test_free_spin_uses_exact_24_hour_cooldown():
     ) == (True, None, 1)
 
 
-def test_ad_spin_uses_exact_one_hour_cooldown_without_daily_cap():
+def test_ad_spin_requires_a_verified_reward_grant():
     limit = SimpleNamespace(
         last_ad_spin_at=NOW - timedelta(minutes=59, seconds=59),
         ad_spin_count=99,
         bonus_spin_count=0,
+        rewarded_ad_spins=0,
     )
     allowed, error = wheel.can_spin(limit, wheel.SPIN_TYPE_AD, now=NOW)
     assert allowed is False
-    assert "2030-01-02T12:00:01Z" in error
+    assert "rewarded reklamani" in error
 
-    limit.last_ad_spin_at = NOW - timedelta(hours=1)
+    limit.rewarded_ad_spins = 1
     assert wheel.can_spin(limit, wheel.SPIN_TYPE_AD, now=NOW) == (True, None)
 
 
@@ -52,6 +53,7 @@ def test_status_exposes_new_availability_contract(monkeypatch):
         ad_spin_count=3,
         bonus_spin_count=0,
         last_ad_spin_at=NOW - timedelta(minutes=30),
+        rewarded_ad_spins=0,
     )
     settings = SimpleNamespace(global_spin_count=42)
     monkeypatch.setattr(wheel, "get_or_create_daily_limit", lambda _db, _id: limit)
@@ -78,6 +80,7 @@ def test_status_becomes_ready_when_both_cooldowns_expire(monkeypatch):
         ad_spin_count=20,
         bonus_spin_count=0,
         last_ad_spin_at=NOW - timedelta(hours=1),
+        rewarded_ad_spins=0,
     )
     monkeypatch.setattr(wheel, "get_or_create_daily_limit", lambda _db, _id: limit)
     monkeypatch.setattr(
@@ -98,9 +101,10 @@ def test_status_becomes_ready_when_both_cooldowns_expire(monkeypatch):
     assert status["free_spin_available"] is True
     assert status["next_free_spin_at"] is None
     assert status["remaining_free_spins"] == 1
-    assert status["ad_spin_available"] is True
+    assert status["ad_spin_available"] is False
+    assert status["ad_reward_available"] is True
     assert status["next_ad_spin_at"] is None
-    assert status["remaining_ad_spins"] == 1
+    assert status["remaining_ad_spins"] == 0
 
 
 def test_status_persists_last_completed_win_across_reloads(monkeypatch):
@@ -109,6 +113,7 @@ def test_status_persists_last_completed_win_across_reloads(monkeypatch):
         ad_spin_count=1,
         bonus_spin_count=0,
         last_ad_spin_at=NOW - timedelta(minutes=30),
+        rewarded_ad_spins=0,
     )
     last_spin = SimpleNamespace(
         reward_type=wheel.REWARD_TYPE_UZS,

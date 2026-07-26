@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
+import hmac
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -17,12 +19,15 @@ from app.crud.wheel import (
 from app.schemas.wheel import (
     WheelSpinRequest,
     WheelCoinOrderCreate,
+    AdsgramRewardClaim,
 )
+from app.core.config import ADSGRAM_REWARD_SECRET
 from app.core.telegram_auth import TelegramUser, get_current_telegram_user
 from app.services.coin_order_notifications import send_coin_order_notification
 from app.services.coin_operator_flow import begin_operator_wait
 from app.models.wheel import WheelCoinOrder
 from app.routers.internal_wallet import require_internal_api_key
+from app.services import adsgram_reward
 
 router = APIRouter(
     prefix="/wheel",
@@ -62,11 +67,69 @@ def wheel_spin(
     data: WheelSpinRequest,
     db: Session = Depends(get_db),
 ):
+    if data.spin_type.upper() == "AD":
+        raise HTTPException(status_code=403, detail="AD spin authenticated endpoint orqali bajariladi")
     return spin_wheel(
         db=db,
         telegram_id=data.telegram_id,
         spin_type=data.spin_type,
     )
+
+
+@router.post("/spin/ad")
+def authenticated_ad_spin(
+    current_user: TelegramUser = Depends(get_current_telegram_user),
+    db: Session = Depends(get_db),
+):
+    return adsgram_reward.spin_rewarded_ad(
+        db=db,
+        telegram_id=current_user.telegram_id,
+        username=current_user.username,
+        first_name=current_user.first_name,
+    )
+
+
+@router.post("/adsgram/session")
+def create_adsgram_session(
+    current_user: TelegramUser = Depends(get_current_telegram_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        session, token = adsgram_reward.create_reward_session(db, current_user.telegram_id)
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error))
+    return {
+        "session_id": session.id,
+        "token": token,
+        "expires_at": session.expires_at,
+    }
+
+
+@router.get("/adsgram/reward")
+def adsgram_reward_callback(
+    user_id: int = Query(alias="user_id"),
+    key: str = Query(),
+    db: Session = Depends(get_db),
+):
+    if not ADSGRAM_REWARD_SECRET or not hmac.compare_digest(key, ADSGRAM_REWARD_SECRET):
+        raise HTTPException(status_code=401, detail="Invalid Adsgram reward key")
+    session = adsgram_reward.verify_adsgram_callback(db, user_id)
+    return {"success": True, "verified": session is not None}
+
+
+@router.post("/adsgram/claim")
+def claim_adsgram_reward(
+    payload: AdsgramRewardClaim,
+    current_user: TelegramUser = Depends(get_current_telegram_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        session = adsgram_reward.claim_reward(db, current_user.telegram_id, payload.token)
+    except ValueError as error:
+        message = str(error)
+        status_code = 425 if "hali kelmadi" in message else 409
+        raise HTTPException(status_code=status_code, detail=message)
+    return {"success": True, "session_id": session.id, "remaining_ad_spins": 1}
 
 
 @router.post("/coin-order/details")
