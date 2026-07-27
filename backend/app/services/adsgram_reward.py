@@ -130,6 +130,36 @@ def spin_rewarded_ad(
     )
 
 
+def grant_rewarded_spin(
+    db: Session,
+    telegram_id: int,
+    *,
+    now=None,
+) -> WheelDailyLimit:
+    now = now or utc_now()
+    limit = (
+        db.query(WheelDailyLimit)
+        .filter(
+            WheelDailyLimit.telegram_id == telegram_id,
+            WheelDailyLimit.spin_date == wheel.get_today(),
+        )
+        .with_for_update()
+        .one()
+    )
+    available, _, _ = wheel.get_cooldown_status(
+        limit.last_ad_spin_at,
+        timedelta(minutes=wheel.AD_COOLDOWN_MINUTES),
+        now,
+    )
+    if not available:
+        raise ValueError("Rewarded reklama cooldown faol")
+    if int(limit.rewarded_ad_spins or 0) > 0:
+        raise ValueError("Foydalanilmagan reklama spini mavjud")
+    limit.rewarded_ad_spins += 1
+    limit.last_ad_spin_at = now
+    return limit
+
+
 def claim_reward(db: Session, telegram_id: int, token: str) -> AdsgramRewardSession:
     now = utc_now()
     session = (
@@ -152,17 +182,7 @@ def claim_reward(db: Session, telegram_id: int, token: str) -> AdsgramRewardSess
     if session.status != VERIFIED:
         raise ValueError("Adsgram tasdig‘i hali kelmadi")
 
-    limit = (
-        db.query(WheelDailyLimit)
-        .filter(
-            WheelDailyLimit.telegram_id == telegram_id,
-            WheelDailyLimit.spin_date == wheel.get_today(),
-        )
-        .with_for_update()
-        .one()
-    )
-    limit.rewarded_ad_spins += 1
-    limit.last_ad_spin_at = now
+    grant_rewarded_spin(db, telegram_id, now=now)
     session.status = CLAIMED
     session.claimed_at = now
     db.commit()

@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -10,6 +12,12 @@ class AdsgramRewardClaim(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     token: str = Field(min_length=32, max_length=128)
+
+
+class MonetagRewardSessionCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ymid: UUID
 
 
 class WheelSpinResponse(BaseModel):
