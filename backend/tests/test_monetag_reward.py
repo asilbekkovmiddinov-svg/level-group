@@ -99,6 +99,63 @@ def postback(client, **overrides):
     return client.get("/api/ads/monetag/postback", params=params)
 
 
+def postback_with_macro_names(client, **overrides):
+    params = {
+        "token": "postback-secret",
+        "ymid": YMID,
+        "telegram_id": 1001,
+        "event_type": "impression",
+        "reward_event_type": "valued",
+        "zone_id": "11422269",
+        "sub_zone_id": "wheel",
+        "estimated_price": "0.0012",
+        "request_var": "wheel_reward",
+        **overrides,
+    }
+    return client.get("/api/ads/monetag/postback", params=params)
+
+
+def test_legacy_parameter_names_claim_reward(client, db):
+    assert create_session(client).status_code == 200
+    response = postback(client)
+    assert response.status_code == 200
+    assert response.json()["rewarded"] is True
+    assert db.query(WheelDailyLimit).filter_by(telegram_id=1001).one().rewarded_ad_spins == 1
+
+
+def test_monetag_macro_parameter_names_claim_reward(client, db):
+    assert create_session(client).status_code == 200
+    response = postback_with_macro_names(client)
+    assert response.status_code == 200
+    assert response.json() == {"success": True, "rewarded": True, "status": "CLAIMED"}
+    event = db.query(MonetagRewardEvent).filter_by(ymid=YMID).one()
+    assert event.zone_id == "11422269"
+    assert event.sub_zone_id == "wheel"
+    assert event.source == "wheel_reward"
+
+
+def test_legacy_names_take_precedence_in_mixed_postback(client, db):
+    assert create_session(client).status_code == 200
+    response = postback(
+        client,
+        event_type="click",
+        reward_event_type="non_valued",
+        zone_id="wrong-zone",
+        sub_zone_id="wrong-sub",
+        estimated_price="9.99",
+        request_var="wrong-source",
+    )
+    assert response.status_code == 200
+    assert response.json()["rewarded"] is True
+    event = db.query(MonetagRewardEvent).filter_by(ymid=YMID).one()
+    assert event.event == "impression"
+    assert event.reward_type == "valued"
+    assert event.zone_id == "11422269"
+    assert event.sub_zone_id == "wheel"
+    assert str(event.estimated_price) == "0.00120000"
+    assert event.source == "wheel_reward"
+
+
 def test_postback_requires_constant_time_secret_and_pending_ymid(client, db):
     assert create_session(client).status_code == 200
     assert postback(client, token="wrong").status_code == 401
