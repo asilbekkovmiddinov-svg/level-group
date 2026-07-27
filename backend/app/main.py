@@ -41,6 +41,7 @@ from app.routers.campaign_delivery import router as campaign_delivery_router
 from app.routers.coin_promotion_admin import router as coin_promotion_admin_router
 from app.routers.wheel_coin_order_admin import router as wheel_coin_order_admin_router
 from app.routers.support import router as support_router
+from app.routers.monetag_ads import router as monetag_ads_router
 from app.core.observability import configure_logging, correlation_middleware
 from app.core.config import CAMPAIGN_WORKER_ENABLED
 from app.services.campaign_worker import CampaignWorker
@@ -126,6 +127,7 @@ app.include_router(campaign_delivery_router)
 app.include_router(coin_promotion_admin_router)
 app.include_router(wheel_coin_order_admin_router)
 app.include_router(support_router)
+app.include_router(monetag_ads_router)
 
 
 @app.get("/")

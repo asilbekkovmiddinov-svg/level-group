@@ -139,6 +139,31 @@ class AdsgramRewardSession(Base):
     verified_at = Column(DateTime(timezone=True), nullable=True)
     claimed_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class MonetagRewardEvent(Base):
+    __tablename__ = "monetag_reward_events"
+
+    id = Column(Integer, primary_key=True)
+    ymid = Column(String(64), nullable=False, unique=True, index=True)
+    telegram_id = Column(
+        BigInteger,
+        ForeignKey("users.telegram_id"),
+        nullable=False,
+        index=True,
+    )
+    status = Column(String(20), nullable=False, default="PENDING", index=True)
+    zone_id = Column(String(50), nullable=True)
+    sub_zone_id = Column(String(100), nullable=True)
+    event = Column(String(30), nullable=True)
+    reward_type = Column(String(30), nullable=True)
+    estimated_price = Column(Numeric(18, 8), nullable=True)
+    source = Column(String(100), nullable=False, default="wheel_reward")
+    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    claimed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class WheelSpin(Base):
     __tablename__ = "wheel_spins"
 

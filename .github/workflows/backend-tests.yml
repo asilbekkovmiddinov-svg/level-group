@@ -19,6 +19,8 @@ jobs:
       DEPOSIT_CARD_NUMBER: "8600000000000000"
       DEPOSIT_CARD_HOLDER: CI TEST
       DEPOSIT_BANK_NAME: CI BANK
+      ADSGRAM_REWARD_SECRET: ci-adsgram-secret
+      MONETAG_POSTBACK_SECRET: ci-monetag-secret
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
