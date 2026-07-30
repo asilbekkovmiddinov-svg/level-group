@@ -71,7 +71,7 @@ def playing_match(db, **overrides):
         "match_time_minutes": 10,
         "extra_time_enabled": False,
         "penalties_enabled": True,
-        "status": ArenaV3Status.PLAYING,
+        "status": ArenaV3Status.WAITING_SCREENSHOT,
         "settlement_status": ArenaV3SettlementStatus.NOT_STARTED,
         "playing_started_at": NOW,
         "screenshot_started_at": NOW,
@@ -131,11 +131,11 @@ def test_upload_permissions_duplicate_and_repository_listing(session_factory):
 
 def test_upload_rejects_wrong_state_and_expired_window(session_factory):
     db = session_factory()
-    match = playing_match(db, status=ArenaV3Status.WAITING_SCREENSHOT)
+    match = playing_match(db, status=ArenaV3Status.PLAYING)
     with pytest.raises(ArenaV3Conflict, match="not accepting"):
         upload(ArenaV3Service(db), match.id, 1001, "wrong-state")
 
-    match.status = ArenaV3Status.PLAYING
+    match.status = ArenaV3Status.WAITING_SCREENSHOT
     match.screenshot_deadline_at = NOW
     db.commit()
     with pytest.raises(ArenaV3Conflict, match="expired"):
@@ -178,6 +178,39 @@ def test_timeout_without_evidence_cancels_without_wallet_action(session_factory)
     assert match.status == ArenaV3Status.CANCELLED
     assert match.cancel_reason == "NO_SCREENSHOTS_TIMEOUT"
     assert ArenaV3Service(db).repository.get_latest_ai_review(match.id) is None
+
+
+@pytest.mark.parametrize("match_time_minutes", [6, 8, 10, 12, 15])
+def test_match_duration_opens_60_second_screenshot_window(
+    session_factory, match_time_minutes
+):
+    db = session_factory()
+    match = playing_match(
+        db,
+        status=ArenaV3Status.PLAYING,
+        match_time_minutes=match_time_minutes,
+        screenshot_started_at=NOW + timedelta(minutes=match_time_minutes),
+        screenshot_deadline_at=(
+            NOW + timedelta(minutes=match_time_minutes, seconds=60)
+        ),
+    )
+
+    before = process_screenshot_timeout(
+        db,
+        match.id,
+        now=NOW + timedelta(minutes=match_time_minutes, seconds=-1),
+    )
+    assert before.outcome == "NOT_DUE"
+    assert match.status == ArenaV3Status.PLAYING
+
+    opened = process_screenshot_timeout(
+        db, match.id, now=NOW + timedelta(minutes=match_time_minutes)
+    )
+    assert opened.outcome == "WINDOW_OPENED"
+    assert match.status == ArenaV3Status.WAITING_SCREENSHOT
+    assert (
+        match.screenshot_deadline_at - match.screenshot_started_at
+    ).total_seconds() == 60
 
 
 def test_ai_queue_start_complete_failure_and_retry(session_factory):
@@ -233,6 +266,7 @@ def api(session_factory, monkeypatch):
     api_now = datetime.now(timezone.utc)
     match = playing_match(
         db,
+        status=ArenaV3Status.WAITING_SCREENSHOT,
         playing_started_at=api_now,
         screenshot_started_at=api_now,
         screenshot_deadline_at=api_now + timedelta(seconds=60),

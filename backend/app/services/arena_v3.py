@@ -224,8 +224,12 @@ class ArenaV3Service:
         match.room_code = payload.room_code
         match.room_code_created_at = now
         match.playing_started_at = now
-        match.screenshot_started_at = now
-        match.screenshot_deadline_at = now + timedelta(seconds=60)
+        match.screenshot_started_at = now + timedelta(
+            minutes=match.match_time_minutes
+        )
+        match.screenshot_deadline_at = (
+            match.screenshot_started_at + timedelta(seconds=60)
+        )
         transition_arena_v3(match, ArenaV3Status.PLAYING)
         self._event(
             match, event_type="ROOM_CODE", actor_id=owner_id,
@@ -250,7 +254,7 @@ class ArenaV3Service:
         match = self._locked_match(match_id)
         if player_id not in {match.owner_id, match.opponent_id}:
             raise ArenaV3Forbidden("Player is not a match participant")
-        if match.status != ArenaV3Status.PLAYING:
+        if match.status != ArenaV3Status.WAITING_SCREENSHOT:
             raise ArenaV3Conflict("Arena V3 match is not accepting screenshots")
         now = now or datetime.now(timezone.utc)
         deadline = match.screenshot_deadline_at
@@ -277,7 +281,7 @@ class ArenaV3Service:
             event_type="SCREENSHOT_UPLOADED",
             actor_id=player_id,
             idempotency_key=f"screenshot:{idempotency_key}",
-            from_status=ArenaV3Status.PLAYING,
+            from_status=ArenaV3Status.WAITING_SCREENSHOT,
         )
         try:
             self.db.commit()
@@ -295,7 +299,7 @@ class ArenaV3Service:
             raise ArenaV3NotFound("Arena V3 match not found")
         if player_id not in {match.owner_id, match.opponent_id}:
             raise ArenaV3Forbidden("Player is not a match participant")
-        if match.status != ArenaV3Status.PLAYING:
+        if match.status != ArenaV3Status.WAITING_SCREENSHOT:
             raise ArenaV3Conflict("Arena V3 match is not accepting screenshots")
         now = now or datetime.now(timezone.utc)
         deadline = match.screenshot_deadline_at
