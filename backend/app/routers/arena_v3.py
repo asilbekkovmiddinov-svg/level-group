@@ -166,6 +166,31 @@ def active_match(
     return {"match": ArenaV3Service(db).repository.get_active_for_player(current_user.telegram_id)}
 
 
+@router.get("/history", response_model=ArenaV3FoundationResponse)
+def history(
+    _: TelegramUser = Depends(require_arena_v3_access),
+    db: Session = Depends(get_db),
+):
+    return foundation_call(lambda: ArenaV3Service(db).history())
+
+
+@router.get("/profile", response_model=ArenaV3FoundationResponse)
+def profile(
+    _: TelegramUser = Depends(require_arena_v3_access),
+    db: Session = Depends(get_db),
+):
+    return foundation_call(lambda: ArenaV3Service(db).profile())
+
+
+@router.get("/ranking", response_model=ArenaV3FoundationResponse)
+def ranking(
+    period: str = Query("all", pattern="^(weekly|monthly|all)$"),
+    _: TelegramUser = Depends(require_arena_v3_access),
+    db: Session = Depends(get_db),
+):
+    return foundation_call(lambda: ArenaV3Service(db).ranking(period=period))
+
+
 @router.get("/{match_id}")
 def match_detail(
     match_id: int,
