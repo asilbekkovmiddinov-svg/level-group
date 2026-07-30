@@ -1,6 +1,6 @@
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import uuid4
 
@@ -11,6 +11,8 @@ from app.core import config
 from app.models.arena_v3 import (
     ArenaV3Match,
     ArenaV3MatchEvent,
+    ArenaV3MatchScreenshot,
+    ArenaV3EvidenceStatus,
     ArenaV3SettlementStatus,
     ArenaV3Status,
 )
@@ -214,6 +216,8 @@ class ArenaV3Service:
         match.room_code = payload.room_code
         match.room_code_created_at = now
         match.playing_started_at = now
+        match.screenshot_started_at = now
+        match.screenshot_deadline_at = now + timedelta(seconds=60)
         transition_arena_v3(match, ArenaV3Status.PLAYING)
         self._event(
             match, event_type="ROOM_CODE", actor_id=owner_id,
@@ -221,11 +225,90 @@ class ArenaV3Service:
         )
         return self._commit(match)
 
-    def upload_screenshot(self, *args, **kwargs):
-        raise ArenaV3FoundationOnly("Arena V3 screenshot business logic is not enabled")
+    def upload_screenshot(
+        self,
+        *,
+        match_id: int,
+        player_id: int,
+        idempotency_key: str,
+        storage_key: str,
+        file_hash: str,
+        mime_type: str,
+        file_size: int,
+        width: int,
+        height: int,
+        now: datetime | None = None,
+    ):
+        match = self._locked_match(match_id)
+        if player_id not in {match.owner_id, match.opponent_id}:
+            raise ArenaV3Forbidden("Player is not a match participant")
+        if match.status != ArenaV3Status.PLAYING:
+            raise ArenaV3Conflict("Arena V3 match is not accepting screenshots")
+        now = now or datetime.now(timezone.utc)
+        deadline = match.screenshot_deadline_at
+        if deadline is None or deadline.replace(tzinfo=deadline.tzinfo or timezone.utc) <= now:
+            raise ArenaV3Conflict("Screenshot upload window has expired")
+        existing = self.repository.get_player_screenshot(match_id, player_id)
+        if existing:
+            raise ArenaV3Conflict("Player screenshot already uploaded")
 
-    def start_ai_review(self, *args, **kwargs):
-        raise ArenaV3FoundationOnly("Arena V3 AI integration is not enabled")
+        screenshot = self.repository.add_screenshot(ArenaV3MatchScreenshot(
+            match_id=match.id,
+            player_id=player_id,
+            storage_key=storage_key,
+            file_hash=file_hash,
+            mime_type=mime_type,
+            file_size=file_size,
+            width=width,
+            height=height,
+            validation_status=ArenaV3EvidenceStatus.PENDING,
+            uploaded_at=now,
+        ))
+        self._event(
+            match,
+            event_type="SCREENSHOT_UPLOADED",
+            actor_id=player_id,
+            idempotency_key=f"screenshot:{idempotency_key}",
+            from_status=ArenaV3Status.PLAYING,
+        )
+        try:
+            self.db.commit()
+            self.db.refresh(screenshot)
+            return screenshot
+        except IntegrityError as exc:
+            self.db.rollback()
+            raise ArenaV3Conflict("Duplicate screenshot upload") from exc
+
+    def ensure_screenshot_upload_allowed(
+        self, *, match_id: int, player_id: int, now: datetime | None = None
+    ) -> None:
+        match = self.repository.get_match(match_id)
+        if match is None:
+            raise ArenaV3NotFound("Arena V3 match not found")
+        if player_id not in {match.owner_id, match.opponent_id}:
+            raise ArenaV3Forbidden("Player is not a match participant")
+        if match.status != ArenaV3Status.PLAYING:
+            raise ArenaV3Conflict("Arena V3 match is not accepting screenshots")
+        now = now or datetime.now(timezone.utc)
+        deadline = match.screenshot_deadline_at
+        if deadline is None or deadline.replace(tzinfo=deadline.tzinfo or timezone.utc) <= now:
+            raise ArenaV3Conflict("Screenshot upload window has expired")
+        if self.repository.get_player_screenshot(match_id, player_id):
+            raise ArenaV3Conflict("Player screenshot already uploaded")
+
+    def list_screenshots(self, *, match_id: int, player_id: int):
+        match = self.repository.get_match(match_id)
+        if match is None:
+            raise ArenaV3NotFound("Arena V3 match not found")
+        if player_id not in {match.owner_id, match.opponent_id}:
+            raise ArenaV3Forbidden("Player is not a match participant")
+        return self.repository.list_screenshots(match_id)
+
+    def start_ai_review(self, *, match_id: int):
+        if not config.ARENA_V3_AI_ENABLED:
+            raise ArenaV3Unavailable("Arena V3 AI is disabled")
+        from app.services.arena_v3_workers import start_ai_review
+        return start_ai_review(self.db, match_id)
 
     def submit_appeal(self, *args, **kwargs):
         raise ArenaV3FoundationOnly("Arena V3 appeal business logic is not enabled")

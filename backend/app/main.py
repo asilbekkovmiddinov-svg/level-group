@@ -26,7 +26,10 @@ from app.routers.system import router as system_router
 from app.routers.match import router as match_router
 from app.routers.match_overview import router as match_overview_router
 from app.routers.arena_v4 import router as arena_v4_router
-from app.routers.arena_v3 import router as arena_v3_router
+from app.routers.arena_v3 import (
+    internal_router as arena_v3_internal_router,
+    router as arena_v3_router,
+)
 from app.routers.internal_wallet import router as internal_wallet_router
 from app.routers.deposit_receipt import router as deposit_receipt_router
 from app.routers.health import router as health_router
@@ -49,12 +52,14 @@ from app.core.config import CAMPAIGN_WORKER_ENABLED
 from app.services.campaign_worker import CampaignWorker
 from app.services.coin_promotion_timeouts import CoinPromotionTimeoutWorker
 from app.services.arena_timeouts import ArenaTimeoutWorker
+from app.services.arena_v3_workers import ArenaV3ScreenshotTimeoutWorker
 
 
 configure_logging()
 campaign_worker = CampaignWorker(SessionLocal)
 coin_promotion_timeout_worker = CoinPromotionTimeoutWorker(SessionLocal)
 arena_timeout_worker = ArenaTimeoutWorker(SessionLocal)
+arena_v3_timeout_worker = ArenaV3ScreenshotTimeoutWorker(SessionLocal)
 app = FastAPI(
     title="LEVEL_GROUP API",
     version="1.0.0",
@@ -67,6 +72,7 @@ def start_campaign_worker():
         campaign_worker.start()
     coin_promotion_timeout_worker.start()
     arena_timeout_worker.start()
+    arena_v3_timeout_worker.start()
 
 
 @app.on_event("shutdown")
@@ -74,6 +80,7 @@ def stop_campaign_worker():
     campaign_worker.stop()
     coin_promotion_timeout_worker.stop()
     arena_timeout_worker.stop()
+    arena_v3_timeout_worker.stop()
 app.middleware("http")(correlation_middleware)
 
 app.add_middleware(
@@ -115,6 +122,7 @@ app.include_router(match_router)
 app.include_router(match_overview_router)
 app.include_router(arena_v4_router)
 app.include_router(arena_v3_router)
+app.include_router(arena_v3_internal_router)
 app.include_router(internal_wallet_router)
 app.include_router(deposit_receipt_router)
 app.include_router(health_router)

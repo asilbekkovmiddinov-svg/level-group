@@ -3,7 +3,12 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.models.arena_v3 import ArenaV3SettlementStatus, ArenaV3Status
+from app.models.arena_v3 import (
+    ArenaV3AIReviewStatus,
+    ArenaV3EvidenceStatus,
+    ArenaV3SettlementStatus,
+    ArenaV3Status,
+)
 
 
 class ArenaV3CreateRequest(BaseModel):
@@ -118,6 +123,38 @@ class ArenaV3MatchListResponse(BaseModel):
 
 class ArenaV3ActiveMatchResponse(BaseModel):
     match: ArenaV3MatchResponse | None
+
+
+class ArenaV3ScreenshotResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    match_id: int
+    player_id: int
+    mime_type: str
+    file_size: int
+    width: int
+    height: int
+    validation_status: ArenaV3EvidenceStatus
+    uploaded_at: datetime
+
+
+class ArenaV3ScreenshotListResponse(BaseModel):
+    screenshots: list[ArenaV3ScreenshotResponse]
+
+
+class ArenaV3AIReviewResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    match_id: int
+    status: ArenaV3AIReviewStatus
+    owner_screenshot_id: int | None
+    opponent_screenshot_id: int | None
+    attempt_count: int
+    started_at: datetime | None
+    completed_at: datetime | None
+    created_at: datetime
 
 
 class ArenaV3ConfigResponse(BaseModel):

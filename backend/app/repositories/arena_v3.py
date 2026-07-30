@@ -75,10 +75,41 @@ class ArenaV3Repository:
         self.db.flush()
         return value
 
+    def get_player_screenshot(
+        self, match_id: int, player_id: int
+    ) -> ArenaV3MatchScreenshot | None:
+        return self.db.execute(
+            select(ArenaV3MatchScreenshot).where(
+                ArenaV3MatchScreenshot.match_id == match_id,
+                ArenaV3MatchScreenshot.player_id == player_id,
+            )
+        ).scalar_one_or_none()
+
+    def list_screenshots(self, match_id: int) -> Sequence[ArenaV3MatchScreenshot]:
+        return self.db.execute(
+            select(ArenaV3MatchScreenshot)
+            .where(ArenaV3MatchScreenshot.match_id == match_id)
+            .order_by(ArenaV3MatchScreenshot.uploaded_at, ArenaV3MatchScreenshot.id)
+        ).scalars().all()
+
     def add_ai_review(self, value: ArenaV3AIReview) -> ArenaV3AIReview:
         self.db.add(value)
         self.db.flush()
         return value
+
+    def get_latest_ai_review(self, match_id: int) -> ArenaV3AIReview | None:
+        return self.db.execute(
+            select(ArenaV3AIReview)
+            .where(ArenaV3AIReview.match_id == match_id)
+            .order_by(ArenaV3AIReview.id.desc())
+        ).scalars().first()
+
+    def get_ai_review_for_update(self, review_id: int) -> ArenaV3AIReview | None:
+        return self.db.execute(
+            select(ArenaV3AIReview)
+            .where(ArenaV3AIReview.id == review_id)
+            .with_for_update()
+        ).scalar_one_or_none()
 
     def add_appeal(self, value: ArenaV3Appeal) -> ArenaV3Appeal:
         self.db.add(value)
