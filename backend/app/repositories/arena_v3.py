@@ -4,8 +4,10 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.models.arena_v3 import (
-    ArenaV3AIReview, ArenaV3Appeal, ArenaV3Match, ArenaV3MatchEvent,
-    ArenaV3AIReviewStatus, ArenaV3MatchScreenshot, ArenaV3Status,
+    ArenaV3AIReview, ArenaV3Appeal, ArenaV3AppealStatus,
+    ArenaV3Match, ArenaV3MatchEvent,
+    ArenaV3AIReviewStatus, ArenaV3MatchScreenshot,
+    ArenaV3NotificationDelivery, ArenaV3Stats, ArenaV3Status,
 )
 
 
@@ -124,6 +126,63 @@ class ArenaV3Repository:
         self.db.add(value)
         self.db.flush()
         return value
+
+    def get_open_appeal(self, match_id: int) -> ArenaV3Appeal | None:
+        return self.db.execute(
+            select(ArenaV3Appeal).where(
+                ArenaV3Appeal.match_id == match_id,
+                ArenaV3Appeal.status == ArenaV3AppealStatus.OPEN,
+            )
+        ).scalars().first()
+
+    def get_stats_for_update(self, player_id: int) -> ArenaV3Stats | None:
+        return self.db.execute(
+            select(ArenaV3Stats)
+            .where(ArenaV3Stats.player_id == player_id)
+            .with_for_update()
+        ).scalar_one_or_none()
+
+    def add_stats(self, value: ArenaV3Stats) -> ArenaV3Stats:
+        self.db.add(value)
+        self.db.flush()
+        return value
+
+    def get_stats(self, player_id: int) -> ArenaV3Stats | None:
+        return self.db.get(ArenaV3Stats, player_id)
+
+    def list_history(
+        self, player_id: int, *, limit: int = 50, offset: int = 0
+    ) -> Sequence[ArenaV3Match]:
+        return self.db.execute(
+            select(ArenaV3Match)
+            .where(
+                ArenaV3Match.status.in_(
+                    (ArenaV3Status.FINISHED, ArenaV3Status.CANCELLED)
+                ),
+                or_(
+                    ArenaV3Match.owner_id == player_id,
+                    ArenaV3Match.opponent_id == player_id,
+                ),
+            )
+            .order_by(ArenaV3Match.updated_at.desc(), ArenaV3Match.id.desc())
+            .offset(offset).limit(limit)
+        ).scalars().all()
+
+    def add_notification(
+        self, value: ArenaV3NotificationDelivery
+    ) -> ArenaV3NotificationDelivery:
+        self.db.add(value)
+        self.db.flush()
+        return value
+
+    def get_notification_by_dedup(
+        self, dedup_key: str
+    ) -> ArenaV3NotificationDelivery | None:
+        return self.db.execute(
+            select(ArenaV3NotificationDelivery).where(
+                ArenaV3NotificationDelivery.dedup_key == dedup_key
+            )
+        ).scalar_one_or_none()
 
     def add_event(self, value: ArenaV3MatchEvent) -> ArenaV3MatchEvent:
         self.db.add(value)

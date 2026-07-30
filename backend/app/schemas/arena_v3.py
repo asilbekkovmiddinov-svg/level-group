@@ -111,6 +111,13 @@ class ArenaV3MatchResponse(BaseModel):
     room_code_created_at: datetime | None
     playing_started_at: datetime | None
     settlement_status: ArenaV3SettlementStatus
+    winner_id: int | None
+    loser_id: int | None
+    owner_score: int | None
+    opponent_score: int | None
+    result_source: str | None
+    settled_at: datetime | None
+    finished_at: datetime | None
     cancel_reason: str | None
     version: int
     created_at: datetime
@@ -161,6 +168,26 @@ class ArenaV3AIReviewResponse(BaseModel):
     started_at: datetime | None
     completed_at: datetime | None
     created_at: datetime
+
+
+class ArenaV3ResultResponse(BaseModel):
+    match: ArenaV3MatchResponse
+    ai_review: ArenaV3AIReviewResponse | None
+
+
+class ArenaV3ProfileResponse(BaseModel):
+    player_id: int
+    total_matches: int
+    wins: int
+    losses: int
+    draws: int
+    goals_for: int
+    goals_against: int
+    win_rate: Decimal
+    current_streak: int
+    best_streak: int
+    total_efc_won: Decimal
+    total_efc_lost: Decimal
 
 
 class ArenaV3ConfigResponse(BaseModel):

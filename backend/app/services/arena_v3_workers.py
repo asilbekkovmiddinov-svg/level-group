@@ -196,6 +196,11 @@ def process_screenshot_timeout(
     else:
         transition_arena_v3(match, ArenaV3Status.CANCELLED)
         match.cancel_reason = "NO_SCREENSHOTS_TIMEOUT"
+        if config.ARENA_V3_SETTLEMENT_ENABLED:
+            from app.services.arena_v3_settlement import refund_match
+            refund_match(
+                db, match.id, reason="NO_SCREENSHOTS_TIMEOUT"
+            )
     db.commit()
     db.refresh(match)
     return ArenaV3TimeoutResult(
@@ -294,6 +299,9 @@ class ArenaV3AIWorker:
             db = self.session_factory()
             try:
                 processed = process_next_ai_review(db, analyzer=self.analyzer_factory())
+                if processed is None:
+                    from app.services.arena_v3_settlement import run_ai_outcome_queue
+                    processed = run_ai_outcome_queue(db)
             except Exception:
                 db.rollback()
                 processed = None
@@ -347,6 +355,9 @@ def _finish_failed(db, review_id: int, error: ArenaV3AnalysisError):
     )
     db.commit()
     db.refresh(review)
+    if config.ARENA_V3_REFUND_ON_AI_FAILURE:
+        from app.services.arena_v3_settlement import handle_ai_outcome
+        handle_ai_outcome(db, review.match_id)
     return review
 
 
@@ -453,4 +464,10 @@ def process_ai_review(db, review_id: int, *, analyzer=None):
         )
     db.commit()
     db.refresh(review)
+    if (
+        review.status == ArenaV3AIReviewStatus.APPEAL_REQUIRED
+        or config.ARENA_V3_SETTLEMENT_ENABLED
+    ):
+        from app.services.arena_v3_settlement import handle_ai_outcome
+        handle_ai_outcome(db, review.match_id)
     return review

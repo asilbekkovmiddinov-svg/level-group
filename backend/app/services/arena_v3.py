@@ -136,6 +136,9 @@ class ArenaV3Service:
             idempotency_key=idempotency_key,
             request_fingerprint=fingerprint,
         ))
+        if config.ARENA_V3_SETTLEMENT_ENABLED:
+            from app.services.arena_v3_settlement import lock_match_stake
+            lock_match_stake(self.db, owner_id, stake, match.id)
         self._event(
             match, event_type="CREATE", actor_id=owner_id,
             idempotency_key=f"create:{idempotency_key}", from_status=None,
@@ -157,6 +160,11 @@ class ArenaV3Service:
             raise ArenaV3Conflict("Arena V3 match is not open")
         if self.repository.get_active_for_player(opponent_id):
             raise ArenaV3Conflict("Player already has an active Arena V3 match")
+        if config.ARENA_V3_SETTLEMENT_ENABLED:
+            from app.services.arena_v3_settlement import lock_match_stake
+            lock_match_stake(
+                self.db, opponent_id, match.stake_efc, match.id
+            )
 
         from_status = ArenaV3Status(match.status)
         match.opponent_id = opponent_id
@@ -313,8 +321,9 @@ class ArenaV3Service:
     def submit_appeal(self, *args, **kwargs):
         raise ArenaV3FoundationOnly("Arena V3 appeal business logic is not enabled")
 
-    def finish_match(self, *args, **kwargs):
-        raise ArenaV3FoundationOnly("Arena V3 settlement business logic is not enabled")
+    def finish_match(self, *, match_id: int):
+        from app.services.arena_v3_settlement import settle_completed_match
+        return settle_completed_match(self.db, match_id)
 
     def cancel_match(
         self, *, match_id: int, player_id: int, payload, idempotency_key: str
@@ -345,13 +354,20 @@ class ArenaV3Service:
             match, event_type="CANCEL", actor_id=player_id,
             idempotency_key=f"cancel:{idempotency_key}", from_status=from_status,
         )
+        if config.ARENA_V3_SETTLEMENT_ENABLED:
+            from app.services.arena_v3_settlement import refund_match
+            return refund_match(
+                self.db, match.id, reason=payload.reason_code
+            )
         return self._commit(match)
 
-    def history(self, *args, **kwargs):
-        raise ArenaV3FoundationOnly("Arena V3 history query is not enabled")
+    def history(self, *, player_id: int, limit: int = 50, offset: int = 0):
+        return self.repository.list_history(
+            player_id, limit=limit, offset=offset
+        )
 
-    def profile(self, *args, **kwargs):
-        raise ArenaV3FoundationOnly("Arena V3 profile query is not enabled")
+    def profile(self, *, player_id: int):
+        return self.repository.get_stats(player_id)
 
     def ranking(self, *args, **kwargs):
         raise ArenaV3FoundationOnly("Arena V3 ranking query is not enabled")

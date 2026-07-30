@@ -41,6 +41,7 @@ class ArenaV3AIReviewStatus(str, Enum):
 
 
 class ArenaV3AppealStatus(str, Enum):
+    OPEN = "OPEN"
     SUBMITTED = "SUBMITTED"
     UNDER_REVIEW = "UNDER_REVIEW"
     ACCEPTED = "ACCEPTED"
@@ -191,13 +192,13 @@ class ArenaV3Appeal(Base):
 
     id = Column(Integer, primary_key=True)
     match_id = Column(Integer, ForeignKey("arena_matches.id", ondelete="CASCADE"), nullable=False, index=True)
-    submitted_by = Column(BigInteger, ForeignKey("users.telegram_id"), nullable=False, index=True)
+    submitted_by = Column(BigInteger, ForeignKey("users.telegram_id"), nullable=True, index=True)
     reason_code = Column(String(64), nullable=False)
     comment = Column(String(500))
-    video_storage_key = Column(String(500), nullable=False)
+    video_storage_key = Column(String(500))
     telegram_file_id = Column(String(500))
-    file_hash = Column(String(64), nullable=False)
-    status = Column(SQLEnum(ArenaV3AppealStatus, native_enum=False), nullable=False, default=ArenaV3AppealStatus.SUBMITTED)
+    file_hash = Column(String(64))
+    status = Column(SQLEnum(ArenaV3AppealStatus, native_enum=False), nullable=False, default=ArenaV3AppealStatus.OPEN)
     admin_id = Column(BigInteger, ForeignKey("users.telegram_id"))
     resolution = Column(String(32))
     admin_comment = Column(String(500))
@@ -261,6 +262,10 @@ class ArenaV3Stats(Base):
     total_matches = Column(Integer, nullable=False, default=0)
     wins = Column(Integer, nullable=False, default=0)
     losses = Column(Integer, nullable=False, default=0)
+    draws = Column(Integer, nullable=False, default=0)
+    goals_for = Column(Integer, nullable=False, default=0)
+    goals_against = Column(Integer, nullable=False, default=0)
+    win_rate = Column(Numeric(5, 2), nullable=False, default=0)
     total_efc_won = Column(Numeric(18, 2), nullable=False, default=0)
     total_efc_lost = Column(Numeric(18, 2), nullable=False, default=0)
     current_streak = Column(Integer, nullable=False, default=0)

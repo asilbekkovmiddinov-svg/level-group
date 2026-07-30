@@ -17,6 +17,7 @@ from app.schemas.arena_v3 import (
     ArenaV3CreateRequest, ArenaV3FoundationResponse, ArenaV3JoinRequest,
     ArenaV3AIReviewResponse,
     ArenaV3MatchListResponse, ArenaV3MatchResponse, ArenaV3ActiveMatchResponse,
+    ArenaV3ProfileResponse, ArenaV3ResultResponse,
     ArenaV3ReadyRequest, ArenaV3RoomCodeRequest, ArenaV3ScreenshotListResponse,
     ArenaV3ScreenshotResponse,
 )
@@ -282,7 +283,7 @@ def internal_ai_result(
     return review
 
 
-@router.post("/internal/{match_id}/finish", response_model=ArenaV3FoundationResponse)
+@router.post("/internal/{match_id}/finish", response_model=ArenaV3MatchResponse)
 def finish_match(
     match_id: int,
     _: None = Depends(require_arena_internal_api_key),
@@ -290,23 +291,39 @@ def finish_match(
 ):
     if not config.ARENA_V3_SETTLEMENT_ENABLED:
         raise HTTPException(status_code=503, detail="Arena V3 settlement is disabled")
-    return foundation_call(lambda: ArenaV3Service(db).finish_match(match_id=match_id))
+    return core_match_call(
+        lambda: ArenaV3Service(db).finish_match(match_id=match_id)
+    )
 
 
-@router.get("/history", response_model=ArenaV3FoundationResponse)
+@router.get("/history", response_model=ArenaV3MatchListResponse)
 def history(
-    _: TelegramUser = Depends(require_arena_v3_access),
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    current_user: TelegramUser = Depends(require_arena_v3_access),
     db: Session = Depends(get_db),
 ):
-    return foundation_call(lambda: ArenaV3Service(db).history())
+    matches = core_match_call(lambda: ArenaV3Service(db).history(
+        player_id=current_user.telegram_id, limit=limit, offset=offset
+    ))
+    return {"matches": matches}
 
 
-@router.get("/profile", response_model=ArenaV3FoundationResponse)
+@router.get("/profile", response_model=ArenaV3ProfileResponse)
 def profile(
-    _: TelegramUser = Depends(require_arena_v3_access),
+    current_user: TelegramUser = Depends(require_arena_v3_access),
     db: Session = Depends(get_db),
 ):
-    return foundation_call(lambda: ArenaV3Service(db).profile())
+    stats = ArenaV3Service(db).profile(player_id=current_user.telegram_id)
+    if stats is None:
+        return {
+            "player_id": current_user.telegram_id,
+            "total_matches": 0, "wins": 0, "losses": 0, "draws": 0,
+            "goals_for": 0, "goals_against": 0, "win_rate": 0,
+            "current_streak": 0, "best_streak": 0,
+            "total_efc_won": 0, "total_efc_lost": 0,
+        }
+    return stats
 
 
 @router.get("/ranking", response_model=ArenaV3FoundationResponse)
@@ -316,6 +333,24 @@ def ranking(
     db: Session = Depends(get_db),
 ):
     return foundation_call(lambda: ArenaV3Service(db).ranking(period=period))
+
+
+@router.get("/{match_id}/result", response_model=ArenaV3ResultResponse)
+def match_result(
+    match_id: int,
+    current_user: TelegramUser = Depends(require_arena_v3_access),
+    db: Session = Depends(get_db),
+):
+    repository = ArenaV3Repository(db)
+    match = repository.get_match(match_id)
+    if match is None:
+        raise HTTPException(status_code=404, detail="Arena V3 match not found")
+    if current_user.telegram_id not in {match.owner_id, match.opponent_id}:
+        raise HTTPException(status_code=403, detail="Player is not a match participant")
+    return {
+        "match": match,
+        "ai_review": repository.get_latest_ai_review(match.id),
+    }
 
 
 @router.get("/{match_id}", response_model=ArenaV3MatchResponse)
