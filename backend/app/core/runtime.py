@@ -11,5 +11,7 @@ REQUIRED_PRODUCTION_SETTINGS = (
 
 def validate_startup_settings() -> None:
     missing = [name for name in REQUIRED_PRODUCTION_SETTINGS if not getattr(config, name, None)]
+    if config.ARENA_V3_AI_ENABLED and not config.OPENAI_API_KEY:
+        missing.append("OPENAI_API_KEY")
     if missing:
         raise RuntimeError(f"Missing required production environment variables: {', '.join(missing)}")

@@ -80,6 +80,10 @@ def _env_bool(name: str, default: bool = False) -> bool:
 ARENA_V3_ENABLED = _env_bool("ARENA_V3_ENABLED", False)
 ARENA_V3_CREATE_ENABLED = _env_bool("ARENA_V3_CREATE_ENABLED", False)
 ARENA_V3_AI_ENABLED = _env_bool("ARENA_V3_AI_ENABLED", False)
+ARENA_V3_AI_MODEL = os.getenv("ARENA_V3_AI_MODEL", "gpt-5.4-nano").strip()
+ARENA_V3_AI_INTERVAL_SECONDS = float(os.getenv("ARENA_V3_AI_INTERVAL_SECONDS", "5"))
+ARENA_V3_AI_TIMEOUT_SECONDS = float(os.getenv("ARENA_V3_AI_TIMEOUT_SECONDS", "45"))
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ARENA_V3_SETTLEMENT_ENABLED = _env_bool("ARENA_V3_SETTLEMENT_ENABLED", False)
 ARENA_V3_ALLOWED_TELEGRAM_IDS = _telegram_id_allowlist(
     os.getenv("ARENA_V3_ALLOWED_TELEGRAM_IDS")
@@ -111,6 +115,10 @@ if COIN_PROMOTION_ORDER_TIMEOUT_SECONDS < 1 or COIN_PROMOTION_TIMEOUT_INTERVAL_S
     raise ValueError("Invalid Coin Promotion timeout configuration")
 if ARENA_TIMEOUT_INTERVAL_SECONDS <= 0:
     raise ValueError("ARENA_TIMEOUT_INTERVAL_SECONDS must be positive")
+if ARENA_V3_AI_INTERVAL_SECONDS <= 0 or ARENA_V3_AI_TIMEOUT_SECONDS <= 0:
+    raise ValueError("Arena V3 AI timing settings must be positive")
+if not ARENA_V3_AI_MODEL:
+    raise ValueError("ARENA_V3_AI_MODEL must not be empty")
 if ADSGRAM_REWARD_SESSION_TTL_SECONDS < 30:
     raise ValueError("ADSGRAM_REWARD_SESSION_TTL_SECONDS must be at least 30")
 if MONETAG_REWARD_SESSION_TTL_SECONDS < 60:

@@ -152,6 +152,12 @@ class ArenaV3AIReviewResponse(BaseModel):
     owner_screenshot_id: int | None
     opponent_screenshot_id: int | None
     attempt_count: int
+    winner_player_id: int | None = None
+    score: str | None = None
+    confidence: Decimal | None = None
+    reason: str | None = None
+    conflict_type: str | None = None
+    model_name: str | None = None
     started_at: datetime | None
     completed_at: datetime | None
     created_at: datetime

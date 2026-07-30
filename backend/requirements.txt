@@ -10,3 +10,5 @@ python-multipart
 pytest
 httpx2
 cryptography
+openai
+Pillow
