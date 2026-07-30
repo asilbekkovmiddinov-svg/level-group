@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.models.arena_v3 import (
     ArenaV3AIReview, ArenaV3Appeal, ArenaV3Match, ArenaV3MatchEvent,
-    ArenaV3MatchScreenshot, ArenaV3Status,
+    ArenaV3AIReviewStatus, ArenaV3MatchScreenshot, ArenaV3Status,
 )
 
 
@@ -109,6 +109,15 @@ class ArenaV3Repository:
             select(ArenaV3AIReview)
             .where(ArenaV3AIReview.id == review_id)
             .with_for_update()
+        ).scalar_one_or_none()
+
+    def claim_pending_ai_review(self) -> ArenaV3AIReview | None:
+        return self.db.execute(
+            select(ArenaV3AIReview)
+            .where(ArenaV3AIReview.status == ArenaV3AIReviewStatus.PENDING)
+            .order_by(ArenaV3AIReview.created_at, ArenaV3AIReview.id)
+            .with_for_update(skip_locked=True)
+            .limit(1)
         ).scalar_one_or_none()
 
     def add_appeal(self, value: ArenaV3Appeal) -> ArenaV3Appeal:

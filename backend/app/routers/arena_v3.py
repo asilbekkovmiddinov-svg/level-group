@@ -11,6 +11,7 @@ from app.core.database import get_db
 from app.core.arena_internal_auth import require_arena_internal_api_key
 from app.core.telegram_auth import TelegramUser, get_current_telegram_user
 from app.models.arena_v3 import ArenaV3Status
+from app.repositories.arena_v3 import ArenaV3Repository
 from app.schemas.arena_v3 import (
     ArenaV3AppealRequest, ArenaV3CancelRequest, ArenaV3ConfigResponse,
     ArenaV3CreateRequest, ArenaV3FoundationResponse, ArenaV3JoinRequest,
@@ -267,6 +268,18 @@ def internal_start_ai(
     return core_match_call(
         lambda: ArenaV3Service(db).start_ai_review(match_id=match_id)
     )
+
+
+@internal_router.get("/{match_id}/ai-result", response_model=ArenaV3AIReviewResponse)
+def internal_ai_result(
+    match_id: int,
+    _: None = Depends(require_arena_internal_api_key),
+    db: Session = Depends(get_db),
+):
+    review = ArenaV3Repository(db).get_latest_ai_review(match_id)
+    if review is None:
+        raise HTTPException(status_code=404, detail="Arena V3 AI review not found")
+    return review
 
 
 @router.post("/internal/{match_id}/finish", response_model=ArenaV3FoundationResponse)

@@ -37,6 +37,7 @@ class ArenaV3AIReviewStatus(str, Enum):
     RUNNING = "RUNNING"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
+    APPEAL_REQUIRED = "APPEAL_REQUIRED"
 
 
 class ArenaV3AppealStatus(str, Enum):
@@ -164,8 +165,11 @@ class ArenaV3AIReview(Base):
     detected_owner_score = Column(Integer)
     detected_opponent_score = Column(Integer)
     provisional_winner_id = Column(BigInteger, ForeignKey("users.telegram_id"))
+    winner_player_id = Column(BigInteger, ForeignKey("users.telegram_id"))
+    score = Column(String(16))
     confidence = Column(Numeric(5, 4))
     reason_code = Column(String(64))
+    reason = Column(String(255))
     conflict_type = Column(String(64))
     model_name = Column(String(100))
     model_version = Column(String(100))
