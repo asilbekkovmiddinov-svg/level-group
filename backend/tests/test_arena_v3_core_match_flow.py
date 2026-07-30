@@ -112,9 +112,51 @@ def test_service_runs_complete_core_flow_and_records_events(session_factory):
     assert match.playing_started_at is not None
     assert match.screenshot_started_at is not None
     assert (
+        match.screenshot_started_at - match.playing_started_at
+    ).total_seconds() == match.match_time_minutes * 60
+    assert (
         match.screenshot_deadline_at - match.screenshot_started_at
     ).total_seconds() == 60
     assert db.query(ArenaV3MatchEvent).filter_by(match_id=match.id).count() == 5
+
+
+@pytest.mark.parametrize("match_time_minutes", [6, 8, 10, 12, 15])
+def test_room_code_schedules_screenshot_window_after_match_time(
+    session_factory, match_time_minutes
+):
+    db = session_factory()
+    service = ArenaV3Service(db)
+    match = service.create_match(
+        payload=create_payload(match_time_minutes=match_time_minutes),
+        owner_id=1001,
+        idempotency_key=f"duration-{match_time_minutes}",
+    )
+    match = service.join_match(
+        match_id=match.id,
+        opponent_id=2002,
+        payload=join_payload(),
+        idempotency_key=f"join-{match_time_minutes}",
+    )
+    service.ready(
+        match_id=match.id, player_id=1001, payload=ArenaV3ReadyRequest()
+    )
+    service.ready(
+        match_id=match.id, player_id=2002, payload=ArenaV3ReadyRequest()
+    )
+
+    match = service.submit_room_code(
+        match_id=match.id,
+        owner_id=1001,
+        payload=ArenaV3RoomCodeRequest(room_code="ROOM"),
+    )
+
+    assert match.status == ArenaV3Status.PLAYING
+    assert (
+        match.screenshot_started_at - match.playing_started_at
+    ).total_seconds() == match_time_minutes * 60
+    assert (
+        match.screenshot_deadline_at - match.screenshot_started_at
+    ).total_seconds() == 60
 
 
 def test_create_and_join_are_idempotent_and_protect_active_players(session_factory):
