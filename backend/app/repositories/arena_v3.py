@@ -54,6 +54,14 @@ class ArenaV3Repository:
             ).with_for_update()
         ).scalars().first()
 
+    def find_active_for_player(self, player_id: int) -> ArenaV3Match | None:
+        return self.db.execute(
+            select(ArenaV3Match).where(
+                ArenaV3Match.status.in_(ACTIVE_STATUSES),
+                or_(ArenaV3Match.owner_id == player_id, ArenaV3Match.opponent_id == player_id),
+            )
+        ).scalars().first()
+
     def list_open(self, *, limit: int = 20, offset: int = 0) -> Sequence[ArenaV3Match]:
         return self.db.execute(
             select(ArenaV3Match)
@@ -81,6 +89,16 @@ class ArenaV3Repository:
         self.db.add(value)
         self.db.flush()
         return value
+
+    def get_event_by_idempotency(
+        self, match_id: int, idempotency_key: str
+    ) -> ArenaV3MatchEvent | None:
+        return self.db.execute(
+            select(ArenaV3MatchEvent).where(
+                ArenaV3MatchEvent.match_id == match_id,
+                ArenaV3MatchEvent.idempotency_key == idempotency_key,
+            )
+        ).scalar_one_or_none()
 
     def flush(self) -> None:
         self.db.flush()

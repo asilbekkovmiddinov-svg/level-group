@@ -7,12 +7,18 @@ from app.core import config
 from app.core.database import get_db
 from app.core.arena_internal_auth import require_arena_internal_api_key
 from app.core.telegram_auth import TelegramUser, get_current_telegram_user
+from app.models.arena_v3 import ArenaV3Status
 from app.schemas.arena_v3 import (
     ArenaV3AppealRequest, ArenaV3CancelRequest, ArenaV3ConfigResponse,
     ArenaV3CreateRequest, ArenaV3FoundationResponse, ArenaV3JoinRequest,
+    ArenaV3MatchListResponse, ArenaV3MatchResponse, ArenaV3ActiveMatchResponse,
     ArenaV3ReadyRequest, ArenaV3RoomCodeRequest,
 )
-from app.services.arena_v3 import ArenaV3FoundationOnly, ArenaV3Service
+from app.services.arena_v3 import (
+    ArenaV3FoundationOnly,
+    ArenaV3Service,
+    ArenaV3ServiceError,
+)
 
 
 router = APIRouter(prefix="/arena", tags=["Arena V3"])
@@ -42,6 +48,13 @@ def foundation_call(callback):
         raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail=str(exc))
 
 
+def core_match_call(callback):
+    try:
+        return callback()
+    except ArenaV3ServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+
+
 @router.get("/config", response_model=ArenaV3ConfigResponse)
 def arena_v3_config(_: TelegramUser = Depends(require_arena_v3_access)):
     return {
@@ -56,7 +69,7 @@ def arena_v3_config(_: TelegramUser = Depends(require_arena_v3_access)):
     }
 
 
-@router.post("/create", response_model=ArenaV3FoundationResponse)
+@router.post("/create", response_model=ArenaV3MatchResponse, status_code=201)
 def create_match(
     payload: ArenaV3CreateRequest,
     current_user: TelegramUser = Depends(require_arena_v3_access),
@@ -65,12 +78,12 @@ def create_match(
 ):
     if not config.ARENA_V3_CREATE_ENABLED:
         raise HTTPException(status_code=503, detail="Arena V3 create is disabled")
-    return foundation_call(lambda: ArenaV3Service(db).create_match(
+    return core_match_call(lambda: ArenaV3Service(db).create_match(
         payload=payload, owner_id=current_user.telegram_id, idempotency_key=idempotency_key
     ))
 
 
-@router.post("/{match_id}/join", response_model=ArenaV3FoundationResponse)
+@router.post("/{match_id}/join", response_model=ArenaV3MatchResponse)
 def join_match(
     match_id: int,
     payload: ArenaV3JoinRequest,
@@ -78,30 +91,30 @@ def join_match(
     idempotency_key: str = Depends(require_idempotency_key),
     db: Session = Depends(get_db),
 ):
-    return foundation_call(lambda: ArenaV3Service(db).join_match(
+    return core_match_call(lambda: ArenaV3Service(db).join_match(
         match_id=match_id, payload=payload, opponent_id=current_user.telegram_id,
         idempotency_key=idempotency_key,
     ))
 
 
-@router.post("/{match_id}/ready", response_model=ArenaV3FoundationResponse)
+@router.post("/{match_id}/ready", response_model=ArenaV3MatchResponse)
 def ready(
     match_id: int, payload: ArenaV3ReadyRequest,
     current_user: TelegramUser = Depends(require_arena_v3_access),
     db: Session = Depends(get_db),
 ):
-    return foundation_call(lambda: ArenaV3Service(db).ready(
+    return core_match_call(lambda: ArenaV3Service(db).ready(
         match_id=match_id, player_id=current_user.telegram_id, payload=payload
     ))
 
 
-@router.post("/{match_id}/room-code", response_model=ArenaV3FoundationResponse)
+@router.post("/{match_id}/room-code", response_model=ArenaV3MatchResponse)
 def submit_room_code(
     match_id: int, payload: ArenaV3RoomCodeRequest,
     current_user: TelegramUser = Depends(require_arena_v3_access),
     db: Session = Depends(get_db),
 ):
-    return foundation_call(lambda: ArenaV3Service(db).submit_room_code(
+    return core_match_call(lambda: ArenaV3Service(db).submit_room_code(
         match_id=match_id, owner_id=current_user.telegram_id, payload=payload
     ))
 
@@ -135,20 +148,20 @@ def submit_appeal(
     ))
 
 
-@router.post("/{match_id}/cancel", response_model=ArenaV3FoundationResponse)
+@router.post("/{match_id}/cancel", response_model=ArenaV3MatchResponse)
 def cancel_match(
     match_id: int, payload: ArenaV3CancelRequest,
     current_user: TelegramUser = Depends(require_arena_v3_access),
     idempotency_key: str = Depends(require_idempotency_key),
     db: Session = Depends(get_db),
 ):
-    return foundation_call(lambda: ArenaV3Service(db).cancel_match(
+    return core_match_call(lambda: ArenaV3Service(db).cancel_match(
         match_id=match_id, player_id=current_user.telegram_id, payload=payload,
         idempotency_key=idempotency_key,
     ))
 
 
-@router.get("/open")
+@router.get("/open", response_model=ArenaV3MatchListResponse)
 def open_matches(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
@@ -159,12 +172,16 @@ def open_matches(
     return {"matches": matches}
 
 
-@router.get("/active")
+@router.get("/active", response_model=ArenaV3ActiveMatchResponse)
 def active_match(
     current_user: TelegramUser = Depends(require_arena_v3_access),
     db: Session = Depends(get_db),
 ):
-    return {"match": ArenaV3Service(db).repository.get_active_for_player(current_user.telegram_id)}
+    return {
+        "match": ArenaV3Service(db).repository.find_active_for_player(
+            current_user.telegram_id
+        )
+    }
 
 
 @router.post("/internal/{match_id}/start-ai-review", response_model=ArenaV3FoundationResponse)
@@ -214,13 +231,18 @@ def ranking(
     return foundation_call(lambda: ArenaV3Service(db).ranking(period=period))
 
 
-@router.get("/{match_id}")
+@router.get("/{match_id}", response_model=ArenaV3MatchResponse)
 def match_detail(
     match_id: int,
-    _: TelegramUser = Depends(require_arena_v3_access),
+    current_user: TelegramUser = Depends(require_arena_v3_access),
     db: Session = Depends(get_db),
 ):
     match = ArenaV3Service(db).repository.get_match(match_id)
     if match is None:
         raise HTTPException(status_code=404, detail="Arena V3 match not found")
+    if (
+        match.status != ArenaV3Status.OPEN
+        and current_user.telegram_id not in {match.owner_id, match.opponent_id}
+    ):
+        raise HTTPException(status_code=403, detail="Player is not a match participant")
     return match
