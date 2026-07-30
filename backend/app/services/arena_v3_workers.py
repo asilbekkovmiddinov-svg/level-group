@@ -170,16 +170,41 @@ def process_screenshot_timeout(
     if match is None:
         db.rollback()
         return ArenaV3TimeoutResult(match_id, "MISSING")
-    if match.status != ArenaV3Status.PLAYING or not match.screenshot_deadline_at:
+    if match.status not in {
+        ArenaV3Status.PLAYING,
+        ArenaV3Status.WAITING_SCREENSHOT,
+    } or not match.screenshot_deadline_at:
         db.rollback()
         return ArenaV3TimeoutResult(match_id, "SKIPPED", status=match.status.value)
+    if match.status == ArenaV3Status.PLAYING:
+        if (
+            not match.screenshot_started_at
+            or _utc(match.screenshot_started_at) > now
+        ):
+            db.rollback()
+            return ArenaV3TimeoutResult(
+                match_id, "NOT_DUE", status=match.status.value
+            )
+        previous = ArenaV3Status(match.status)
+        transition_arena_v3(match, ArenaV3Status.WAITING_SCREENSHOT)
+        _system_event(
+            repository,
+            match,
+            event_type="SCREENSHOT_WINDOW_STARTED",
+            idempotency_key="screenshot-window-started",
+            from_status=previous,
+        )
+        db.commit()
+        db.refresh(match)
+        return ArenaV3TimeoutResult(
+            match.id, "WINDOW_OPENED", status=match.status.value
+        )
     if _utc(match.screenshot_deadline_at) > now:
         db.rollback()
         return ArenaV3TimeoutResult(match_id, "NOT_DUE", status=match.status.value)
 
     screenshots = list(repository.list_screenshots(match.id))
     previous = ArenaV3Status(match.status)
-    transition_arena_v3(match, ArenaV3Status.WAITING_SCREENSHOT)
     _system_event(
         repository,
         match,
@@ -213,9 +238,21 @@ def run_screenshot_timeout_queue(db, *, limit: int = 50, now=None) -> list:
     match_ids = [
         row[0] for row in (
             db.query(ArenaV3Match.id)
-            .filter(ArenaV3Match.status == ArenaV3Status.PLAYING)
+            .filter(ArenaV3Match.status.in_([
+                ArenaV3Status.PLAYING,
+                ArenaV3Status.WAITING_SCREENSHOT,
+            ]))
             .filter(ArenaV3Match.screenshot_deadline_at.is_not(None))
-            .filter(ArenaV3Match.screenshot_deadline_at <= now)
+            .filter(
+                (
+                    (ArenaV3Match.status == ArenaV3Status.PLAYING)
+                    & (ArenaV3Match.screenshot_started_at <= now)
+                )
+                | (
+                    (ArenaV3Match.status == ArenaV3Status.WAITING_SCREENSHOT)
+                    & (ArenaV3Match.screenshot_deadline_at <= now)
+                )
+            )
             .order_by(ArenaV3Match.screenshot_deadline_at, ArenaV3Match.id)
             .limit(limit)
             .all()
