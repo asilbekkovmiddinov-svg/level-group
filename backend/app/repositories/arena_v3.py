@@ -135,6 +135,19 @@ class ArenaV3Repository:
             )
         ).scalars().first()
 
+    def get_appeal_for_update(self, match_id: int) -> ArenaV3Appeal | None:
+        return self.db.execute(
+            select(ArenaV3Appeal)
+            .where(ArenaV3Appeal.match_id == match_id)
+            .order_by(ArenaV3Appeal.id.desc())
+            .with_for_update()
+        ).scalars().first()
+
+    def get_appeal_by_idempotency(
+        self, match_id: int, key: str
+    ) -> ArenaV3MatchEvent | None:
+        return self.get_event_by_idempotency(match_id, f"appeal-upload:{key}")
+
     def get_stats_for_update(self, player_id: int) -> ArenaV3Stats | None:
         return self.db.execute(
             select(ArenaV3Stats)

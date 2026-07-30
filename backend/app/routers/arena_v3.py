@@ -13,11 +13,12 @@ from app.core.telegram_auth import TelegramUser, get_current_telegram_user
 from app.models.arena_v3 import ArenaV3Status
 from app.repositories.arena_v3 import ArenaV3Repository
 from app.schemas.arena_v3 import (
-    ArenaV3AppealRequest, ArenaV3CancelRequest, ArenaV3ConfigResponse,
+    ArenaV3AppealDecisionRequest, ArenaV3AppealRequest,
+    ArenaV3AppealResponse, ArenaV3CancelRequest, ArenaV3ConfigResponse,
     ArenaV3CreateRequest, ArenaV3FoundationResponse, ArenaV3JoinRequest,
     ArenaV3AIReviewResponse,
     ArenaV3MatchListResponse, ArenaV3MatchResponse, ArenaV3ActiveMatchResponse,
-    ArenaV3ProfileResponse, ArenaV3ResultResponse,
+    ArenaV3ProfileResponse, ArenaV3RankingResponse, ArenaV3ResultResponse,
     ArenaV3ReadyRequest, ArenaV3RoomCodeRequest, ArenaV3ScreenshotListResponse,
     ArenaV3ScreenshotResponse,
 )
@@ -26,7 +27,12 @@ from app.services.arena_v3 import (
     ArenaV3Service,
     ArenaV3ServiceError,
 )
-from app.services.arena_v3_evidence import MAX_SCREENSHOT_SIZE, validate_screenshot
+from app.services.arena_v3_evidence import (
+    MAX_APPEAL_VIDEO_SIZE,
+    MAX_SCREENSHOT_SIZE,
+    validate_appeal_video,
+    validate_screenshot,
+)
 from app.services.object_storage import (
     StorageConfigurationError,
     StorageOperationError,
@@ -198,8 +204,8 @@ def list_screenshots(
     return {"screenshots": screenshots}
 
 
-@router.post("/{match_id}/video-appeal", response_model=ArenaV3FoundationResponse)
-def submit_appeal(
+@router.post("/{match_id}/video-appeal", response_model=ArenaV3AppealResponse)
+async def submit_appeal(
     match_id: int,
     payload: ArenaV3AppealRequest = Depends(),
     video: UploadFile = File(...),
@@ -207,10 +213,51 @@ def submit_appeal(
     idempotency_key: str = Depends(require_idempotency_key),
     db: Session = Depends(get_db),
 ):
-    return foundation_call(lambda: ArenaV3Service(db).submit_appeal(
-        match_id=match_id, player_id=current_user.telegram_id, payload=payload,
-        video=video, idempotency_key=idempotency_key,
+    from app.services.arena_v3_appeals import (
+        ensure_video_upload_allowed,
+        submit_video_appeal,
+    )
+    existing = core_match_call(lambda: ensure_video_upload_allowed(
+        db,
+        match_id=match_id,
+        player_id=current_user.telegram_id,
+        idempotency_key=idempotency_key,
     ))
+    if existing is not None:
+        return existing
+    content = await video.read(MAX_APPEAL_VIDEO_SIZE + 1)
+    metadata = core_match_call(lambda: validate_appeal_video(
+        video.filename, video.content_type, content
+    ))
+    file_hash = hashlib.sha256(content).hexdigest()
+    storage_key = (
+        f"arena/v3/{match_id}/appeals/"
+        f"{current_user.telegram_id}/{uuid4()}.{metadata.extension}"
+    )
+    try:
+        await run_in_threadpool(
+            upload_object, storage_key, content, metadata.mime_type
+        )
+    except StorageConfigurationError as exc:
+        raise HTTPException(503, "Appeal storage is not configured") from exc
+    except StorageOperationError as exc:
+        raise HTTPException(502, "Appeal storage upload failed") from exc
+    try:
+        return core_match_call(lambda: submit_video_appeal(
+            db,
+            match_id=match_id,
+            player_id=current_user.telegram_id,
+            payload=payload,
+            idempotency_key=idempotency_key,
+            storage_key=storage_key,
+            file_hash=file_hash,
+        ))
+    except Exception:
+        try:
+            await run_in_threadpool(delete_object, storage_key)
+        except (StorageConfigurationError, StorageOperationError):
+            pass
+        raise
 
 
 @router.post("/{match_id}/cancel", response_model=ArenaV3MatchResponse)
@@ -283,6 +330,26 @@ def internal_ai_result(
     return review
 
 
+@internal_router.post(
+    "/{match_id}/appeal/decision",
+    response_model=ArenaV3MatchResponse,
+)
+def internal_appeal_decision(
+    match_id: int,
+    payload: ArenaV3AppealDecisionRequest,
+    idempotency_key: str = Depends(require_idempotency_key),
+    _: None = Depends(require_arena_internal_api_key),
+    db: Session = Depends(get_db),
+):
+    from app.services.arena_v3_appeals import resolve_appeal
+    return core_match_call(lambda: resolve_appeal(
+        db,
+        match_id=match_id,
+        payload=payload,
+        idempotency_key=idempotency_key,
+    ))
+
+
 @router.post("/internal/{match_id}/finish", response_model=ArenaV3MatchResponse)
 def finish_match(
     match_id: int,
@@ -326,13 +393,23 @@ def profile(
     return stats
 
 
-@router.get("/ranking", response_model=ArenaV3FoundationResponse)
+@router.get("/ranking", response_model=ArenaV3RankingResponse)
 def ranking(
     period: str = Query("all", pattern="^(weekly|monthly|all)$"),
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
     _: TelegramUser = Depends(require_arena_v3_access),
     db: Session = Depends(get_db),
 ):
-    return foundation_call(lambda: ArenaV3Service(db).ranking(period=period))
+    from app.services.arena_v3_ranking import get_ranking
+    return {
+        "period": period,
+        "players": get_ranking(
+            db, period=period, limit=limit, offset=offset
+        ),
+        "limit": limit,
+        "offset": offset,
+    }
 
 
 @router.get("/{match_id}/result", response_model=ArenaV3ResultResponse)

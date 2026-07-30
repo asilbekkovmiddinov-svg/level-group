@@ -48,11 +48,16 @@ from app.routers.wheel_coin_order_admin import router as wheel_coin_order_admin_
 from app.routers.support import router as support_router
 from app.routers.monetag_ads import router as monetag_ads_router
 from app.core.observability import configure_logging, correlation_middleware
-from app.core.config import ARENA_V3_AI_ENABLED, CAMPAIGN_WORKER_ENABLED
+from app.core.config import (
+    ARENA_V3_AI_ENABLED,
+    ARENA_V3_ENABLED,
+    CAMPAIGN_WORKER_ENABLED,
+)
 from app.services.campaign_worker import CampaignWorker
 from app.services.coin_promotion_timeouts import CoinPromotionTimeoutWorker
 from app.services.arena_timeouts import ArenaTimeoutWorker
 from app.services.arena_v3_workers import ArenaV3AIWorker, ArenaV3ScreenshotTimeoutWorker
+from app.services.arena_v3_notifications import ArenaV3NotificationWorker
 
 
 configure_logging()
@@ -61,6 +66,7 @@ coin_promotion_timeout_worker = CoinPromotionTimeoutWorker(SessionLocal)
 arena_timeout_worker = ArenaTimeoutWorker(SessionLocal)
 arena_v3_timeout_worker = ArenaV3ScreenshotTimeoutWorker(SessionLocal)
 arena_v3_ai_worker = ArenaV3AIWorker(SessionLocal)
+arena_v3_notification_worker = ArenaV3NotificationWorker(SessionLocal)
 app = FastAPI(
     title="LEVEL_GROUP API",
     version="1.0.0",
@@ -76,6 +82,8 @@ def start_campaign_worker():
     arena_v3_timeout_worker.start()
     if ARENA_V3_AI_ENABLED:
         arena_v3_ai_worker.start()
+    if ARENA_V3_ENABLED:
+        arena_v3_notification_worker.start()
 
 
 @app.on_event("shutdown")
@@ -85,6 +93,7 @@ def stop_campaign_worker():
     arena_timeout_worker.stop()
     arena_v3_timeout_worker.stop()
     arena_v3_ai_worker.stop()
+    arena_v3_notification_worker.stop()
 app.middleware("http")(correlation_middleware)
 
 app.add_middleware(

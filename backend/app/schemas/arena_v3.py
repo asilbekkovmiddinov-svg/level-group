@@ -1,5 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -80,6 +81,62 @@ class ArenaV3AppealRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     reason_code: str = Field(min_length=1, max_length=64, pattern=r"^[A-Z0-9_]+$")
     comment: str | None = Field(default=None, max_length=500)
+
+
+class ArenaV3AppealResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    match_id: int
+    submitted_by: int | None
+    reason_code: str
+    comment: str | None
+    status: str
+    created_at: datetime
+    resolved_at: datetime | None
+
+
+class ArenaV3AppealDecisionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    resolution: Literal["ACCEPTED", "REJECTED"]
+    owner_score: int | None = Field(default=None, ge=0, le=99)
+    opponent_score: int | None = Field(default=None, ge=0, le=99)
+    winner_player_id: int | None = Field(default=None, gt=0)
+    admin_comment: str | None = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def validate_accepted_result(self):
+        if self.resolution == "ACCEPTED":
+            if self.owner_score is None or self.opponent_score is None:
+                raise ValueError("Accepted appeal requires both scores")
+        elif any(
+            value is not None
+            for value in (self.owner_score, self.opponent_score, self.winner_player_id)
+        ):
+            raise ValueError("Rejected appeal must not include a match result")
+        return self
+
+
+class ArenaV3RankingPlayerResponse(BaseModel):
+    player_id: int
+    rank: int
+    username: str
+    wins: int
+    losses: int
+    draws: int
+    total_matches: int
+    win_rate: Decimal
+    goals_for: int
+    goals_against: int
+    total_efc_won: Decimal
+
+
+class ArenaV3RankingResponse(BaseModel):
+    period: Literal["weekly", "monthly", "all"]
+    players: list[ArenaV3RankingPlayerResponse]
+    limit: int
+    offset: int
 
 
 class ArenaV3FoundationResponse(BaseModel):
