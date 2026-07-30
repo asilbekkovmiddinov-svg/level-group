@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.runtime import validate_startup_settings
 validate_startup_settings()
 
-from app.core.database import create_tables, SessionLocal
+from app.core.database import create_tables, engine, SessionLocal
 from app.core.migrations import run_migrations
 from app.core.arena_v3_migrations import run_arena_v3_migrations
 from app.core.coin_chat_migration import run_coin_chat_migration
@@ -90,7 +90,7 @@ app.add_middleware(
 
 create_tables()
 run_migrations()
-run_arena_v3_migrations(SessionLocal.kw["bind"])
+run_arena_v3_migrations(engine)
 run_coin_chat_migration()
 
 db = SessionLocal()
