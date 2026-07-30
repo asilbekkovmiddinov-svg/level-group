@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.core import config
 from app.core.database import get_db
+from app.core.arena_internal_auth import require_arena_internal_api_key
 from app.core.telegram_auth import TelegramUser, get_current_telegram_user
 from app.schemas.arena_v3 import (
     ArenaV3AppealRequest, ArenaV3CancelRequest, ArenaV3ConfigResponse,
@@ -164,6 +165,28 @@ def active_match(
     db: Session = Depends(get_db),
 ):
     return {"match": ArenaV3Service(db).repository.get_active_for_player(current_user.telegram_id)}
+
+
+@router.post("/internal/{match_id}/start-ai-review", response_model=ArenaV3FoundationResponse)
+def start_ai_review(
+    match_id: int,
+    _: None = Depends(require_arena_internal_api_key),
+    db: Session = Depends(get_db),
+):
+    if not config.ARENA_V3_AI_ENABLED:
+        raise HTTPException(status_code=503, detail="Arena V3 AI is disabled")
+    return foundation_call(lambda: ArenaV3Service(db).start_ai_review(match_id=match_id))
+
+
+@router.post("/internal/{match_id}/finish", response_model=ArenaV3FoundationResponse)
+def finish_match(
+    match_id: int,
+    _: None = Depends(require_arena_internal_api_key),
+    db: Session = Depends(get_db),
+):
+    if not config.ARENA_V3_SETTLEMENT_ENABLED:
+        raise HTTPException(status_code=503, detail="Arena V3 settlement is disabled")
+    return foundation_call(lambda: ArenaV3Service(db).finish_match(match_id=match_id))
 
 
 @router.get("/history", response_model=ArenaV3FoundationResponse)
