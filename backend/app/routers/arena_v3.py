@@ -1,7 +1,10 @@
+import hashlib
+from uuid import uuid4
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.core import config
 from app.core.database import get_db
@@ -11,17 +14,27 @@ from app.models.arena_v3 import ArenaV3Status
 from app.schemas.arena_v3 import (
     ArenaV3AppealRequest, ArenaV3CancelRequest, ArenaV3ConfigResponse,
     ArenaV3CreateRequest, ArenaV3FoundationResponse, ArenaV3JoinRequest,
+    ArenaV3AIReviewResponse,
     ArenaV3MatchListResponse, ArenaV3MatchResponse, ArenaV3ActiveMatchResponse,
-    ArenaV3ReadyRequest, ArenaV3RoomCodeRequest,
+    ArenaV3ReadyRequest, ArenaV3RoomCodeRequest, ArenaV3ScreenshotListResponse,
+    ArenaV3ScreenshotResponse,
 )
 from app.services.arena_v3 import (
     ArenaV3FoundationOnly,
     ArenaV3Service,
     ArenaV3ServiceError,
 )
+from app.services.arena_v3_evidence import MAX_SCREENSHOT_SIZE, validate_screenshot
+from app.services.object_storage import (
+    StorageConfigurationError,
+    StorageOperationError,
+    delete_object,
+    upload_object,
+)
 
 
 router = APIRouter(prefix="/arena", tags=["Arena V3"])
+internal_router = APIRouter(prefix="/internal/arena", tags=["Arena V3 Internal"])
 
 
 def require_arena_v3_access(
@@ -119,18 +132,68 @@ def submit_room_code(
     ))
 
 
-@router.post("/{match_id}/upload-screenshot", response_model=ArenaV3FoundationResponse)
-def upload_screenshot(
+@router.post("/{match_id}/upload-screenshot", response_model=ArenaV3ScreenshotResponse)
+async def upload_screenshot(
     match_id: int,
     file: UploadFile = File(...),
     current_user: TelegramUser = Depends(require_arena_v3_access),
     idempotency_key: str = Depends(require_idempotency_key),
     db: Session = Depends(get_db),
 ):
-    return foundation_call(lambda: ArenaV3Service(db).upload_screenshot(
-        match_id=match_id, player_id=current_user.telegram_id, file=file,
-        idempotency_key=idempotency_key,
+    service = ArenaV3Service(db)
+    core_match_call(lambda: service.ensure_screenshot_upload_allowed(
+        match_id=match_id, player_id=current_user.telegram_id
     ))
+    content = await file.read(MAX_SCREENSHOT_SIZE + 1)
+    metadata = core_match_call(lambda: validate_screenshot(
+        file.filename, file.content_type, content
+    ))
+    file_hash = hashlib.sha256(content).hexdigest()
+    storage_key = (
+        f"arena/v3/{match_id}/screenshots/"
+        f"{current_user.telegram_id}/{uuid4()}.{metadata.extension}"
+    )
+    try:
+        await run_in_threadpool(
+            upload_object, storage_key, content, metadata.mime_type
+        )
+    except StorageConfigurationError as exc:
+        raise HTTPException(503, "Screenshot storage is not configured") from exc
+    except StorageOperationError as exc:
+        raise HTTPException(502, "Screenshot storage upload failed") from exc
+    try:
+        return core_match_call(lambda: service.upload_screenshot(
+            match_id=match_id,
+            player_id=current_user.telegram_id,
+            idempotency_key=idempotency_key,
+            storage_key=storage_key,
+            file_hash=file_hash,
+            mime_type=metadata.mime_type,
+            file_size=metadata.file_size,
+            width=metadata.width,
+            height=metadata.height,
+        ))
+    except Exception:
+        try:
+            await run_in_threadpool(delete_object, storage_key)
+        except (StorageConfigurationError, StorageOperationError):
+            pass
+        raise
+
+
+@router.get(
+    "/{match_id}/screenshots",
+    response_model=ArenaV3ScreenshotListResponse,
+)
+def list_screenshots(
+    match_id: int,
+    current_user: TelegramUser = Depends(require_arena_v3_access),
+    db: Session = Depends(get_db),
+):
+    screenshots = core_match_call(lambda: ArenaV3Service(db).list_screenshots(
+        match_id=match_id, player_id=current_user.telegram_id
+    ))
+    return {"screenshots": screenshots}
 
 
 @router.post("/{match_id}/video-appeal", response_model=ArenaV3FoundationResponse)
@@ -184,15 +247,26 @@ def active_match(
     }
 
 
-@router.post("/internal/{match_id}/start-ai-review", response_model=ArenaV3FoundationResponse)
+@router.post("/internal/{match_id}/start-ai-review", response_model=ArenaV3AIReviewResponse)
 def start_ai_review(
     match_id: int,
     _: None = Depends(require_arena_internal_api_key),
     db: Session = Depends(get_db),
 ):
-    if not config.ARENA_V3_AI_ENABLED:
-        raise HTTPException(status_code=503, detail="Arena V3 AI is disabled")
-    return foundation_call(lambda: ArenaV3Service(db).start_ai_review(match_id=match_id))
+    return core_match_call(
+        lambda: ArenaV3Service(db).start_ai_review(match_id=match_id)
+    )
+
+
+@internal_router.post("/{match_id}/start-ai", response_model=ArenaV3AIReviewResponse)
+def internal_start_ai(
+    match_id: int,
+    _: None = Depends(require_arena_internal_api_key),
+    db: Session = Depends(get_db),
+):
+    return core_match_call(
+        lambda: ArenaV3Service(db).start_ai_review(match_id=match_id)
+    )
 
 
 @router.post("/internal/{match_id}/finish", response_model=ArenaV3FoundationResponse)

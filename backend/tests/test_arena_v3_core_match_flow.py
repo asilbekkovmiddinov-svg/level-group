@@ -110,6 +110,10 @@ def test_service_runs_complete_core_flow_and_records_events(session_factory):
     assert match.status == ArenaV3Status.PLAYING
     assert match.room_code == "123456"
     assert match.playing_started_at is not None
+    assert match.screenshot_started_at is not None
+    assert (
+        match.screenshot_deadline_at - match.screenshot_started_at
+    ).total_seconds() == 60
     assert db.query(ArenaV3MatchEvent).filter_by(match_id=match.id).count() == 5
 
 

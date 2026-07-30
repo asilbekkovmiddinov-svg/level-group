@@ -34,11 +34,9 @@ class ArenaV3SettlementStatus(str, Enum):
 
 class ArenaV3AIReviewStatus(str, Enum):
     PENDING = "PENDING"
-    PROCESSING = "PROCESSING"
-    PROVISIONAL = "PROVISIONAL"
-    CONFLICT = "CONFLICT"
+    RUNNING = "RUNNING"
+    COMPLETED = "COMPLETED"
     FAILED = "FAILED"
-    ACCEPTED = "ACCEPTED"
 
 
 class ArenaV3AppealStatus(str, Enum):
