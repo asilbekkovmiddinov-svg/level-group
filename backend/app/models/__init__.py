@@ -16,3 +16,13 @@ from .wheel_coin_order_audit import WheelCoinOrderAudit
 from .wheel import AdsgramRewardSession, MonetagRewardEvent
 from .p2p import P2POrder
 from .match import ArenaNotificationDelivery, Match, MatchStats
+
+from .arena_v3 import (
+    ArenaV3AIReview,
+    ArenaV3Appeal,
+    ArenaV3Match,
+    ArenaV3MatchEvent,
+    ArenaV3MatchScreenshot,
+    ArenaV3NotificationDelivery,
+    ArenaV3Stats,
+)

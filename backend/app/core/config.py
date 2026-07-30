@@ -66,6 +66,25 @@ CAMPAIGN_DELIVERY_CLAIM_TTL_SECONDS = int(os.getenv("CAMPAIGN_DELIVERY_CLAIM_TTL
 COIN_PROMOTION_ORDER_TIMEOUT_SECONDS = int(os.getenv("COIN_PROMOTION_ORDER_TIMEOUT_SECONDS", "1800"))
 COIN_PROMOTION_TIMEOUT_INTERVAL_SECONDS = float(os.getenv("COIN_PROMOTION_TIMEOUT_INTERVAL_SECONDS", "30"))
 ARENA_TIMEOUT_INTERVAL_SECONDS = float(os.getenv("ARENA_TIMEOUT_INTERVAL_SECONDS", "30"))
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    normalized = value.strip().lower()
+    if normalized not in {"1", "0", "true", "false", "yes", "no", "on", "off"}:
+        raise ValueError(f"{name} must be a boolean")
+    return normalized in {"1", "true", "yes", "on"}
+
+
+ARENA_V3_ENABLED = _env_bool("ARENA_V3_ENABLED", False)
+ARENA_V3_CREATE_ENABLED = _env_bool("ARENA_V3_CREATE_ENABLED", False)
+ARENA_V3_AI_ENABLED = _env_bool("ARENA_V3_AI_ENABLED", False)
+ARENA_V3_SETTLEMENT_ENABLED = _env_bool("ARENA_V3_SETTLEMENT_ENABLED", False)
+ARENA_V3_ALLOWED_TELEGRAM_IDS = _telegram_id_allowlist(
+    os.getenv("ARENA_V3_ALLOWED_TELEGRAM_IDS")
+)
+ARENA_V2_CREATE_ENABLED = _env_bool("ARENA_V2_CREATE_ENABLED", True)
 ADSGRAM_REWARD_SECRET = os.getenv("ADSGRAM_REWARD_SECRET")
 ADSGRAM_REWARD_SESSION_TTL_SECONDS = int(os.getenv("ADSGRAM_REWARD_SESSION_TTL_SECONDS", "300"))
 MONETAG_POSTBACK_SECRET = os.getenv("MONETAG_POSTBACK_SECRET")
