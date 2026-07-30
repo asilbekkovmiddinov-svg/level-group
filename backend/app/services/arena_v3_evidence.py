@@ -5,10 +5,16 @@ from app.services.arena_v3 import ArenaV3ServiceError
 
 
 MAX_SCREENSHOT_SIZE = 5 * 1024 * 1024
+MAX_APPEAL_VIDEO_SIZE = 50 * 1024 * 1024
 SCREENSHOT_TYPES = {
     "jpg": ("image/jpeg", b"\xff\xd8\xff"),
     "jpeg": ("image/jpeg", b"\xff\xd8\xff"),
     "png": ("image/png", b"\x89PNG\r\n\x1a\n"),
+}
+APPEAL_VIDEO_TYPES = {
+    "mp4": "video/mp4",
+    "mov": "video/quicktime",
+    "webm": "video/webm",
 }
 
 
@@ -19,6 +25,13 @@ class ScreenshotMetadata:
     file_size: int
     width: int
     height: int
+
+
+@dataclass(frozen=True)
+class AppealVideoMetadata:
+    extension: str
+    mime_type: str
+    file_size: int
 
 
 def _png_dimensions(content: bytes) -> tuple[int, int]:
@@ -79,4 +92,30 @@ def validate_screenshot(filename: str | None, content_type: str | None, content:
         file_size=len(content),
         width=width,
         height=height,
+    )
+
+
+def validate_appeal_video(
+    filename: str | None, content_type: str | None, content: bytes
+) -> AppealVideoMetadata:
+    extension = Path(filename or "").suffix.lower().lstrip(".")
+    expected_type = APPEAL_VIDEO_TYPES.get(extension)
+    if expected_type is None or not content:
+        raise ArenaV3ServiceError("Appeal video must be MP4, MOV or WEBM")
+    if len(content) > MAX_APPEAL_VIDEO_SIZE:
+        error = ArenaV3ServiceError("Appeal video exceeds the 50 MB limit")
+        error.status_code = 413
+        raise error
+    if content_type != expected_type:
+        raise ArenaV3ServiceError("Appeal video content type is invalid")
+    is_webm = extension == "webm" and content.startswith(b"\x1a\x45\xdf\xa3")
+    is_iso_media = extension in {"mp4", "mov"} and (
+        len(content) >= 12 and content[4:8] == b"ftyp"
+    )
+    if not (is_webm or is_iso_media):
+        raise ArenaV3ServiceError("Appeal video signature is invalid")
+    return AppealVideoMetadata(
+        extension=extension,
+        mime_type=expected_type,
+        file_size=len(content),
     )
