@@ -204,7 +204,8 @@ def test_api_safe_flags_validation_and_foundation_boundary(client, monkeypatch):
 
     monkeypatch.setattr(config, "ARENA_V3_CREATE_ENABLED", True)
     response = client.post("/arena/create", json=payload, headers=headers)
-    assert response.status_code == 501
+    assert response.status_code == 201
+    assert response.json()["status"] == "OPEN"
 
 
 def test_v2_routes_are_not_modified_by_v3_router():

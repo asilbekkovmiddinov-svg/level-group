@@ -1,6 +1,9 @@
+from datetime import datetime
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from app.models.arena_v3 import ArenaV3SettlementStatus, ArenaV3Status
 
 
 class ArenaV3CreateRequest(BaseModel):
@@ -77,6 +80,44 @@ class ArenaV3AppealRequest(BaseModel):
 class ArenaV3FoundationResponse(BaseModel):
     status: str
     detail: str
+
+
+class ArenaV3MatchResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    public_id: str
+    owner_id: int
+    opponent_id: int | None
+    owner_efootball_username: str
+    opponent_efootball_username: str | None
+    stake_efc: Decimal
+    total_pool_efc: Decimal
+    commission_efc: Decimal
+    winner_reward_efc: Decimal
+    match_type: str
+    match_time_minutes: int
+    extra_time_enabled: bool
+    penalties_enabled: bool
+    status: ArenaV3Status
+    owner_ready_at: datetime | None
+    opponent_ready_at: datetime | None
+    room_code: str | None
+    room_code_created_at: datetime | None
+    playing_started_at: datetime | None
+    settlement_status: ArenaV3SettlementStatus
+    cancel_reason: str | None
+    version: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class ArenaV3MatchListResponse(BaseModel):
+    matches: list[ArenaV3MatchResponse]
+
+
+class ArenaV3ActiveMatchResponse(BaseModel):
+    match: ArenaV3MatchResponse | None
 
 
 class ArenaV3ConfigResponse(BaseModel):
