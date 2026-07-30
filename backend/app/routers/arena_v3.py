@@ -26,6 +26,7 @@ from app.services.arena_v3 import (
     ArenaV3FoundationOnly,
     ArenaV3Service,
     ArenaV3ServiceError,
+    SCREENSHOT_UPLOAD_WINDOW_SECONDS,
 )
 from app.services.arena_v3_evidence import (
     MAX_APPEAL_VIDEO_SIZE,
@@ -86,7 +87,7 @@ def arena_v3_config(_: TelegramUser = Depends(require_arena_v3_access)):
         "match_time_minutes": list(range(6, 16)),
         "penalties_required": True,
         "room_code_max_length": 8,
-        "screenshot_deadline_seconds": 60,
+        "screenshot_deadline_seconds": SCREENSHOT_UPLOAD_WINDOW_SECONDS,
     }
 
 

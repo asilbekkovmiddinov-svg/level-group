@@ -86,6 +86,8 @@ def test_service_runs_complete_core_flow_and_records_events(session_factory):
     )
     assert match.status == ArenaV3Status.READY
     assert match.opponent_id == 2002
+    assert match.owner_efootball_username == "Owner"
+    assert match.opponent_efootball_username == "Opponent"
 
     match = ArenaV3Service(db).ready(
         match_id=match.id,
@@ -116,7 +118,7 @@ def test_service_runs_complete_core_flow_and_records_events(session_factory):
     ).total_seconds() == match.match_time_minutes * 60
     assert (
         match.screenshot_deadline_at - match.screenshot_started_at
-    ).total_seconds() == 60
+    ).total_seconds() == 300
     assert db.query(ArenaV3MatchEvent).filter_by(match_id=match.id).count() == 5
 
 
@@ -156,7 +158,7 @@ def test_room_code_schedules_screenshot_window_after_match_time(
     ).total_seconds() == match_time_minutes * 60
     assert (
         match.screenshot_deadline_at - match.screenshot_started_at
-    ).total_seconds() == 60
+    ).total_seconds() == 300
 
 
 def test_create_and_join_are_idempotent_and_protect_active_players(session_factory):

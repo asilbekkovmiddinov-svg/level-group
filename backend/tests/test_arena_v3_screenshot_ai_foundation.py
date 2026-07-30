@@ -75,7 +75,7 @@ def playing_match(db, **overrides):
         "settlement_status": ArenaV3SettlementStatus.NOT_STARTED,
         "playing_started_at": NOW,
         "screenshot_started_at": NOW,
-        "screenshot_deadline_at": NOW + timedelta(seconds=60),
+        "screenshot_deadline_at": NOW + timedelta(seconds=300),
         "version": 4,
     }
     values.update(overrides)
@@ -152,7 +152,7 @@ def test_timeout_with_evidence_queues_ai_review(session_factory, screenshot_coun
         upload(service, match.id, 2002, "opponent")
 
     result = process_screenshot_timeout(
-        db, match.id, now=NOW + timedelta(seconds=61)
+        db, match.id, now=NOW + timedelta(seconds=301)
     )
     db.refresh(match)
     assert result.outcome == "PROCESSED"
@@ -171,7 +171,7 @@ def test_timeout_without_evidence_cancels_without_wallet_action(session_factory)
     db = session_factory()
     match = playing_match(db)
     result = process_screenshot_timeout(
-        db, match.id, now=NOW + timedelta(seconds=61)
+        db, match.id, now=NOW + timedelta(seconds=301)
     )
     db.refresh(match)
     assert result.status == "CANCELLED"
@@ -181,7 +181,7 @@ def test_timeout_without_evidence_cancels_without_wallet_action(session_factory)
 
 
 @pytest.mark.parametrize("match_time_minutes", [6, 8, 10, 12, 15])
-def test_match_duration_opens_60_second_screenshot_window(
+def test_match_duration_opens_5_minute_screenshot_window(
     session_factory, match_time_minutes
 ):
     db = session_factory()
@@ -191,7 +191,7 @@ def test_match_duration_opens_60_second_screenshot_window(
         match_time_minutes=match_time_minutes,
         screenshot_started_at=NOW + timedelta(minutes=match_time_minutes),
         screenshot_deadline_at=(
-            NOW + timedelta(minutes=match_time_minutes, seconds=60)
+            NOW + timedelta(minutes=match_time_minutes, seconds=300)
         ),
     )
 
@@ -210,14 +210,14 @@ def test_match_duration_opens_60_second_screenshot_window(
     assert match.status == ArenaV3Status.WAITING_SCREENSHOT
     assert (
         match.screenshot_deadline_at - match.screenshot_started_at
-    ).total_seconds() == 60
+    ).total_seconds() == 300
 
 
 def test_ai_queue_start_complete_failure_and_retry(session_factory):
     db = session_factory()
     match = playing_match(db)
     upload(ArenaV3Service(db), match.id, 1001, "owner")
-    process_screenshot_timeout(db, match.id, now=NOW + timedelta(seconds=61))
+    process_screenshot_timeout(db, match.id, now=NOW + timedelta(seconds=301))
 
     review = start_ai_review(db, match.id)
     assert review.status == ArenaV3AIReviewStatus.RUNNING
@@ -269,7 +269,7 @@ def api(session_factory, monkeypatch):
         status=ArenaV3Status.WAITING_SCREENSHOT,
         playing_started_at=api_now,
         screenshot_started_at=api_now,
-        screenshot_deadline_at=api_now + timedelta(seconds=60),
+        screenshot_deadline_at=api_now + timedelta(seconds=300),
     )
     match_id = match.id
     db.close()
@@ -296,7 +296,7 @@ def test_screenshot_and_internal_ai_api(api):
     assert client.get(f"/arena/{match_id}/screenshots").status_code == 403
     db = session_factory()
     process_screenshot_timeout(
-        db, match_id, now=datetime.now(timezone.utc) + timedelta(seconds=61)
+        db, match_id, now=datetime.now(timezone.utc) + timedelta(seconds=301)
     )
     db.close()
     started = client.post(f"/internal/arena/{match_id}/start-ai")
