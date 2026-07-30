@@ -23,6 +23,9 @@ from app.services.arena_v3_state_machine import (
 )
 
 
+SCREENSHOT_UPLOAD_WINDOW_SECONDS = 300
+
+
 MATCH_COMMISSION_PERCENT = Decimal("5.00")
 SUPPORTED_MATCH_TYPES = frozenset({"STANDARD"})
 
@@ -228,7 +231,8 @@ class ArenaV3Service:
             minutes=match.match_time_minutes
         )
         match.screenshot_deadline_at = (
-            match.screenshot_started_at + timedelta(seconds=60)
+            match.screenshot_started_at
+            + timedelta(seconds=SCREENSHOT_UPLOAD_WINDOW_SECONDS)
         )
         transition_arena_v3(match, ArenaV3Status.PLAYING)
         self._event(
