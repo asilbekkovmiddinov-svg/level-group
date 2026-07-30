@@ -196,7 +196,7 @@ class ArenaV3Appeal(Base):
     telegram_file_id = Column(String(500))
     file_hash = Column(String(64), nullable=False)
     status = Column(SQLEnum(ArenaV3AppealStatus, native_enum=False), nullable=False, default=ArenaV3AppealStatus.SUBMITTED)
-    admin_id = Column(BigInteger)
+    admin_id = Column(BigInteger, ForeignKey("users.telegram_id"))
     resolution = Column(String(32))
     admin_comment = Column(String(500))
     created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
