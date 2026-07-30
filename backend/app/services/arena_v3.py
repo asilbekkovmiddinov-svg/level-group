@@ -38,3 +38,12 @@ class ArenaV3Service:
 
     def cancel_match(self, *args, **kwargs):
         raise ArenaV3FoundationOnly("Arena V3 cancel business logic is not enabled")
+
+    def history(self, *args, **kwargs):
+        raise ArenaV3FoundationOnly("Arena V3 history query is not enabled")
+
+    def profile(self, *args, **kwargs):
+        raise ArenaV3FoundationOnly("Arena V3 profile query is not enabled")
+
+    def ranking(self, *args, **kwargs):
+        raise ArenaV3FoundationOnly("Arena V3 ranking query is not enabled")
