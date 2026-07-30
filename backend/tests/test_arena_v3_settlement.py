@@ -20,6 +20,7 @@ from app.models.arena_v3 import (
 from app.models.transaction import Transaction
 from app.models.wallet import Wallet
 from app.routers.arena_v3 import router
+from app.routers.arena_v4 import router as arena_profile_router
 from app.schemas.arena_v3 import ArenaV3CreateRequest, ArenaV3JoinRequest
 from app.services import arena_v3_settlement as settlement
 from app.services.arena_v3 import ArenaV3Conflict, ArenaV3Service
@@ -192,6 +193,7 @@ def test_history_profile_and_result_api_use_settled_data(session_factory):
     settlement.settle_completed_match(db, match.id)
     db.close()
     application = FastAPI()
+    application.include_router(arena_profile_router)
     application.include_router(router)
 
     def override_db():
