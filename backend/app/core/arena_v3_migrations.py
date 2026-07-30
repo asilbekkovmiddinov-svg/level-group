@@ -22,7 +22,11 @@ def run_arena_v3_migrations(bind: Engine | Connection) -> None:
     """Create only additive Arena V3 tables and their constraints/indexes."""
     for table in ARENA_V3_TABLES:
         table.create(bind=bind, checkfirst=True)
-    existing = {column["name"] for column in inspect(bind).get_columns("arena_ai_reviews")}
+    inspector = inspect(bind)
+    existing = {column["name"] for column in inspector.get_columns("arena_ai_reviews")}
+    appeal_columns = {
+        column["name"]: column for column in inspector.get_columns("arena_appeals")
+    }
     additions = {
         "winner_player_id": "BIGINT REFERENCES users (telegram_id)",
         "score": "VARCHAR(16)",
@@ -37,6 +41,27 @@ def run_arena_v3_migrations(bind: Engine | Connection) -> None:
                     connection.execute(text(
                         f"ALTER TABLE arena_ai_reviews ADD COLUMN {name} {ddl}"
                     ))
+            stats_existing = {
+                column["name"] for column in inspector.get_columns("arena_stats_v3")
+            }
+            stats_additions = {
+                "draws": "INTEGER NOT NULL DEFAULT 0",
+                "goals_for": "INTEGER NOT NULL DEFAULT 0",
+                "goals_against": "INTEGER NOT NULL DEFAULT 0",
+                "win_rate": "NUMERIC(5, 2) NOT NULL DEFAULT 0",
+            }
+            for name, ddl in stats_additions.items():
+                if name not in stats_existing:
+                    connection.execute(text(
+                        f"ALTER TABLE arena_stats_v3 ADD COLUMN {name} {ddl}"
+                    ))
+            if connection.dialect.name == "postgresql":
+                for name in ("submitted_by", "video_storage_key", "file_hash"):
+                    if not appeal_columns[name]["nullable"]:
+                        connection.execute(text(
+                            f"ALTER TABLE arena_appeals "
+                            f"ALTER COLUMN {name} DROP NOT NULL"
+                        ))
     finally:
         if owns_connection:
             connection.close()
