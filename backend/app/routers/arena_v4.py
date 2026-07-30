@@ -3,14 +3,17 @@ from typing import Literal
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
+from app.core import config
 from app.core.database import get_db
 from app.core.telegram_auth import TelegramUser, get_current_telegram_user
+from app.schemas.arena_v3 import ArenaV3ProfileResponse
 from app.schemas.match import (
     ArenaDashboardResponse,
     ArenaLeaderboardResponse,
     ArenaProfileResponse,
 )
 from app.services import arena_v4
+from app.services.arena_v3 import ArenaV3Service
 
 
 router = APIRouter(prefix="/arena", tags=["Arena V4"])
@@ -37,9 +40,33 @@ def get_arena_leaderboard(
     }
 
 
-@router.get("/profile", response_model=ArenaProfileResponse)
+@router.get(
+    "/profile",
+    response_model=ArenaV3ProfileResponse | ArenaProfileResponse,
+)
 def get_arena_profile(
     current_user: TelegramUser = Depends(get_current_telegram_user),
     db: Session = Depends(get_db),
 ):
+    if (
+        config.ARENA_V3_ENABLED
+        or current_user.telegram_id in config.ARENA_V3_ALLOWED_TELEGRAM_IDS
+    ):
+        stats = ArenaV3Service(db).profile(player_id=current_user.telegram_id)
+        if stats is not None:
+            return stats
+        return {
+            "player_id": current_user.telegram_id,
+            "total_matches": 0,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "goals_for": 0,
+            "goals_against": 0,
+            "win_rate": 0,
+            "current_streak": 0,
+            "best_streak": 0,
+            "total_efc_won": 0,
+            "total_efc_lost": 0,
+        }
     return arena_v4.get_profile(db, current_user.telegram_id)
