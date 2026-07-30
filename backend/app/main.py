@@ -6,6 +6,7 @@ validate_startup_settings()
 
 from app.core.database import create_tables, SessionLocal
 from app.core.migrations import run_migrations
+from app.core.arena_v3_migrations import run_arena_v3_migrations
 from app.core.coin_chat_migration import run_coin_chat_migration
 from app.core.seed_products import seed_products
 
@@ -25,6 +26,7 @@ from app.routers.system import router as system_router
 from app.routers.match import router as match_router
 from app.routers.match_overview import router as match_overview_router
 from app.routers.arena_v4 import router as arena_v4_router
+from app.routers.arena_v3 import router as arena_v3_router
 from app.routers.internal_wallet import router as internal_wallet_router
 from app.routers.deposit_receipt import router as deposit_receipt_router
 from app.routers.health import router as health_router
@@ -88,6 +90,7 @@ app.add_middleware(
 
 create_tables()
 run_migrations()
+run_arena_v3_migrations(SessionLocal.kw["bind"])
 run_coin_chat_migration()
 
 db = SessionLocal()
@@ -111,6 +114,7 @@ app.include_router(system_router)
 app.include_router(match_router)
 app.include_router(match_overview_router)
 app.include_router(arena_v4_router)
+app.include_router(arena_v3_router)
 app.include_router(internal_wallet_router)
 app.include_router(deposit_receipt_router)
 app.include_router(health_router)
