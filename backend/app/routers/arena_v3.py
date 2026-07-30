@@ -18,7 +18,7 @@ from app.schemas.arena_v3 import (
     ArenaV3CreateRequest, ArenaV3FoundationResponse, ArenaV3JoinRequest,
     ArenaV3AIReviewResponse,
     ArenaV3MatchListResponse, ArenaV3MatchResponse, ArenaV3ActiveMatchResponse,
-    ArenaV3ProfileResponse, ArenaV3RankingResponse, ArenaV3ResultResponse,
+    ArenaV3RankingResponse, ArenaV3ResultResponse,
     ArenaV3ReadyRequest, ArenaV3RoomCodeRequest, ArenaV3ScreenshotListResponse,
     ArenaV3ScreenshotResponse,
 )
@@ -374,23 +374,6 @@ def history(
         player_id=current_user.telegram_id, limit=limit, offset=offset
     ))
     return {"matches": matches}
-
-
-@router.get("/profile", response_model=ArenaV3ProfileResponse)
-def profile(
-    current_user: TelegramUser = Depends(require_arena_v3_access),
-    db: Session = Depends(get_db),
-):
-    stats = ArenaV3Service(db).profile(player_id=current_user.telegram_id)
-    if stats is None:
-        return {
-            "player_id": current_user.telegram_id,
-            "total_matches": 0, "wins": 0, "losses": 0, "draws": 0,
-            "goals_for": 0, "goals_against": 0, "win_rate": 0,
-            "current_streak": 0, "best_streak": 0,
-            "total_efc_won": 0, "total_efc_lost": 0,
-        }
-    return stats
 
 
 @router.get("/ranking", response_model=ArenaV3RankingResponse)
