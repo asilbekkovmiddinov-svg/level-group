@@ -15,6 +15,9 @@ from app.models.arena_v3 import (
     ArenaV3EvidenceStatus,
     ArenaV3SettlementStatus,
     ArenaV3Status,
+    ArenaV4AdminReview,
+    ArenaV4AdminReviewStatus,
+    ArenaV4ReviewType,
 )
 from app.repositories.arena_v3 import ArenaV3Repository
 from app.services.arena_v3_state_machine import (
@@ -280,6 +283,17 @@ class ArenaV3Service:
             validation_status=ArenaV3EvidenceStatus.PENDING,
             uploaded_at=now,
         ))
+        screenshots = list(self.repository.list_screenshots(match.id))
+        if len(screenshots) == 2:
+            transition_arena_v3(match, ArenaV3Status.WAITING_ADMIN)
+            match.screenshot_deadline_at = None
+            self.repository.add_admin_review(ArenaV4AdminReview(
+                match_id=match.id,
+                review_type=ArenaV4ReviewType.INITIAL,
+                status=ArenaV4AdminReviewStatus.PENDING,
+                result_version=match.result_version,
+                expected_match_version=match.version,
+            ))
         self._event(
             match,
             event_type="SCREENSHOT_UPLOADED",

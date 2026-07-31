@@ -20,6 +20,8 @@ from app.models.arena_v3 import (
     ArenaV3MatchEvent,
     ArenaV3SettlementStatus,
     ArenaV3Status,
+    ArenaV4AdminReview,
+    ArenaV4AdminReviewStatus,
 )
 from app.routers import arena_v3 as arena_router
 from app.services.arena_v3 import (
@@ -30,6 +32,7 @@ from app.services.arena_v3 import (
 from app.services.arena_v3_evidence import validate_screenshot
 from app.services.arena_v3_workers import (
     complete_ai_review,
+    enqueue_ai_review,
     process_screenshot_timeout,
     retry_ai_review,
     start_ai_review,
@@ -142,29 +145,37 @@ def test_upload_rejects_wrong_state_and_expired_window(session_factory):
         upload(ArenaV3Service(db), match.id, 1001, "expired")
 
 
-@pytest.mark.parametrize("screenshot_count", [1, 2])
-def test_timeout_with_evidence_queues_ai_review(session_factory, screenshot_count):
+def test_timeout_with_evidence_queues_admin_review(session_factory):
     db = session_factory()
     match = playing_match(db)
     service = ArenaV3Service(db)
     upload(service, match.id, 1001, "owner")
-    if screenshot_count == 2:
-        upload(service, match.id, 2002, "opponent")
-
     result = process_screenshot_timeout(
         db, match.id, now=NOW + timedelta(seconds=301)
     )
     db.refresh(match)
     assert result.outcome == "PROCESSED"
-    assert result.screenshot_count == screenshot_count
-    assert match.status == ArenaV3Status.AI_REVIEW
-    review = service.repository.get_latest_ai_review(match.id)
-    assert review.status == ArenaV3AIReviewStatus.PENDING
-    assert review.owner_screenshot_id is not None
-    assert (review.opponent_screenshot_id is not None) == (screenshot_count == 2)
+    assert result.screenshot_count == 1
+    assert match.status == ArenaV3Status.WAITING_ADMIN
+    review = db.query(ArenaV4AdminReview).one()
+    assert review.status == ArenaV4AdminReviewStatus.PENDING
+    assert service.repository.get_latest_ai_review(match.id) is None
     assert db.query(ArenaV3MatchEvent).filter_by(
         match_id=match.id, event_type="SCREENSHOT_TIMEOUT"
     ).count() == 1
+
+
+def test_both_screenshots_immediately_queue_admin_review(session_factory):
+    db = session_factory()
+    match = playing_match(db)
+    service = ArenaV3Service(db)
+    upload(service, match.id, 1001, "owner")
+    upload(service, match.id, 2002, "opponent")
+
+    db.refresh(match)
+    assert match.status == ArenaV3Status.WAITING_ADMIN
+    assert match.screenshot_deadline_at is None
+    assert db.query(ArenaV4AdminReview).count() == 1
 
 
 def test_timeout_without_evidence_cancels_without_wallet_action(session_factory):
@@ -217,7 +228,9 @@ def test_ai_queue_start_complete_failure_and_retry(session_factory):
     db = session_factory()
     match = playing_match(db)
     upload(ArenaV3Service(db), match.id, 1001, "owner")
-    process_screenshot_timeout(db, match.id, now=NOW + timedelta(seconds=301))
+    match.status = ArenaV3Status.AI_REVIEW
+    enqueue_ai_review(db, match)
+    db.commit()
 
     review = start_ai_review(db, match.id)
     assert review.status == ArenaV3AIReviewStatus.RUNNING
@@ -298,6 +311,10 @@ def test_screenshot_and_internal_ai_api(api):
     process_screenshot_timeout(
         db, match_id, now=datetime.now(timezone.utc) + timedelta(seconds=301)
     )
+    match = db.get(ArenaV3Match, match_id)
+    match.status = ArenaV3Status.AI_REVIEW
+    enqueue_ai_review(db, match)
+    db.commit()
     db.close()
     started = client.post(f"/internal/arena/{match_id}/start-ai")
     assert started.status_code == 200
@@ -312,6 +329,59 @@ def test_v2_routes_are_absent_from_sprint5_routers():
         ]
     }
     assert all(not path.startswith("/matches") for path in paths)
+
+
+def test_internal_admin_review_claim_and_idempotent_decision(api):
+    client, _, match_id, session_factory = api
+    db = session_factory()
+    upload(ArenaV3Service(db), match_id, 1001, "owner")
+    upload(ArenaV3Service(db), match_id, 2002, "opponent")
+    review_id = db.query(ArenaV4AdminReview).one().id
+    db.close()
+
+    listed = client.get("/internal/arena/reviews?status=PENDING")
+    assert listed.status_code == 200
+    assert [item["id"] for item in listed.json()["reviews"]] == [review_id]
+    detail = client.get(f"/internal/arena/reviews/{review_id}")
+    assert detail.status_code == 200
+    assert len(detail.json()["screenshots"]) == 2
+
+    claimed = client.post(
+        f"/internal/arena/reviews/{review_id}/claim",
+        json={"admin_id": 9999},
+    )
+    assert claimed.status_code == 200
+    assert claimed.json()["status"] == "CLAIMED"
+    assert client.post(
+        f"/internal/arena/reviews/{review_id}/claim",
+        json={"admin_id": 8888},
+    ).status_code == 409
+
+    payload = {
+        "admin_id": 9999,
+        "decision": "PLAYER_A_WIN",
+        "owner_score": 2,
+        "opponent_score": 1,
+        "reason": "Screenshots verified",
+    }
+    decided = client.post(
+        f"/internal/arena/reviews/{review_id}/decision",
+        json=payload,
+        headers={"Idempotency-Key": "decision-1"},
+    )
+    assert decided.status_code == 200
+    assert decided.json()["status"] == "DECIDED"
+    replay = client.post(
+        f"/internal/arena/reviews/{review_id}/decision",
+        json=payload,
+        headers={"Idempotency-Key": "decision-1"},
+    )
+    assert replay.status_code == 200
+    assert client.post(
+        f"/internal/arena/reviews/{review_id}/decision",
+        json={**payload, "decision": "PLAYER_B_WIN"},
+        headers={"Idempotency-Key": "decision-2"},
+    ).status_code == 409
 
 
 def test_internal_ai_endpoint_requires_internal_auth(monkeypatch):

@@ -9,6 +9,9 @@ from app.models.arena_v3 import (
     ArenaV3EvidenceStatus,
     ArenaV3SettlementStatus,
     ArenaV3Status,
+    ArenaV4AdminReviewStatus,
+    ArenaV4ResultType,
+    ArenaV4ReviewType,
 )
 
 
@@ -256,3 +259,54 @@ class ArenaV3ConfigResponse(BaseModel):
     penalties_required: bool
     room_code_max_length: int
     screenshot_deadline_seconds: int
+
+
+class ArenaV4AdminClaimRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    admin_id: int = Field(gt=0)
+
+
+class ArenaV4AdminDecisionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    admin_id: int = Field(gt=0)
+    decision: ArenaV4ResultType
+    owner_score: int | None = Field(default=None, ge=0, le=99)
+    opponent_score: int | None = Field(default=None, ge=0, le=99)
+    reason: str | None = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def validate_scores(self):
+        if (self.owner_score is None) != (self.opponent_score is None):
+            raise ValueError("Both scores must be provided together")
+        return self
+
+
+class ArenaV4AdminReviewResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    match_id: int
+    review_type: ArenaV4ReviewType
+    status: ArenaV4AdminReviewStatus
+    result_version: int
+    assigned_admin_id: int | None
+    decision: ArenaV4ResultType | None
+    owner_score: int | None
+    opponent_score: int | None
+    reason: str | None
+    expected_match_version: int | None
+    claimed_at: datetime | None
+    decided_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ArenaV4AdminReviewListResponse(BaseModel):
+    reviews: list[ArenaV4AdminReviewResponse]
+
+
+class ArenaV4AdminReviewDetailResponse(BaseModel):
+    review: ArenaV4AdminReviewResponse
+    match: ArenaV3MatchResponse
+    screenshots: list[ArenaV3ScreenshotResponse]

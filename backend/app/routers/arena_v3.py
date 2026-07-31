@@ -10,7 +10,7 @@ from app.core import config
 from app.core.database import get_db
 from app.core.arena_internal_auth import require_arena_internal_api_key
 from app.core.telegram_auth import TelegramUser, get_current_telegram_user
-from app.models.arena_v3 import ArenaV3Status
+from app.models.arena_v3 import ArenaV3Status, ArenaV4AdminReviewStatus
 from app.repositories.arena_v3 import ArenaV3Repository
 from app.schemas.arena_v3 import (
     ArenaV3AppealDecisionRequest, ArenaV3AppealRequest,
@@ -21,6 +21,9 @@ from app.schemas.arena_v3 import (
     ArenaV3RankingResponse, ArenaV3ResultResponse,
     ArenaV3ReadyRequest, ArenaV3RoomCodeRequest, ArenaV3ScreenshotListResponse,
     ArenaV3ScreenshotResponse,
+    ArenaV4AdminClaimRequest, ArenaV4AdminDecisionRequest,
+    ArenaV4AdminReviewDetailResponse, ArenaV4AdminReviewListResponse,
+    ArenaV4AdminReviewResponse,
 )
 from app.services.arena_v3 import (
     ArenaV3FoundationOnly,
@@ -40,6 +43,7 @@ from app.services.object_storage import (
     delete_object,
     upload_object,
 )
+from app.services.arena_v4_admin_review import ArenaV4AdminReviewService
 
 
 router = APIRouter(prefix="/arena", tags=["Arena V3"])
@@ -75,6 +79,73 @@ def core_match_call(callback):
         return callback()
     except ArenaV3ServiceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc))
+
+
+@internal_router.get(
+    "/reviews", response_model=ArenaV4AdminReviewListResponse
+)
+def internal_admin_review_list(
+    review_status: ArenaV4AdminReviewStatus | None = Query(
+        default=None, alias="status"
+    ),
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    _: None = Depends(require_arena_internal_api_key),
+    db: Session = Depends(get_db),
+):
+    reviews = ArenaV4AdminReviewService(db).list_reviews(
+        status=review_status, limit=limit, offset=offset
+    )
+    return {"reviews": reviews}
+
+
+@internal_router.get(
+    "/reviews/{review_id}", response_model=ArenaV4AdminReviewDetailResponse
+)
+def internal_admin_review_detail(
+    review_id: int,
+    _: None = Depends(require_arena_internal_api_key),
+    db: Session = Depends(get_db),
+):
+    return core_match_call(
+        lambda: ArenaV4AdminReviewService(db).detail(review_id)
+    )
+
+
+@internal_router.post(
+    "/reviews/{review_id}/claim", response_model=ArenaV4AdminReviewResponse
+)
+def internal_admin_review_claim(
+    review_id: int,
+    payload: ArenaV4AdminClaimRequest,
+    _: None = Depends(require_arena_internal_api_key),
+    db: Session = Depends(get_db),
+):
+    return core_match_call(
+        lambda: ArenaV4AdminReviewService(db).claim(
+            review_id=review_id, admin_id=payload.admin_id
+        )
+    )
+
+
+@internal_router.post(
+    "/reviews/{review_id}/decision", response_model=ArenaV4AdminReviewResponse
+)
+def internal_admin_review_decision(
+    review_id: int,
+    payload: ArenaV4AdminDecisionRequest,
+    idempotency_key: str = Depends(require_idempotency_key),
+    _: None = Depends(require_arena_internal_api_key),
+    db: Session = Depends(get_db),
+):
+    return core_match_call(
+        lambda: ArenaV4AdminReviewService(db).submit_decision(
+            review_id=review_id,
+            admin_id=payload.admin_id,
+            payload=payload,
+            idempotency_key=idempotency_key,
+        )
+    )
 
 
 @router.get("/config", response_model=ArenaV3ConfigResponse)

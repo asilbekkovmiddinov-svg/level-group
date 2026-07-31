@@ -8,6 +8,7 @@ from app.models.arena_v3 import (
     ArenaV3Match, ArenaV3MatchEvent,
     ArenaV3AIReviewStatus, ArenaV3MatchScreenshot,
     ArenaV3NotificationDelivery, ArenaV3Stats, ArenaV3Status,
+    ArenaV4AdminReview, ArenaV4AdminReviewStatus, ArenaV4ReviewType,
 )
 
 
@@ -17,6 +18,7 @@ ACTIVE_STATUSES = (
     ArenaV3Status.WAITING_ROOM_CODE,
     ArenaV3Status.PLAYING,
     ArenaV3Status.WAITING_SCREENSHOT,
+    ArenaV3Status.WAITING_ADMIN,
     ArenaV3Status.AI_REVIEW,
 )
 
@@ -98,6 +100,46 @@ class ArenaV3Repository:
         self.db.add(value)
         self.db.flush()
         return value
+
+    def add_admin_review(self, value: ArenaV4AdminReview) -> ArenaV4AdminReview:
+        self.db.add(value)
+        self.db.flush()
+        return value
+
+    def get_admin_review(self, review_id: int) -> ArenaV4AdminReview | None:
+        return self.db.get(ArenaV4AdminReview, review_id)
+
+    def get_admin_review_for_update(
+        self, review_id: int
+    ) -> ArenaV4AdminReview | None:
+        return self.db.execute(
+            select(ArenaV4AdminReview)
+            .where(ArenaV4AdminReview.id == review_id)
+            .with_for_update()
+        ).scalar_one_or_none()
+
+    def get_initial_admin_review(
+        self, match_id: int, result_version: int = 0
+    ) -> ArenaV4AdminReview | None:
+        return self.db.execute(
+            select(ArenaV4AdminReview).where(
+                ArenaV4AdminReview.match_id == match_id,
+                ArenaV4AdminReview.review_type == ArenaV4ReviewType.INITIAL,
+                ArenaV4AdminReview.result_version == result_version,
+            )
+        ).scalar_one_or_none()
+
+    def list_admin_reviews(
+        self, *, status: ArenaV4AdminReviewStatus | None, limit: int, offset: int
+    ) -> Sequence[ArenaV4AdminReview]:
+        query = select(ArenaV4AdminReview)
+        if status is not None:
+            query = query.where(ArenaV4AdminReview.status == status)
+        return self.db.execute(
+            query.order_by(
+                ArenaV4AdminReview.created_at.asc(), ArenaV4AdminReview.id.asc()
+            ).offset(offset).limit(limit)
+        ).scalars().all()
 
     def get_latest_ai_review(self, match_id: int) -> ArenaV3AIReview | None:
         return self.db.execute(
