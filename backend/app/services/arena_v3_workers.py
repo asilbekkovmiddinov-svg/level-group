@@ -14,6 +14,9 @@ from app.models.arena_v3 import (
     ArenaV3MatchEvent,
     ArenaV3EvidenceStatus,
     ArenaV3Status,
+    ArenaV4AdminReview,
+    ArenaV4AdminReviewStatus,
+    ArenaV4ReviewType,
 )
 from app.repositories.arena_v3 import ArenaV3Repository
 from app.services.arena_v3 import ArenaV3Conflict, ArenaV3NotFound
@@ -215,9 +218,15 @@ def process_screenshot_timeout(
     )
     match.screenshot_deadline_at = None
     if screenshots:
-        transition_arena_v3(match, ArenaV3Status.AI_REVIEW)
-        match.ai_review_started_at = now
-        enqueue_ai_review(db, match, screenshots)
+        transition_arena_v3(match, ArenaV3Status.WAITING_ADMIN)
+        if repository.get_initial_admin_review(match.id, match.result_version) is None:
+            repository.add_admin_review(ArenaV4AdminReview(
+                match_id=match.id,
+                review_type=ArenaV4ReviewType.INITIAL,
+                status=ArenaV4AdminReviewStatus.PENDING,
+                result_version=match.result_version,
+                expected_match_version=match.version,
+            ))
     else:
         transition_arena_v3(match, ArenaV3Status.CANCELLED)
         match.cancel_reason = "NO_SCREENSHOTS_TIMEOUT"
