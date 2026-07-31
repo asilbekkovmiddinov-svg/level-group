@@ -25,4 +25,7 @@ from .arena_v3 import (
     ArenaV3MatchScreenshot,
     ArenaV3NotificationDelivery,
     ArenaV3Stats,
+    ArenaV4AdminReview,
+    ArenaV4ResultRevision,
+    ArenaV4SettlementOperation,
 )

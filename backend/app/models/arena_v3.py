@@ -54,6 +54,39 @@ class ArenaV3EvidenceStatus(str, Enum):
     INVALID = "INVALID"
 
 
+class ArenaV4RewardHoldStatus(str, Enum):
+    NONE = "NONE"
+    LOCKED = "LOCKED"
+    APPEAL_HOLD = "APPEAL_HOLD"
+    AVAILABLE = "AVAILABLE"
+    REVERSED = "REVERSED"
+
+
+class ArenaV4AdminReviewStatus(str, Enum):
+    PENDING = "PENDING"
+    CLAIMED = "CLAIMED"
+    DECIDED = "DECIDED"
+
+
+class ArenaV4ReviewType(str, Enum):
+    INITIAL = "INITIAL"
+    APPEAL = "APPEAL"
+
+
+class ArenaV4ResultType(str, Enum):
+    PLAYER_A_WIN = "PLAYER_A_WIN"
+    PLAYER_B_WIN = "PLAYER_B_WIN"
+    DRAW = "DRAW"
+    CANCEL = "CANCEL"
+
+
+class ArenaV4SettlementOperationStatus(str, Enum):
+    PENDING = "PENDING"
+    COMPLETED = "COMPLETED"
+    REVERSED = "REVERSED"
+    FAILED = "FAILED"
+
+
 class ArenaV3Match(Base):
     __tablename__ = "arena_matches"
     __table_args__ = (
@@ -103,6 +136,21 @@ class ArenaV3Match(Base):
     opponent_score = Column(Integer)
     result_source = Column(String(24))
     appeal_deadline_at = Column(DateTime(timezone=True))
+    reward_hold_status = Column(
+        SQLEnum(ArenaV4RewardHoldStatus, native_enum=False),
+        nullable=False, default=ArenaV4RewardHoldStatus.NONE, index=True,
+    )
+    reward_release_at = Column(DateTime(timezone=True), index=True)
+    current_result_type = Column(
+        SQLEnum(ArenaV4ResultType, native_enum=False), index=True
+    )
+    result_version = Column(Integer, nullable=False, default=0)
+    current_decision_id = Column(
+        Integer, ForeignKey("arena_admin_reviews.id", use_alter=True)
+    )
+    initial_decision_id = Column(
+        Integer, ForeignKey("arena_admin_reviews.id", use_alter=True)
+    )
     settlement_status = Column(
         SQLEnum(ArenaV3SettlementStatus, native_enum=False),
         nullable=False, default=ArenaV3SettlementStatus.NOT_STARTED, index=True,
@@ -119,6 +167,21 @@ class ArenaV3Match(Base):
     screenshots = relationship("ArenaV3MatchScreenshot", back_populates="match", cascade="all, delete-orphan")
     ai_reviews = relationship("ArenaV3AIReview", back_populates="match", cascade="all, delete-orphan")
     appeals = relationship("ArenaV3Appeal", back_populates="match", cascade="all, delete-orphan")
+    admin_reviews = relationship(
+        "ArenaV4AdminReview",
+        back_populates="match",
+        cascade="all, delete-orphan",
+        foreign_keys="ArenaV4AdminReview.match_id",
+    )
+    result_revisions = relationship(
+        "ArenaV4ResultRevision", back_populates="match", cascade="all, delete-orphan"
+    )
+    settlement_operations = relationship(
+        "ArenaV4SettlementOperation",
+        back_populates="match",
+        cascade="all, delete-orphan",
+        foreign_keys="ArenaV4SettlementOperation.match_id",
+    )
     events = relationship("ArenaV3MatchEvent", back_populates="match", cascade="all, delete-orphan")
 
 
@@ -186,14 +249,17 @@ class ArenaV3AIReview(Base):
 class ArenaV3Appeal(Base):
     __tablename__ = "arena_appeals"
     __table_args__ = (
+        UniqueConstraint("match_id", name="uq_arena_appeal_match"),
         UniqueConstraint("match_id", "submitted_by", name="uq_arena_appeal_submitter"),
         Index("ix_arena_appeal_status_created", "status", "created_at"),
+        Index("ix_arena_appeal_deadline", "deadline_at"),
     )
 
     id = Column(Integer, primary_key=True)
     match_id = Column(Integer, ForeignKey("arena_matches.id", ondelete="CASCADE"), nullable=False, index=True)
     submitted_by = Column(BigInteger, ForeignKey("users.telegram_id"), nullable=True, index=True)
     reason_code = Column(String(64), nullable=False)
+    reason = Column(String(500))
     comment = Column(String(500))
     video_storage_key = Column(String(500))
     telegram_file_id = Column(String(500))
@@ -203,9 +269,138 @@ class ArenaV3Appeal(Base):
     resolution = Column(String(32))
     admin_comment = Column(String(500))
     created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+    submitted_at = Column(DateTime(timezone=True))
+    deadline_at = Column(DateTime(timezone=True))
     resolved_at = Column(DateTime(timezone=True))
 
     match = relationship("ArenaV3Match", back_populates="appeals")
+
+
+class ArenaV4AdminReview(Base):
+    __tablename__ = "arena_admin_reviews"
+    __table_args__ = (
+        UniqueConstraint(
+            "match_id", "review_type", "result_version",
+            name="uq_arena_admin_review_version",
+        ),
+        UniqueConstraint("idempotency_key", name="uq_arena_admin_review_idempotency"),
+        CheckConstraint(
+            "owner_score IS NULL OR owner_score >= 0",
+            name="ck_arena_admin_review_owner_score",
+        ),
+        CheckConstraint(
+            "opponent_score IS NULL OR opponent_score >= 0",
+            name="ck_arena_admin_review_opponent_score",
+        ),
+        Index("ix_arena_admin_review_queue", "status", "created_at"),
+        Index("ix_arena_admin_review_match_type", "match_id", "review_type"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    match_id = Column(
+        Integer, ForeignKey("arena_matches.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    review_type = Column(
+        SQLEnum(ArenaV4ReviewType, native_enum=False), nullable=False
+    )
+    status = Column(
+        SQLEnum(ArenaV4AdminReviewStatus, native_enum=False),
+        nullable=False, default=ArenaV4AdminReviewStatus.PENDING,
+    )
+    result_version = Column(Integer, nullable=False, default=0)
+    assigned_admin_id = Column(BigInteger, ForeignKey("users.telegram_id"))
+    decision = Column(SQLEnum(ArenaV4ResultType, native_enum=False))
+    owner_score = Column(Integer)
+    opponent_score = Column(Integer)
+    reason = Column(String(500))
+    expected_match_version = Column(Integer)
+    idempotency_key = Column(String(128))
+    claimed_at = Column(DateTime(timezone=True))
+    decided_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+    updated_at = Column(
+        DateTime(timezone=True), nullable=False,
+        default=utc_now, onupdate=utc_now,
+    )
+
+    match = relationship(
+        "ArenaV3Match", back_populates="admin_reviews", foreign_keys=[match_id]
+    )
+
+
+class ArenaV4ResultRevision(Base):
+    __tablename__ = "arena_result_revisions"
+    __table_args__ = (
+        UniqueConstraint("match_id", "version", name="uq_arena_result_revision"),
+        Index("ix_arena_result_revision_match_created", "match_id", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    match_id = Column(
+        Integer, ForeignKey("arena_matches.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    version = Column(Integer, nullable=False)
+    review_id = Column(Integer, ForeignKey("arena_admin_reviews.id"))
+    appeal_id = Column(Integer, ForeignKey("arena_appeals.id"))
+    previous_result_type = Column(String(32))
+    new_result_type = Column(String(32), nullable=False)
+    previous_winner_id = Column(BigInteger, ForeignKey("users.telegram_id"))
+    new_winner_id = Column(BigInteger, ForeignKey("users.telegram_id"))
+    previous_owner_score = Column(Integer)
+    previous_opponent_score = Column(Integer)
+    new_owner_score = Column(Integer)
+    new_opponent_score = Column(Integer)
+    previous_reward_efc = Column(Numeric(18, 2))
+    new_reward_efc = Column(Numeric(18, 2))
+    previous_fee_efc = Column(Numeric(18, 2))
+    new_fee_efc = Column(Numeric(18, 2))
+    admin_id = Column(BigInteger, ForeignKey("users.telegram_id"), nullable=False)
+    reason = Column(String(500), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+    match = relationship("ArenaV3Match", back_populates="result_revisions")
+
+
+class ArenaV4SettlementOperation(Base):
+    __tablename__ = "arena_settlement_operations"
+    __table_args__ = (
+        UniqueConstraint(
+            "idempotency_key", name="uq_arena_settlement_operation_idempotency"
+        ),
+        CheckConstraint("amount_efc >= 0", name="ck_arena_settlement_amount"),
+        Index("ix_arena_settlement_match_version", "match_id", "result_version"),
+        Index("ix_arena_settlement_status_created", "status", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    match_id = Column(
+        Integer, ForeignKey("arena_matches.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    result_version = Column(Integer, nullable=False)
+    player_id = Column(BigInteger, ForeignKey("users.telegram_id"), index=True)
+    operation_type = Column(String(32), nullable=False)
+    amount_efc = Column(Numeric(18, 2), nullable=False)
+    status = Column(
+        SQLEnum(ArenaV4SettlementOperationStatus, native_enum=False),
+        nullable=False, default=ArenaV4SettlementOperationStatus.PENDING,
+    )
+    wallet_transaction_id = Column(Integer, ForeignKey("transactions.id"))
+    reverses_operation_id = Column(
+        Integer, ForeignKey("arena_settlement_operations.id")
+    )
+    idempotency_key = Column(String(128), nullable=False)
+    operation_metadata = Column("metadata", JSON)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+    completed_at = Column(DateTime(timezone=True))
+
+    match = relationship(
+        "ArenaV3Match",
+        back_populates="settlement_operations",
+        foreign_keys=[match_id],
+    )
 
 
 class ArenaV3MatchEvent(Base):
