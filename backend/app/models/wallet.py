@@ -17,6 +17,7 @@ class Wallet(Base):
     uzs_balance = Column(Numeric(18, 2), default=0)
 
     locked_efc = Column(Numeric(18, 2), default=0)
+    locked_reward_efc = Column(Numeric(18, 2), nullable=False, default=0)
     locked_uzs = Column(Numeric(18, 2), default=0)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())

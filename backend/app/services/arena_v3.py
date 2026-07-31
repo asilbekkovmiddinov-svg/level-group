@@ -29,7 +29,7 @@ from app.services.arena_v3_state_machine import (
 SCREENSHOT_UPLOAD_WINDOW_SECONDS = 300
 
 
-MATCH_COMMISSION_PERCENT = Decimal("5.00")
+MATCH_COMMISSION_PERCENT = Decimal("10.00")
 SUPPORTED_MATCH_TYPES = frozenset({"STANDARD"})
 
 

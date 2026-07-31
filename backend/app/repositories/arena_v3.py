@@ -8,7 +8,8 @@ from app.models.arena_v3 import (
     ArenaV3Match, ArenaV3MatchEvent,
     ArenaV3AIReviewStatus, ArenaV3MatchScreenshot,
     ArenaV3NotificationDelivery, ArenaV3Stats, ArenaV3Status,
-    ArenaV4AdminReview, ArenaV4AdminReviewStatus, ArenaV4ReviewType,
+    ArenaV4AdminReview, ArenaV4AdminReviewStatus, ArenaV4ResultRevision,
+    ArenaV4ReviewType, ArenaV4SettlementOperation,
 )
 
 
@@ -140,6 +141,20 @@ class ArenaV3Repository:
                 ArenaV4AdminReview.created_at.asc(), ArenaV4AdminReview.id.asc()
             ).offset(offset).limit(limit)
         ).scalars().all()
+
+    def add_result_revision(
+        self, value: ArenaV4ResultRevision
+    ) -> ArenaV4ResultRevision:
+        self.db.add(value)
+        self.db.flush()
+        return value
+
+    def add_settlement_operation(
+        self, value: ArenaV4SettlementOperation
+    ) -> ArenaV4SettlementOperation:
+        self.db.add(value)
+        self.db.flush()
+        return value
 
     def get_latest_ai_review(self, match_id: int) -> ArenaV3AIReview | None:
         return self.db.execute(

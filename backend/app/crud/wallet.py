@@ -39,6 +39,7 @@ def create_wallet(db: Session, telegram_id: int):
         efc_balance=ZERO,
         uzs_balance=ZERO,
         locked_efc=ZERO,
+        locked_reward_efc=ZERO,
         locked_uzs=ZERO,
     )
     db.add(wallet)
@@ -57,6 +58,7 @@ def get_or_create_wallet(db: Session, telegram_id: int):
         efc_balance=ZERO,
         uzs_balance=ZERO,
         locked_efc=ZERO,
+        locked_reward_efc=ZERO,
         locked_uzs=ZERO,
     )
     db.add(wallet)
@@ -140,6 +142,17 @@ def unlock_efc_balance(db: Session, telegram_id: int, amount):
 
 def confirm_locked_efc(db: Session, telegram_id: int, amount):
     return _change_balance(db, telegram_id, "EFC", "confirm", amount)
+
+
+def add_locked_reward_efc(db: Session, telegram_id: int, amount):
+    value = to_decimal(amount)
+    if value is None:
+        return None
+    wallet = get_or_create_wallet(db, telegram_id)
+    locked_reward = Decimal(str(wallet.locked_reward_efc or ZERO))
+    wallet.locked_reward_efc = locked_reward + value
+    db.flush()
+    return wallet
 
 
 def add_efc(db: Session, telegram_id: int, amount):

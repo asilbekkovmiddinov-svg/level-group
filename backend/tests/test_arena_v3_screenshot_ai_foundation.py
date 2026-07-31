@@ -23,6 +23,7 @@ from app.models.arena_v3 import (
     ArenaV4AdminReview,
     ArenaV4AdminReviewStatus,
 )
+from app.models.wallet import Wallet
 from app.routers import arena_v3 as arena_router
 from app.services.arena_v3 import (
     ArenaV3Conflict,
@@ -334,6 +335,17 @@ def test_v2_routes_are_absent_from_sprint5_routers():
 def test_internal_admin_review_claim_and_idempotent_decision(api):
     client, _, match_id, session_factory = api
     db = session_factory()
+    db.add_all([
+        Wallet(
+            telegram_id=1001, efc_balance=0, uzs_balance=0,
+            locked_efc=100, locked_reward_efc=0, locked_uzs=0,
+        ),
+        Wallet(
+            telegram_id=2002, efc_balance=0, uzs_balance=0,
+            locked_efc=100, locked_reward_efc=0, locked_uzs=0,
+        ),
+    ])
+    db.commit()
     upload(ArenaV3Service(db), match_id, 1001, "owner")
     upload(ArenaV3Service(db), match_id, 2002, "opponent")
     review_id = db.query(ArenaV4AdminReview).one().id
