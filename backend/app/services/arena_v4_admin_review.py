@@ -12,6 +12,7 @@ from app.services.arena_v3 import (
     ArenaV3Conflict,
     ArenaV3NotFound,
 )
+from app.services.arena_v4_settlement import apply_admin_settlement
 
 
 class ArenaV4AdminReviewService:
@@ -96,13 +97,20 @@ class ArenaV4AdminReviewService:
         review.reason = payload.reason
         review.idempotency_key = idempotency_key
         review.decided_at = datetime.now(timezone.utc)
-        match.current_decision_id = review.id
-        if match.initial_decision_id is None:
-            match.initial_decision_id = review.id
         try:
+            apply_admin_settlement(
+                self.db,
+                repository=self.repository,
+                match=match,
+                review=review,
+                payload=payload,
+            )
             self.db.commit()
         except IntegrityError as exc:
             self.db.rollback()
             raise ArenaV3Conflict("Admin decision idempotency key is already used") from exc
+        except Exception:
+            self.db.rollback()
+            raise
         self.db.refresh(review)
         return review

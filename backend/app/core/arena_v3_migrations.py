@@ -42,6 +42,9 @@ def run_arena_v3_migrations(bind: Engine | Connection) -> None:
     ai_columns = _columns(inspector, "arena_ai_reviews")
     appeal_columns = _columns(inspector, "arena_appeals")
     match_columns = _columns(inspector, "arena_matches")
+    wallet_columns = (
+        _columns(inspector, "wallets") if inspector.has_table("wallets") else None
+    )
     stats_columns = _columns(inspector, "arena_stats_v3")
     connection = bind.connect() if isinstance(bind, Engine) else bind
     owns_connection = isinstance(bind, Engine)
@@ -99,6 +102,15 @@ def run_arena_v3_migrations(bind: Engine | Connection) -> None:
                     connection.execute(text(
                         f"ALTER TABLE arena_appeals ADD COLUMN {name} {ddl}"
                     ))
+
+            if (
+                wallet_columns is not None
+                and "locked_reward_efc" not in wallet_columns
+            ):
+                connection.execute(text(
+                    "ALTER TABLE wallets ADD COLUMN locked_reward_efc "
+                    "NUMERIC(18, 2) NOT NULL DEFAULT 0"
+                ))
 
             connection.execute(text(
                 "CREATE INDEX IF NOT EXISTS "

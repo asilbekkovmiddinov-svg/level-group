@@ -75,8 +75,8 @@ def test_service_runs_complete_core_flow_and_records_events(session_factory):
     match = create_match(db)
     assert match.status == ArenaV3Status.OPEN
     assert match.total_pool_efc == Decimal("200.00")
-    assert match.commission_efc == Decimal("10.0000")
-    assert match.winner_reward_efc == Decimal("190.0000")
+    assert match.commission_efc == Decimal("20.0000")
+    assert match.winner_reward_efc == Decimal("180.0000")
 
     match = ArenaV3Service(db).join_match(
         match_id=match.id,

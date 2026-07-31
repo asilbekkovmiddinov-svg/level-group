@@ -13,6 +13,7 @@ from app.models.arena_v3 import (
     ArenaV4SettlementOperation,
     ArenaV4RewardHoldStatus,
 )
+from app.models.wallet import Wallet
 
 
 def test_v4_models_expose_frozen_database_contract():
@@ -35,6 +36,7 @@ def test_v4_models_expose_frozen_database_contract():
     assert ArenaV4AdminReview.__table__.columns.match_id.nullable is False
     assert ArenaV4ResultRevision.__table__.columns.version.nullable is False
     assert ArenaV4SettlementOperation.__table__.columns.idempotency_key.nullable is False
+    assert Wallet.__table__.columns.locked_reward_efc.nullable is False
 
 
 def test_appeal_model_allows_legacy_rows_but_has_v4_fields_and_one_per_match():
@@ -65,6 +67,15 @@ def test_additive_v4_migration_is_idempotent_and_preserves_existing_match():
             "video_storage_key VARCHAR(500), file_hash VARCHAR(64), "
             "created_at TIMESTAMP)"
         ))
+        connection.execute(text(
+            "CREATE TABLE wallets ("
+            "telegram_id BIGINT PRIMARY KEY, efc_balance NUMERIC(18, 2), "
+            "uzs_balance NUMERIC(18, 2), locked_efc NUMERIC(18, 2), "
+            "locked_uzs NUMERIC(18, 2))"
+        ))
+        connection.execute(text(
+            "INSERT INTO wallets VALUES (1001, 25, 0, 500, 0)"
+        ))
 
     run_arena_v3_migrations(engine)
     run_arena_v3_migrations(engine)
@@ -87,9 +98,16 @@ def test_additive_v4_migration_is_idempotent_and_preserves_existing_match():
     }.issubset(match_columns)
     appeal_columns = {item["name"] for item in inspector.get_columns("arena_appeals")}
     assert {"reason", "submitted_at", "deadline_at"}.issubset(appeal_columns)
+    wallet_columns = {item["name"] for item in inspector.get_columns("wallets")}
+    assert "locked_reward_efc" in wallet_columns
     with engine.connect() as connection:
         row = connection.execute(text(
             "SELECT public_id, status, reward_hold_status, result_version "
             "FROM arena_matches WHERE id = 1"
         )).one()
+        wallet_row = connection.execute(text(
+            "SELECT efc_balance, locked_efc, locked_reward_efc "
+            "FROM wallets WHERE telegram_id = 1001"
+        )).one()
     assert tuple(row) == ("LEGACY-ACTIVE", "PLAYING", "NONE", 0)
+    assert tuple(wallet_row) == (25, 500, 0)

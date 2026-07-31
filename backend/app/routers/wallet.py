@@ -33,6 +33,7 @@ def wallet_info(
         "efc_balance": float(wallet.efc_balance),
         "uzs_balance": float(wallet.uzs_balance),
         "locked_efc": float(wallet.locked_efc),
+        "locked_reward_efc": float(wallet.locked_reward_efc),
         "locked_uzs": float(wallet.locked_uzs),
     }
 
