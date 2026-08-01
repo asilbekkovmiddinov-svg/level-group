@@ -337,6 +337,7 @@ def test_api_endpoints_complete_core_flow(api):
     [
         (ArenaV3Status.CANCELLED, False, True),
         (ArenaV3Status.FINISHED, False, True),
+        (ArenaV3Status.AI_REVIEW, False, False),
         (ArenaV3Status.PLAYING, True, False),
     ],
 )
@@ -362,6 +363,14 @@ def test_active_endpoint_excludes_terminal_matches_and_history_keeps_them(
         item["id"] for item in client.get("/arena/history").json()["matches"]
     }
     assert (created["id"] in history_ids) is in_history
+
+    if not is_active:
+        replacement = client.post(
+            "/arena/create",
+            json=create_payload().model_dump(mode="json"),
+            headers={"Idempotency-Key": f"replacement-{status.value}"},
+        )
+        assert replacement.status_code == 201
 
 
 def test_api_validation_permissions_flags_and_v2_route_regression(api, monkeypatch):

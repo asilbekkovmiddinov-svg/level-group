@@ -20,7 +20,6 @@ ACTIVE_STATUSES = (
     ArenaV3Status.PLAYING,
     ArenaV3Status.WAITING_SCREENSHOT,
     ArenaV3Status.WAITING_ADMIN,
-    ArenaV3Status.AI_REVIEW,
 )
 
 
