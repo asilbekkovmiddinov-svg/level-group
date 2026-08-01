@@ -148,6 +148,7 @@ class ArenaV3Match(Base):
     has_appeal = Column(Boolean, nullable=False, default=False, index=True)
     owner_result_confirmed_at = Column(DateTime(timezone=True))
     opponent_result_confirmed_at = Column(DateTime(timezone=True))
+    admin_channel_message_id = Column(BigInteger)
     reward_hold_status = Column(
         SQLEnum(ArenaV4RewardHoldStatus, native_enum=False),
         nullable=False, default=ArenaV4RewardHoldStatus.NONE, index=True,
@@ -212,6 +213,7 @@ class ArenaV3MatchScreenshot(Base):
     player_id = Column(BigInteger, ForeignKey("users.telegram_id"), nullable=False, index=True)
     storage_key = Column(String(500), nullable=False)
     telegram_file_id = Column(String(500))
+    telegram_message_id = Column(BigInteger)
     file_hash = Column(String(64), nullable=False, index=True)
     mime_type = Column(String(64), nullable=False)
     file_size = Column(Integer, nullable=False)
@@ -275,6 +277,7 @@ class ArenaV3Appeal(Base):
     comment = Column(String(500))
     video_storage_key = Column(String(500))
     telegram_file_id = Column(String(500))
+    telegram_message_id = Column(BigInteger)
     file_hash = Column(String(64))
     status = Column(SQLEnum(ArenaV3AppealStatus, native_enum=False), nullable=False, default=ArenaV3AppealStatus.OPEN)
     admin_id = Column(BigInteger, ForeignKey("users.telegram_id"))

@@ -213,26 +213,10 @@ def test_update_score_auto_detects_draw_and_recalculates_stats(session_factory):
     match = _settled_winner_match(db)
     _, review = _open_and_claim_appeal(db, match)
 
-    _resolve(
-        db,
-        review,
-        ArenaV4AppealReviewAction.UPDATE_SCORE,
-        scores=(2, 2),
-    )
-
-    assert match.current_result_type == ArenaV4ResultType.DRAW
-    assert match.winner_id is None
-    assert db.get(Wallet, 1001).efc_balance == Decimal("500.00")
-    assert db.get(Wallet, 2002).efc_balance == Decimal("500.00")
-    for player_id in (1001, 2002):
-        stats = db.get(ArenaV3Stats, player_id)
-        assert stats.total_matches == 1
-        assert stats.draws == 1
-        assert stats.wins == 0
-        assert stats.losses == 0
-        assert stats.goals_for == 2
-        assert stats.goals_against == 2
-        assert stats.current_streak == 0
+    with pytest.raises(ValueError, match="Equal scores are not allowed"):
+        _resolve(
+            db, review, ArenaV4AppealReviewAction.UPDATE_SCORE, scores=(2, 2)
+        )
 
 
 def test_cancel_match_rolls_back_competitive_stats(session_factory):

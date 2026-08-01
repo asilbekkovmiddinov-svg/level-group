@@ -26,7 +26,7 @@ from app.services.arena_v3_state_machine import (
 )
 
 
-SCREENSHOT_UPLOAD_WINDOW_SECONDS = 300
+SCREENSHOT_UPLOAD_WINDOW_SECONDS = 600
 
 
 MATCH_COMMISSION_PERCENT = Decimal("10.00")
@@ -256,6 +256,8 @@ class ArenaV3Service:
         file_size: int,
         width: int,
         height: int,
+        telegram_file_id: str | None = None,
+        telegram_message_id: int | None = None,
         now: datetime | None = None,
     ):
         match = self._locked_match(match_id)
@@ -275,6 +277,8 @@ class ArenaV3Service:
             match_id=match.id,
             player_id=player_id,
             storage_key=storage_key,
+            telegram_file_id=telegram_file_id,
+            telegram_message_id=telegram_message_id,
             file_hash=file_hash,
             mime_type=mime_type,
             file_size=file_size,
@@ -288,8 +292,7 @@ class ArenaV3Service:
             transition_arena_v3(match, ArenaV3Status.WAITING_ADMIN)
             match.screenshot_deadline_at = None
             self.repository.add_admin_review(ArenaV4AdminReview(
-                match_id=match.id,
-                review_type=ArenaV4ReviewType.INITIAL,
+                match_id=match.id, review_type=ArenaV4ReviewType.INITIAL,
                 status=ArenaV4AdminReviewStatus.PENDING,
                 result_version=match.result_version,
                 expected_match_version=match.version,

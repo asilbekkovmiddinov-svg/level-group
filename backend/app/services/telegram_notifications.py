@@ -23,6 +23,7 @@ class TelegramNotificationResponseError(RuntimeError): pass
 class TelegramPhotoResult:
     message_id: int
     chat_id: int | str
+    file_id: str | None = None
 
 def send_admin_message(text: str, reply_markup: dict | None = None, chat_id: int | str | None = None) -> TelegramPhotoResult:
     if not config.TELEGRAM_BOT_TOKEN or not (chat_id or config.NEW_ORDERS_CHANNEL_ID):
@@ -71,19 +72,41 @@ def disable_admin_message_actions(message_id: str, chat_id: int | str | None = N
     if not isinstance(data, dict) or not data.get("ok"):
         raise TelegramNotificationResponseError("Telegram response is invalid")
 
-def _multipart(fields, filename, content_type, content):
+
+def edit_arena_admin_post(message_id: int, text: str) -> None:
+    if not config.TELEGRAM_BOT_TOKEN or not config.ARENA_ADMIN_CHANNEL_ID:
+        raise TelegramNotificationConfigError("Arena admin channel is not configured")
+    payload = {
+        "chat_id": config.ARENA_ADMIN_CHANNEL_ID, "message_id": message_id,
+        "text": text, "reply_markup": {"inline_keyboard": []},
+    }
+    request = urllib.request.Request(
+        f"{config.TELEGRAM_API_BASE_URL.rstrip('/')}/bot{config.TELEGRAM_BOT_TOKEN}/editMessageText",
+        data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"}, method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=config.TELEGRAM_NOTIFICATION_TIMEOUT_SECONDS) as response:
+            data = json.loads(response.read())
+    except Exception as error:
+        raise TelegramNotificationTemporaryError("Arena post update failed") from error
+    if not isinstance(data, dict) or not data.get("ok"):
+        raise TelegramNotificationResponseError("Telegram response is invalid")
+
+def _multipart(fields, filename, content_type, content, media_field="photo"):
     boundary = f"----LevelGroup{uuid4().hex}"; chunks = []
     for name, value in fields.items(): chunks.append(f"--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n".encode())
-    chunks += [f"--{boundary}\r\nContent-Disposition: form-data; name=\"photo\"; filename=\"{filename}\"\r\nContent-Type: {content_type}\r\n\r\n".encode(), content, f"\r\n--{boundary}--\r\n".encode()]
+    chunks += [f"--{boundary}\r\nContent-Disposition: form-data; name=\"{media_field}\"; filename=\"{filename}\"\r\nContent-Type: {content_type}\r\n\r\n".encode(), content, f"\r\n--{boundary}--\r\n".encode()]
     return boundary, b"".join(chunks)
 
-def send_deposit_receipt_photo(receipt_bytes: bytes, content_type: str, filename: str, caption: str, chat_id: int | str | None = None, reply_markup: dict | None = None) -> TelegramPhotoResult:
+def send_deposit_receipt_photo(receipt_bytes: bytes, content_type: str, filename: str, caption: str, chat_id: int | str | None = None, reply_markup: dict | None = None, reply_to_message_id: int | None = None) -> TelegramPhotoResult:
     if not config.TELEGRAM_BOT_TOKEN or not (chat_id or config.NEW_ORDERS_CHANNEL_ID): raise TelegramNotificationConfigError("Telegram notification is not configured")
     if content_type not in {"image/jpeg", "image/png", "image/webp"} or not receipt_bytes: raise TelegramNotificationPermanentError("Invalid receipt image")
     target = chat_id or config.NEW_ORDERS_CHANNEL_ID
     fields = {"chat_id": target, "caption": caption[:CAPTION_LIMIT]}
     if reply_markup:
         fields["reply_markup"] = json.dumps(reply_markup, separators=(",", ":"))
+    if reply_to_message_id is not None:
+        fields["reply_parameters"] = json.dumps({"message_id": reply_to_message_id}, separators=(",", ":"))
     boundary, body = _multipart(fields, filename, content_type, receipt_bytes)
     request = urllib.request.Request(f"{config.TELEGRAM_API_BASE_URL.rstrip('/')}/bot{config.TELEGRAM_BOT_TOKEN}/sendPhoto", data=body, headers={"Content-Type": f"multipart/form-data; boundary={boundary}"}, method="POST")
     try:
@@ -96,4 +119,31 @@ def send_deposit_receipt_photo(receipt_bytes: bytes, content_type: str, filename
     except (urllib.error.URLError, OSError) as error: raise TelegramNotificationNetworkError("Telegram network error") from error
     except (ValueError, json.JSONDecodeError) as error: raise TelegramNotificationResponseError("Telegram response is invalid") from error
     if not isinstance(data, dict) or not data.get("ok") or not data.get("result", {}).get("message_id"): raise TelegramNotificationResponseError("Telegram response is invalid")
-    return TelegramPhotoResult(message_id=data["result"]["message_id"], chat_id=data["result"].get("chat", {}).get("id", target))
+    photos = data["result"].get("photo") or []
+    file_id = photos[-1].get("file_id") if photos else None
+    return TelegramPhotoResult(message_id=data["result"]["message_id"], chat_id=data["result"].get("chat", {}).get("id", target), file_id=file_id)
+
+
+def send_arena_appeal_video(video_bytes: bytes, content_type: str, filename: str, caption: str, *, reply_to_message_id: int) -> TelegramPhotoResult:
+    if not config.TELEGRAM_BOT_TOKEN or not config.ARENA_ADMIN_CHANNEL_ID:
+        raise TelegramNotificationConfigError("Arena admin channel is not configured")
+    fields = {
+        "chat_id": config.ARENA_ADMIN_CHANNEL_ID,
+        "caption": caption[:CAPTION_LIMIT],
+        "reply_parameters": json.dumps({"message_id": reply_to_message_id}, separators=(",", ":")),
+    }
+    boundary, body = _multipart(fields, filename, content_type, video_bytes, "video")
+    request = urllib.request.Request(
+        f"{config.TELEGRAM_API_BASE_URL.rstrip('/')}/bot{config.TELEGRAM_BOT_TOKEN}/sendVideo",
+        data=body, headers={"Content-Type": f"multipart/form-data; boundary={boundary}"}, method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=config.TELEGRAM_NOTIFICATION_TIMEOUT_SECONDS) as response:
+            data = json.loads(response.read())
+    except Exception as error:
+        raise TelegramNotificationTemporaryError("Arena appeal delivery failed") from error
+    if not isinstance(data, dict) or not data.get("ok"):
+        raise TelegramNotificationResponseError("Telegram response is invalid")
+    result = data["result"]
+    video = result.get("video") or {}
+    return TelegramPhotoResult(result["message_id"], result.get("chat", {}).get("id", config.ARENA_ADMIN_CHANNEL_ID), video.get("file_id"))

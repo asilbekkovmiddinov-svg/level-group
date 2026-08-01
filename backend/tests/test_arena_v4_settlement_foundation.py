@@ -100,7 +100,9 @@ def _foundation(db):
 
 def _decide(db, review, decision, *, key="decision-1", reason="Verified"):
     if decision == ArenaV4ResultType.CANCEL:
-        payload = ArenaV4AdminCancelRequest(admin_id=9999, reason=reason)
+        payload = ArenaV4AdminCancelRequest(
+            admin_id=9999, reason="TECHNICAL_ISSUE"
+        )
         return ArenaV4AdminReviewService(db).submit_cancel(
             review_id=review.id,
             admin_id=9999,
@@ -187,29 +189,9 @@ def test_winner_settlement_uses_ten_percent_fee_and_locked_reward(
 
 def test_draw_refunds_both_players_with_zero_fee_and_draw_stats(session_factory):
     db = session_factory()
-    match, review = _foundation(db)
-    _decide(db, review, ArenaV4ResultType.DRAW)
-
-    assert match.status == ArenaV3Status.FINISHED
-    assert match.settlement_status == ArenaV3SettlementStatus.REFUNDED
-    assert match.commission_efc == Decimal("0.00")
-    assert match.winner_reward_efc == Decimal("0.00")
-    assert match.reward_hold_status == ArenaV4RewardHoldStatus.LOCKED
-    for player_id in (1001, 2002):
-        wallet = db.get(Wallet, player_id)
-        assert wallet.efc_balance == Decimal("0.00")
-        assert wallet.locked_reward_efc == Decimal("500.00")
-        assert wallet.locked_efc == Decimal("0.00")
-        assert db.get(ArenaV3Stats, player_id).draws == 1
-    assert {
-        item.operation_type for item in db.query(ArenaV4SettlementOperation)
-    } == {"STAKE_REFUND", "PLATFORM_FEE"}
-    assert db.query(ArenaV4SettlementOperation).filter_by(
-        operation_type="PLATFORM_FEE"
-    ).one().amount_efc == Decimal("0.00")
-    assert db.query(ArenaV3NotificationDelivery).filter_by(
-        event_type="MATCH_DRAW"
-    ).count() == 2
+    _, review = _foundation(db)
+    with pytest.raises(ValueError, match="Equal scores are not allowed"):
+        _decide(db, review, ArenaV4ResultType.DRAW)
 
 
 def test_cancel_refunds_without_competitive_stats(session_factory):

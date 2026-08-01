@@ -41,6 +41,7 @@ def run_arena_v3_migrations(bind: Engine | Connection) -> None:
     inspector = inspect(bind)
     ai_columns = _columns(inspector, "arena_ai_reviews")
     appeal_columns = _columns(inspector, "arena_appeals")
+    screenshot_columns = _columns(inspector, "arena_match_screenshots")
     match_columns = _columns(inspector, "arena_matches")
     wallet_columns = (
         _columns(inspector, "wallets") if inspector.has_table("wallets") else None
@@ -80,6 +81,7 @@ def run_arena_v3_migrations(bind: Engine | Connection) -> None:
                 "has_appeal": "BOOLEAN NOT NULL DEFAULT false",
                 "owner_result_confirmed_at": "TIMESTAMP",
                 "opponent_result_confirmed_at": "TIMESTAMP",
+                "admin_channel_message_id": "BIGINT",
                 "current_result_type": "VARCHAR(32)",
                 "result_version": "INTEGER NOT NULL DEFAULT 0",
                 "current_decision_id": (
@@ -99,12 +101,19 @@ def run_arena_v3_migrations(bind: Engine | Connection) -> None:
                 "reason": "VARCHAR(500)",
                 "submitted_at": "TIMESTAMP",
                 "deadline_at": "TIMESTAMP",
+                "telegram_message_id": "BIGINT",
             }
             for name, ddl in appeal_additions.items():
                 if name not in appeal_columns:
                     connection.execute(text(
                         f"ALTER TABLE arena_appeals ADD COLUMN {name} {ddl}"
                     ))
+
+            if "telegram_message_id" not in screenshot_columns:
+                connection.execute(text(
+                    "ALTER TABLE arena_match_screenshots "
+                    "ADD COLUMN telegram_message_id BIGINT"
+                ))
 
             if (
                 wallet_columns is not None

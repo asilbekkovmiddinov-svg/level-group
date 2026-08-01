@@ -276,6 +276,17 @@ def api(session_factory, monkeypatch):
     application.dependency_overrides[require_arena_internal_api_key] = lambda: None
     monkeypatch.setattr(config, "ARENA_V3_ENABLED", True)
     monkeypatch.setattr(config, "ARENA_V3_AI_ENABLED", True)
+    monkeypatch.setattr(config, "ARENA_ADMIN_CHANNEL_ID", "-100123")
+    monkeypatch.setattr(
+        arena_router, "send_admin_message",
+        lambda *args, **kwargs: SimpleNamespace(message_id=501),
+    )
+    monkeypatch.setattr(
+        arena_router, "send_deposit_receipt_photo",
+        lambda *args, **kwargs: SimpleNamespace(
+            message_id=502, file_id="telegram-photo-id"
+        ),
+    )
     monkeypatch.setattr(arena_router, "upload_object", lambda *args: None)
     monkeypatch.setattr(arena_router, "delete_object", lambda *args: None)
     db = session_factory()

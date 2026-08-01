@@ -42,7 +42,7 @@ def result_from_score(owner_score: int, opponent_score: int) -> ArenaV4ResultTyp
         return ArenaV4ResultType.PLAYER_A_WIN
     if opponent_score > owner_score:
         return ArenaV4ResultType.PLAYER_B_WIN
-    return ArenaV4ResultType.DRAW
+    raise ArenaV3Conflict("Equal scores are not allowed; penalty shootout is mandatory")
 
 
 def _wallet_transaction(

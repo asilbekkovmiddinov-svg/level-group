@@ -118,8 +118,7 @@ def submit_v4_video_appeal(
         deadline_at=match.appeal_deadline_at,
     ))
     review = repository.add_admin_review(ArenaV4AdminReview(
-        match_id=match.id,
-        review_type=ArenaV4ReviewType.APPEAL,
+        match_id=match.id, review_type=ArenaV4ReviewType.APPEAL,
         status=ArenaV4AdminReviewStatus.PENDING,
         result_version=match.result_version,
         expected_match_version=match.version,
