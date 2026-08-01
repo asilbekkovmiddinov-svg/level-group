@@ -10,6 +10,7 @@ import app.models
 from app.core.database import Base
 from app.models.arena_v3 import (
     ArenaV3Match,
+    ArenaV3NotificationDelivery,
     ArenaV3SettlementStatus,
     ArenaV3Stats,
     ArenaV3Status,
@@ -178,6 +179,10 @@ def test_winner_settlement_uses_ten_percent_fee_and_locked_reward(
     assert locked_tx.status == "LOCKED"
     assert locked_tx.balance_before == locked_tx.balance_after == Decimal("0.00")
     assert db.query(ArenaV4ResultRevision).one().version == 1
+    assert {
+        (item.recipient_id, item.event_type)
+        for item in db.query(ArenaV3NotificationDelivery).all()
+    } == {(winner_id, "MATCH_WON"), (loser_id, "MATCH_LOST")}
 
 
 def test_draw_refunds_both_players_with_zero_fee_and_draw_stats(session_factory):
@@ -202,6 +207,9 @@ def test_draw_refunds_both_players_with_zero_fee_and_draw_stats(session_factory)
     assert db.query(ArenaV4SettlementOperation).filter_by(
         operation_type="PLATFORM_FEE"
     ).one().amount_efc == Decimal("0.00")
+    assert db.query(ArenaV3NotificationDelivery).filter_by(
+        event_type="MATCH_DRAW"
+    ).count() == 2
 
 
 def test_cancel_refunds_without_competitive_stats(session_factory):
@@ -216,6 +224,9 @@ def test_cancel_refunds_without_competitive_stats(session_factory):
     assert db.query(ArenaV3Stats).count() == 0
     assert db.get(Wallet, 1001).locked_reward_efc == Decimal("500.00")
     assert db.get(Wallet, 2002).locked_reward_efc == Decimal("500.00")
+    assert db.query(ArenaV3NotificationDelivery).filter_by(
+        event_type="MATCH_CANCELLED"
+    ).count() == 2
 
 
 def test_decision_replay_is_idempotent_and_second_decision_is_blocked(

@@ -17,6 +17,7 @@ from app.models.arena_v3 import (
     ArenaV3AppealStatus,
     ArenaV3Match,
     ArenaV3MatchEvent,
+    ArenaV3NotificationDelivery,
     ArenaV3SettlementStatus,
     ArenaV3Status,
     ArenaV4RewardHoldStatus,
@@ -133,6 +134,9 @@ def test_reward_releases_only_after_thirty_minutes(session_factory):
     assert db.query(Transaction).filter_by(
         type="ARENA_V4_REWARD_RELEASED"
     ).count() == 1
+    assert db.query(ArenaV3NotificationDelivery).filter_by(
+        event_type="REWARD_RELEASED", recipient_id=1001
+    ).count() == 1
 
 
 def test_reward_worker_is_idempotent_and_prevents_double_release(session_factory):
@@ -148,6 +152,30 @@ def test_reward_worker_is_idempotent_and_prevents_double_release(session_factory
     assert db.query(ArenaV4SettlementOperation).filter_by(
         operation_type="REWARD_RELEASE"
     ).count() == 1
+    assert db.query(ArenaV3NotificationDelivery).filter_by(
+        event_type="REWARD_RELEASED"
+    ).count() == 1
+
+
+def test_reward_worker_recovers_from_process_restart(session_factory):
+    setup_db = session_factory()
+    match = _finished_match(setup_db, release_at=NOW)
+    match_id = match.id
+    setup_db.close()
+
+    restarted_db = session_factory()
+    assert [item.outcome for item in run_reward_release_queue(
+        restarted_db, now=NOW
+    )] == ["RELEASED"]
+    restarted_db.close()
+
+    next_restart_db = session_factory()
+    assert run_reward_release_queue(next_restart_db, now=NOW) == []
+    db_match = next_restart_db.get(ArenaV3Match, match_id)
+    assert db_match is not None
+    assert db_match.reward_hold_status == ArenaV4RewardHoldStatus.AVAILABLE
+    assert next_restart_db.get(Wallet, 1001).efc_balance == Decimal("900.00")
+    next_restart_db.close()
 
 
 def test_appeal_is_pending_unique_and_keeps_match_finished(session_factory):

@@ -13,7 +13,6 @@ from app.crud.wallet import (
 )
 from app.models.arena_v3 import (
     ArenaV3MatchEvent,
-    ArenaV3NotificationDelivery,
     ArenaV3SettlementStatus,
     ArenaV3Stats,
     ArenaV3Status,
@@ -26,6 +25,7 @@ from app.models.arena_v3 import (
 from app.repositories.arena_v3 import ArenaV3Repository
 from app.services.arena_v3 import ArenaV3Conflict
 from app.services.arena_v3_state_machine import transition_arena_v3
+from app.services.arena_v3_notifications import queue_v4_notification
 
 
 FEE_PERCENT = Decimal("10")
@@ -85,6 +85,29 @@ def _operation(
         operation_metadata=metadata,
         completed_at=datetime.now(timezone.utc),
     ))
+
+
+def _queue_initial_result_notifications(repository, match, decision):
+    if decision == ArenaV4ResultType.DRAW:
+        events = ((match.owner_id, "MATCH_DRAW"), (match.opponent_id, "MATCH_DRAW"))
+    elif decision == ArenaV4ResultType.CANCEL:
+        events = (
+            (match.owner_id, "MATCH_CANCELLED"),
+            (match.opponent_id, "MATCH_CANCELLED"),
+        )
+    else:
+        events = ((match.winner_id, "MATCH_WON"), (match.loser_id, "MATCH_LOST"))
+    for player_id, event_type in events:
+        queue_v4_notification(
+            repository,
+            match_id=match.id,
+            recipient_id=player_id,
+            event_type=event_type,
+            dedup_key=(
+                f"arena-v4:{match.id}:{match.result_version}:"
+                f"{event_type}:{player_id}"
+            ),
+        )
 
 
 def _consume_stake(db, repository, match, player_id, result_version):
@@ -464,6 +487,16 @@ def _release_appeal_reward(db, repository, match, *, now):
                 "source": "APPEAL_RESOLUTION",
             },
         )
+        queue_v4_notification(
+            repository,
+            match_id=match.id,
+            recipient_id=credit.player_id,
+            event_type="REWARD_RELEASED",
+            dedup_key=(
+                f"arena-v4:{match.id}:{match.result_version}:"
+                f"REWARD_RELEASED:{credit.player_id}"
+            ),
+        )
     match.reward_hold_status = ArenaV4RewardHoldStatus.AVAILABLE
     match.reward_release_at = now
 
@@ -574,6 +607,7 @@ def apply_admin_settlement(
         admin_id=review.assigned_admin_id,
         reason=payload.reason or "INITIAL_ADMIN_DECISION",
     ))
+    _queue_initial_result_notifications(repository, match, decision)
     transition_arena_v3(match, ArenaV3Status.FINISHED)
     match.settled_at = now
     match.finished_at = now
@@ -685,14 +719,13 @@ def resolve_appeal_settlement(
             f"arena-v4:{match.id}:appeal-resolved:"
             f"{review.id}:{player_id}"
         )
-        if repository.get_notification_by_dedup(dedup_key) is None:
-            repository.add_notification(ArenaV3NotificationDelivery(
-                match_id=match.id,
-                recipient_id=player_id,
-                event_type="APPEAL_RESOLVED",
-                dedup_key=dedup_key,
-                status="PENDING",
-            ))
+        queue_v4_notification(
+            repository,
+            match_id=match.id,
+            recipient_id=player_id,
+            event_type="APPEAL_RESOLVED",
+            dedup_key=dedup_key,
+        )
     repository.add_event(ArenaV3MatchEvent(
         match_id=match.id,
         event_type=event_type,

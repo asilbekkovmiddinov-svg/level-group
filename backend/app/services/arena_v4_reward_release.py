@@ -13,6 +13,7 @@ from app.crud.wallet import release_locked_reward_efc
 from app.models.arena_v3 import (
     ArenaV3Match,
     ArenaV3MatchEvent,
+    ArenaV3NotificationDelivery,
     ArenaV4RewardHoldStatus,
     ArenaV4SettlementOperation,
     ArenaV4SettlementOperationStatus,
@@ -106,6 +107,18 @@ def release_match_reward(
             completed_at=now,
         ))
         released[credit.player_id] = str(amount)
+        dedup_key = (
+            f"arena-v4:{match.id}:{match.result_version}:"
+            f"REWARD_RELEASED:{credit.player_id}"
+        )
+        if repository.get_notification_by_dedup(dedup_key) is None:
+            repository.add_notification(ArenaV3NotificationDelivery(
+                match_id=match.id,
+                recipient_id=credit.player_id,
+                event_type="REWARD_RELEASED",
+                dedup_key=dedup_key,
+                status="PENDING",
+            ))
     repository.add_event(ArenaV3MatchEvent(
         match_id=match.id,
         event_type="V4_REWARD_RELEASED",

@@ -23,7 +23,26 @@ EVENT_LABELS = {
     "REFUND_COMPLETED": "Arena V3 refund yakunlandi",
     "APPEAL_REQUIRED": "Arena V3 appeal talab qilindi",
     "APPEAL_RESOLVED": "Arena V4 appeal yakunlandi",
+    "MATCH_DRAW": "Arena V4 match durang bilan yakunlandi",
+    "MATCH_CANCELLED": "Arena V4 match bekor qilindi",
+    "REWARD_RELEASED": "Arena V4 mukofot foydalanish uchun ochildi",
 }
+
+
+def queue_v4_notification(
+    repository, *, match_id: int, recipient_id: int, event_type: str,
+    dedup_key: str,
+):
+    """Queue one durable notification inside the caller's transaction."""
+    if repository.get_notification_by_dedup(dedup_key) is not None:
+        return None
+    return repository.add_notification(ArenaV3NotificationDelivery(
+        match_id=match_id,
+        recipient_id=recipient_id,
+        event_type=event_type,
+        dedup_key=dedup_key,
+        status="PENDING",
+    ))
 
 
 def _utc_now():
