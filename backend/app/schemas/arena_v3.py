@@ -11,6 +11,7 @@ from app.models.arena_v3 import (
     ArenaV3Status,
     ArenaV4AdminReviewStatus,
     ArenaV4AppealReviewAction,
+    ArenaV4RewardHoldStatus,
     ArenaV4ResultType,
     ArenaV4ReviewType,
 )
@@ -61,6 +62,16 @@ class ArenaV3JoinRequest(BaseModel):
 
 class ArenaV3ReadyRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+class ArenaV4ResultConfirmationResponse(BaseModel):
+    match_id: int
+    confirmed_by: int
+    owner_confirmed: bool
+    opponent_confirmed: bool
+    both_confirmed: bool
+    reward_hold_status: ArenaV4RewardHoldStatus
+    reward_released: bool
 
 
 class ArenaV3RoomCodeRequest(BaseModel):
@@ -216,6 +227,12 @@ class ArenaV3MatchResponse(BaseModel):
     finished_at: datetime | None
     appeal_deadline_at: datetime | None
     has_appeal: bool
+    reward_hold_status: ArenaV4RewardHoldStatus
+    reward_release_at: datetime | None
+    current_result_type: ArenaV4ResultType | None
+    result_version: int
+    owner_result_confirmed_at: datetime | None
+    opponent_result_confirmed_at: datetime | None
     cancel_reason: str | None
     version: int
     created_at: datetime
@@ -287,6 +304,8 @@ class ArenaV3ProfileResponse(BaseModel):
     best_streak: int
     total_efc_won: Decimal
     total_efc_lost: Decimal
+    locked_rewards_efc: Decimal = Decimal("0")
+    pending_appeals: int = 0
 
 
 class ArenaV3ConfigResponse(BaseModel):

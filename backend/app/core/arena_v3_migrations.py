@@ -78,6 +78,8 @@ def run_arena_v3_migrations(bind: Engine | Connection) -> None:
                 "reward_release_at": "TIMESTAMP",
                 "appeal_deadline_at": "TIMESTAMP",
                 "has_appeal": "BOOLEAN NOT NULL DEFAULT false",
+                "owner_result_confirmed_at": "TIMESTAMP",
+                "opponent_result_confirmed_at": "TIMESTAMP",
                 "current_result_type": "VARCHAR(32)",
                 "result_version": "INTEGER NOT NULL DEFAULT 0",
                 "current_decision_id": (

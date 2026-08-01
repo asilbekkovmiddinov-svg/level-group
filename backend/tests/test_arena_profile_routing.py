@@ -126,4 +126,6 @@ def test_arena_profile_returns_v3_contract_for_allowlisted_user(profile_client):
         "best_streak": 4,
         "total_efc_won": "600.00",
         "total_efc_lost": "200.00",
+        "locked_rewards_efc": "0",
+        "pending_appeals": 0,
     }

@@ -40,6 +40,14 @@ def ensure_v4_appeal_upload_allowed(
         return appeal
     if player_id not in {match.owner_id, match.opponent_id}:
         raise ArenaV3Forbidden("Player is not a match participant")
+    if (
+        player_id == match.owner_id
+        and match.owner_result_confirmed_at is not None
+    ) or (
+        player_id == match.opponent_id
+        and match.opponent_result_confirmed_at is not None
+    ):
+        raise ArenaV3Conflict("Confirmed result can no longer be appealed")
     if match.status != ArenaV3Status.FINISHED:
         raise ArenaV3Conflict("Appeal is only available for finished matches")
     now = now or datetime.now(timezone.utc)
@@ -78,6 +86,14 @@ def submit_v4_video_appeal(
         return appeal
     if player_id not in {match.owner_id, match.opponent_id}:
         raise ArenaV3Forbidden("Player is not a match participant")
+    if (
+        player_id == match.owner_id
+        and match.owner_result_confirmed_at is not None
+    ) or (
+        player_id == match.opponent_id
+        and match.opponent_result_confirmed_at is not None
+    ):
+        raise ArenaV3Conflict("Confirmed result can no longer be appealed")
     if match.status != ArenaV3Status.FINISHED:
         raise ArenaV3Conflict("Appeal is only available for finished matches")
     now = now or datetime.now(timezone.utc)

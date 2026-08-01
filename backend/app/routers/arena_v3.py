@@ -31,6 +31,7 @@ from app.schemas.arena_v3 import (
     ArenaV4AdminReviewResponse,
     ArenaV4AppealRequest, ArenaV4AppealResponse,
     ArenaV4AppealReviewRequest,
+    ArenaV4ResultConfirmationResponse,
 )
 from app.services.arena_v3 import (
     ArenaV3FoundationOnly,
@@ -443,6 +444,26 @@ async def submit_v4_appeal(
         except (StorageConfigurationError, StorageOperationError):
             pass
         raise
+
+
+@router.post(
+    "/{match_id}/confirm-result",
+    response_model=ArenaV4ResultConfirmationResponse,
+)
+def confirm_v4_result(
+    match_id: int,
+    current_user: TelegramUser = Depends(require_arena_v3_access),
+    idempotency_key: str = Depends(require_idempotency_key),
+    db: Session = Depends(get_db),
+):
+    from app.services.arena_v4_result_confirmation import confirm_result
+
+    return core_match_call(lambda: confirm_result(
+        db,
+        match_id=match_id,
+        player_id=current_user.telegram_id,
+        idempotency_key=idempotency_key,
+    ))
 
 
 @router.post("/{match_id}/cancel", response_model=ArenaV3MatchResponse)

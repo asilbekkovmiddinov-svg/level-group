@@ -34,7 +34,9 @@ def _utc(value):
     return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
-def release_match_reward(db, match_id: int, *, now=None) -> RewardReleaseResult:
+def release_match_reward(
+    db, match_id: int, *, now=None, force: bool = False
+) -> RewardReleaseResult:
     now = now or datetime.now(timezone.utc)
     repository = ArenaV3Repository(db)
     match = repository.get_match_for_update(match_id)
@@ -47,7 +49,7 @@ def release_match_reward(db, match_id: int, *, now=None) -> RewardReleaseResult:
     if (
         match.reward_hold_status != ArenaV4RewardHoldStatus.LOCKED
         or match.reward_release_at is None
-        or _utc(match.reward_release_at) > now
+        or (not force and _utc(match.reward_release_at) > now)
     ):
         db.rollback()
         return RewardReleaseResult(match_id, "NOT_DUE")
