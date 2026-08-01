@@ -146,6 +146,8 @@ class ArenaV3Match(Base):
     result_source = Column(String(24))
     appeal_deadline_at = Column(DateTime(timezone=True))
     has_appeal = Column(Boolean, nullable=False, default=False, index=True)
+    owner_result_confirmed_at = Column(DateTime(timezone=True))
+    opponent_result_confirmed_at = Column(DateTime(timezone=True))
     reward_hold_status = Column(
         SQLEnum(ArenaV4RewardHoldStatus, native_enum=False),
         nullable=False, default=ArenaV4RewardHoldStatus.NONE, index=True,

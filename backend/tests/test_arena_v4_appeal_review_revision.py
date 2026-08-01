@@ -170,6 +170,9 @@ def test_keep_result_resolves_appeal_and_unlocks_reward(session_factory):
     assert db.query(ArenaV3NotificationDelivery).filter_by(
         event_type="APPEAL_RESOLVED"
     ).count() == 2
+    assert db.query(ArenaV3NotificationDelivery).filter_by(
+        event_type="REWARD_RELEASED"
+    ).count() == 1
 
 
 def test_update_score_auto_detects_new_winner_and_rolls_back(session_factory):
