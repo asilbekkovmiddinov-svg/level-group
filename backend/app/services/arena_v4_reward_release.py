@@ -3,6 +3,7 @@ import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
+from types import SimpleNamespace
 
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
@@ -53,42 +54,56 @@ def release_match_reward(db, match_id: int, *, now=None) -> RewardReleaseResult:
     if match.has_appeal or repository.get_appeal_for_update(match.id) is not None:
         db.rollback()
         return RewardReleaseResult(match_id, "APPEAL_BLOCKED")
-    if match.winner_id is None:
-        db.rollback()
-        raise ArenaV3Conflict("Arena V4 locked reward has no winner")
-
-    amount = Decimal(str(match.winner_reward_efc))
-    wallet = release_locked_reward_efc(db, match.winner_id, amount)
-    if wallet is None:
-        db.rollback()
-        raise ArenaV3Conflict("Arena V4 locked reward is unavailable")
-    balance_after = Decimal(str(wallet.efc_balance))
-    transaction = create_transaction(
-        db=db,
-        telegram_id=match.winner_id,
-        currency="EFC",
-        amount=amount,
-        balance_before=balance_after - amount,
-        balance_after=balance_after,
-        type="ARENA_V4_REWARD_RELEASED",
-        description=f"Arena V4 match #{match.id} reward released",
-        commit=False,
-    )
-    repository.add_settlement_operation(ArenaV4SettlementOperation(
-        match_id=match.id,
-        result_version=match.result_version,
-        player_id=match.winner_id,
-        operation_type="REWARD_RELEASE",
-        amount_efc=amount,
-        status=ArenaV4SettlementOperationStatus.COMPLETED,
-        wallet_transaction_id=transaction.id,
-        idempotency_key=(
-            f"arena-v4:{match.id}:{match.result_version}:"
-            f"REWARD_RELEASE:{match.winner_id}"
-        ),
-        operation_metadata={"released_at": now.isoformat()},
-        completed_at=now,
-    ))
+    credits = [
+        item for item in repository.list_settlement_operations_for_update(
+            match.id, match.result_version
+        )
+        if item.operation_type in {"REWARD_LOCK", "STAKE_REFUND"}
+        and item.status == ArenaV4SettlementOperationStatus.COMPLETED
+    ]
+    if not credits:
+        if match.winner_id is None:
+            db.rollback()
+            raise ArenaV3Conflict("Arena V4 locked reward ledger is missing")
+        credits = [SimpleNamespace(
+            player_id=match.winner_id,
+            amount_efc=match.winner_reward_efc,
+        )]
+    released = {}
+    for credit in credits:
+        amount = Decimal(str(credit.amount_efc))
+        wallet = release_locked_reward_efc(db, credit.player_id, amount)
+        if wallet is None:
+            db.rollback()
+            raise ArenaV3Conflict("Arena V4 locked reward is unavailable")
+        balance_after = Decimal(str(wallet.efc_balance))
+        transaction = create_transaction(
+            db=db,
+            telegram_id=credit.player_id,
+            currency="EFC",
+            amount=amount,
+            balance_before=balance_after - amount,
+            balance_after=balance_after,
+            type="ARENA_V4_REWARD_RELEASED",
+            description=f"Arena V4 match #{match.id} reward released",
+            commit=False,
+        )
+        repository.add_settlement_operation(ArenaV4SettlementOperation(
+            match_id=match.id,
+            result_version=match.result_version,
+            player_id=credit.player_id,
+            operation_type="REWARD_RELEASE",
+            amount_efc=amount,
+            status=ArenaV4SettlementOperationStatus.COMPLETED,
+            wallet_transaction_id=transaction.id,
+            idempotency_key=(
+                f"arena-v4:{match.id}:{match.result_version}:"
+                f"REWARD_RELEASE:{credit.player_id}"
+            ),
+            operation_metadata={"released_at": now.isoformat()},
+            completed_at=now,
+        ))
+        released[credit.player_id] = str(amount)
     repository.add_event(ArenaV3MatchEvent(
         match_id=match.id,
         event_type="V4_REWARD_RELEASED",
@@ -97,7 +112,7 @@ def release_match_reward(db, match_id: int, *, now=None) -> RewardReleaseResult:
         actor_type="SYSTEM",
         actor_id=None,
         idempotency_key=f"reward-release:{match.result_version}",
-        event_metadata={"amount_efc": str(amount)},
+        event_metadata={"released": released},
     ))
     match.reward_hold_status = ArenaV4RewardHoldStatus.AVAILABLE
     try:

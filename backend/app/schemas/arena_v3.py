@@ -10,6 +10,7 @@ from app.models.arena_v3 import (
     ArenaV3SettlementStatus,
     ArenaV3Status,
     ArenaV4AdminReviewStatus,
+    ArenaV4AppealReviewAction,
     ArenaV4ResultType,
     ArenaV4ReviewType,
 )
@@ -123,6 +124,14 @@ class ArenaV4AppealResponse(BaseModel):
     status: str
     submitted_at: datetime
     deadline_at: datetime
+
+
+class ArenaV4AdminAppealResponse(ArenaV4AppealResponse):
+    video_storage_key: str
+    file_hash: str
+    resolution: str | None
+    admin_comment: str | None
+    resolved_at: datetime | None
 
 
 class ArenaV3AppealDecisionRequest(BaseModel):
@@ -298,15 +307,37 @@ class ArenaV4AdminDecisionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     admin_id: int = Field(gt=0)
-    decision: ArenaV4ResultType
-    owner_score: int | None = Field(default=None, ge=0, le=99)
-    opponent_score: int | None = Field(default=None, ge=0, le=99)
+    owner_score: int = Field(ge=0, le=99)
+    opponent_score: int = Field(ge=0, le=99)
     reason: str | None = Field(default=None, max_length=500)
 
+
+class ArenaV4AdminCancelRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    admin_id: int = Field(gt=0)
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class ArenaV4AppealReviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    admin_id: int = Field(gt=0)
+    action: ArenaV4AppealReviewAction
+    owner_score: int | None = Field(default=None, ge=0, le=99)
+    opponent_score: int | None = Field(default=None, ge=0, le=99)
+    reason: str = Field(min_length=1, max_length=500)
+
     @model_validator(mode="after")
-    def validate_scores(self):
-        if (self.owner_score is None) != (self.opponent_score is None):
-            raise ValueError("Both scores must be provided together")
+    def validate_action_scores(self):
+        has_both_scores = (
+            self.owner_score is not None and self.opponent_score is not None
+        )
+        if self.action == ArenaV4AppealReviewAction.UPDATE_SCORE:
+            if not has_both_scores:
+                raise ValueError("UPDATE_SCORE requires both scores")
+        elif self.owner_score is not None or self.opponent_score is not None:
+            raise ValueError("Scores are only accepted for UPDATE_SCORE")
         return self
 
 
@@ -338,3 +369,4 @@ class ArenaV4AdminReviewDetailResponse(BaseModel):
     review: ArenaV4AdminReviewResponse
     match: ArenaV3MatchResponse
     screenshots: list[ArenaV3ScreenshotResponse]
+    appeal: ArenaV4AdminAppealResponse | None = None

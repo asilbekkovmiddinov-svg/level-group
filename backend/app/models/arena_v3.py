@@ -48,6 +48,7 @@ class ArenaV3AppealStatus(str, Enum):
     UNDER_REVIEW = "UNDER_REVIEW"
     ACCEPTED = "ACCEPTED"
     REJECTED = "REJECTED"
+    RESOLVED = "RESOLVED"
 
 
 class ArenaV3EvidenceStatus(str, Enum):
@@ -87,6 +88,12 @@ class ArenaV4SettlementOperationStatus(str, Enum):
     COMPLETED = "COMPLETED"
     REVERSED = "REVERSED"
     FAILED = "FAILED"
+
+
+class ArenaV4AppealReviewAction(str, Enum):
+    KEEP_RESULT = "KEEP_RESULT"
+    UPDATE_SCORE = "UPDATE_SCORE"
+    CANCEL_MATCH = "CANCEL_MATCH"
 
 
 class ArenaV3Match(Base):

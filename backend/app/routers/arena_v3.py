@@ -21,10 +21,12 @@ from app.schemas.arena_v3 import (
     ArenaV3RankingResponse, ArenaV3ResultResponse,
     ArenaV3ReadyRequest, ArenaV3RoomCodeRequest, ArenaV3ScreenshotListResponse,
     ArenaV3ScreenshotResponse,
-    ArenaV4AdminClaimRequest, ArenaV4AdminDecisionRequest,
+    ArenaV4AdminCancelRequest, ArenaV4AdminClaimRequest,
+    ArenaV4AdminDecisionRequest,
     ArenaV4AdminReviewDetailResponse, ArenaV4AdminReviewListResponse,
     ArenaV4AdminReviewResponse,
     ArenaV4AppealRequest, ArenaV4AppealResponse,
+    ArenaV4AppealReviewRequest,
 )
 from app.services.arena_v3 import (
     ArenaV3FoundationOnly,
@@ -141,6 +143,50 @@ def internal_admin_review_decision(
 ):
     return core_match_call(
         lambda: ArenaV4AdminReviewService(db).submit_decision(
+            review_id=review_id,
+            admin_id=payload.admin_id,
+            payload=payload,
+            idempotency_key=idempotency_key,
+        )
+    )
+
+
+@internal_router.post(
+    "/reviews/{review_id}/cancel", response_model=ArenaV4AdminReviewResponse
+)
+def internal_admin_review_cancel(
+    review_id: int,
+    payload: ArenaV4AdminCancelRequest,
+    idempotency_key: str = Depends(require_idempotency_key),
+    _: None = Depends(require_arena_internal_api_key),
+    db: Session = Depends(get_db),
+):
+    return core_match_call(
+        lambda: ArenaV4AdminReviewService(db).submit_cancel(
+            review_id=review_id,
+            admin_id=payload.admin_id,
+            payload=payload,
+            idempotency_key=idempotency_key,
+        )
+    )
+
+
+@internal_router.post(
+    "/reviews/{review_id}/appeal-decision",
+    response_model=ArenaV4AdminReviewResponse,
+)
+def internal_appeal_review_decision(
+    review_id: int,
+    payload: ArenaV4AppealReviewRequest,
+    idempotency_key: str = Depends(require_idempotency_key),
+    _: None = Depends(require_arena_internal_api_key),
+    db: Session = Depends(get_db),
+):
+    from app.services.arena_v4_appeal_review import (
+        ArenaV4AppealReviewService,
+    )
+    return core_match_call(
+        lambda: ArenaV4AppealReviewService(db).submit(
             review_id=review_id,
             admin_id=payload.admin_id,
             payload=payload,

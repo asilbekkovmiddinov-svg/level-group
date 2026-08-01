@@ -171,6 +171,49 @@ def release_locked_reward_efc(db: Session, telegram_id: int, amount):
     return wallet
 
 
+def remove_locked_reward_efc(db: Session, telegram_id: int, amount):
+    value = to_decimal(amount)
+    if value is None:
+        return None
+    wallet = get_wallet_for_update(db, telegram_id)
+    if wallet is None:
+        return None
+    locked_reward = Decimal(str(wallet.locked_reward_efc or ZERO))
+    if locked_reward < value:
+        return None
+    wallet.locked_reward_efc = locked_reward - value
+    db.flush()
+    return wallet
+
+
+def restore_locked_stake_efc(db: Session, telegram_id: int, amount):
+    value = to_decimal(amount)
+    if value is None:
+        return None
+    wallet = get_wallet_for_update(db, telegram_id)
+    if wallet is None:
+        return None
+    wallet.locked_efc = Decimal(str(wallet.locked_efc or ZERO)) + value
+    db.flush()
+    return wallet
+
+
+def reverse_refund_to_locked_efc(db: Session, telegram_id: int, amount):
+    value = to_decimal(amount)
+    if value is None:
+        return None
+    wallet = get_wallet_for_update(db, telegram_id)
+    if wallet is None:
+        return None
+    available = Decimal(str(wallet.efc_balance or ZERO))
+    if available < value:
+        return None
+    wallet.efc_balance = available - value
+    wallet.locked_efc = Decimal(str(wallet.locked_efc or ZERO)) + value
+    db.flush()
+    return wallet
+
+
 def add_efc(db: Session, telegram_id: int, amount):
     return add_efc_balance(db, telegram_id, amount)
 

@@ -22,6 +22,7 @@ EVENT_LABELS = {
     "MATCH_LOST": "Arena V3 match yakunlandi",
     "REFUND_COMPLETED": "Arena V3 refund yakunlandi",
     "APPEAL_REQUIRED": "Arena V3 appeal talab qilindi",
+    "APPEAL_RESOLVED": "Arena V4 appeal yakunlandi",
 }
 
 

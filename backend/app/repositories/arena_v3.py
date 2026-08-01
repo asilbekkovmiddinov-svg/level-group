@@ -156,6 +156,35 @@ class ArenaV3Repository:
         self.db.flush()
         return value
 
+    def list_settlement_operations_for_update(
+        self, match_id: int, result_version: int
+    ):
+        return self.db.execute(
+            select(ArenaV4SettlementOperation)
+            .where(
+                ArenaV4SettlementOperation.match_id == match_id,
+                ArenaV4SettlementOperation.result_version == result_version,
+            )
+            .order_by(ArenaV4SettlementOperation.id)
+            .with_for_update()
+        ).scalars().all()
+
+    def list_finished_matches_for_player(self, player_id: int):
+        return self.db.execute(
+            select(ArenaV3Match)
+            .where(
+                ArenaV3Match.status == ArenaV3Status.FINISHED,
+                or_(
+                    ArenaV3Match.owner_id == player_id,
+                    ArenaV3Match.opponent_id == player_id,
+                ),
+            )
+            .order_by(
+                ArenaV3Match.finished_at.asc(),
+                ArenaV3Match.id.asc(),
+            )
+        ).scalars().all()
+
     def get_latest_ai_review(self, match_id: int) -> ArenaV3AIReview | None:
         return self.db.execute(
             select(ArenaV3AIReview)
@@ -198,6 +227,13 @@ class ArenaV3Repository:
             .where(ArenaV3Appeal.match_id == match_id)
             .order_by(ArenaV3Appeal.id.desc())
             .with_for_update()
+        ).scalars().first()
+
+    def get_appeal(self, match_id: int) -> ArenaV3Appeal | None:
+        return self.db.execute(
+            select(ArenaV3Appeal)
+            .where(ArenaV3Appeal.match_id == match_id)
+            .order_by(ArenaV3Appeal.id.desc())
         ).scalars().first()
 
     def get_appeal_by_idempotency(
