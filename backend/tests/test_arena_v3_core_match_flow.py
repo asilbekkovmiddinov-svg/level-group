@@ -12,7 +12,7 @@ import app.models
 from app.core import config
 from app.core.database import Base, get_db
 from app.core.telegram_auth import get_current_telegram_user
-from app.models.arena_v3 import ArenaV3MatchEvent, ArenaV3Status
+from app.models.arena_v3 import ArenaV3Match, ArenaV3MatchEvent, ArenaV3Status
 from app.routers.arena_v3 import router as arena_v3_router
 from app.schemas.arena_v3 import (
     ArenaV3CancelRequest,
@@ -330,6 +330,38 @@ def test_api_endpoints_complete_core_flow(api):
     )
     assert room_response.status_code == 200
     assert room_response.json()["status"] == "PLAYING"
+
+
+@pytest.mark.parametrize(
+    ("status", "is_active", "in_history"),
+    [
+        (ArenaV3Status.CANCELLED, False, True),
+        (ArenaV3Status.FINISHED, False, True),
+        (ArenaV3Status.PLAYING, True, False),
+    ],
+)
+def test_active_endpoint_excludes_terminal_matches_and_history_keeps_them(
+    api, session_factory, status, is_active, in_history
+):
+    client, actor = api
+    actor["telegram_id"] = 1001
+    created = client.post(
+        "/arena/create",
+        json=create_payload().model_dump(mode="json"),
+        headers={"Idempotency-Key": f"terminal-active-{status.value}"},
+    ).json()
+    db = session_factory()
+    stored = db.get(ArenaV3Match, created["id"])
+    stored.status = status
+    db.commit()
+    db.close()
+
+    active = client.get("/arena/active").json()["match"]
+    assert (active is not None) is is_active
+    history_ids = {
+        item["id"] for item in client.get("/arena/history").json()["matches"]
+    }
+    assert (created["id"] in history_ids) is in_history
 
 
 def test_api_validation_permissions_flags_and_v2_route_regression(api, monkeypatch):
