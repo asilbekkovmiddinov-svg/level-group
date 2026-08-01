@@ -371,7 +371,6 @@ def test_internal_admin_review_claim_and_idempotent_decision(api):
 
     payload = {
         "admin_id": 9999,
-        "decision": "PLAYER_A_WIN",
         "owner_score": 2,
         "opponent_score": 1,
         "reason": "Screenshots verified",
@@ -391,7 +390,7 @@ def test_internal_admin_review_claim_and_idempotent_decision(api):
     assert replay.status_code == 200
     assert client.post(
         f"/internal/arena/reviews/{review_id}/decision",
-        json={**payload, "decision": "PLAYER_B_WIN"},
+        json={**payload, "owner_score": 1, "opponent_score": 2},
         headers={"Idempotency-Key": "decision-2"},
     ).status_code == 409
 

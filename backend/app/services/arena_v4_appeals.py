@@ -7,6 +7,9 @@ from app.models.arena_v3 import (
     ArenaV3AppealStatus,
     ArenaV3MatchEvent,
     ArenaV3Status,
+    ArenaV4AdminReview,
+    ArenaV4AdminReviewStatus,
+    ArenaV4ReviewType,
 )
 from app.repositories.arena_v3 import ArenaV3Repository
 from app.services.arena_v3 import (
@@ -98,6 +101,13 @@ def submit_v4_video_appeal(
         submitted_at=now,
         deadline_at=match.appeal_deadline_at,
     ))
+    review = repository.add_admin_review(ArenaV4AdminReview(
+        match_id=match.id,
+        review_type=ArenaV4ReviewType.APPEAL,
+        status=ArenaV4AdminReviewStatus.PENDING,
+        result_version=match.result_version,
+        expected_match_version=match.version,
+    ))
     match.has_appeal = True
     repository.add_event(ArenaV3MatchEvent(
         match_id=match.id,
@@ -107,7 +117,7 @@ def submit_v4_video_appeal(
         actor_type="USER",
         actor_id=player_id,
         idempotency_key=event_key,
-        event_metadata={"appeal_id": appeal.id},
+        event_metadata={"appeal_id": appeal.id, "review_id": review.id},
     ))
     try:
         db.commit()

@@ -23,7 +23,10 @@ from app.models.arena_v3 import (
 )
 from app.models.transaction import Transaction
 from app.models.wallet import Wallet
-from app.schemas.arena_v3 import ArenaV4AdminDecisionRequest
+from app.schemas.arena_v3 import (
+    ArenaV4AdminCancelRequest,
+    ArenaV4AdminDecisionRequest,
+)
 from app.services.arena_v3 import ArenaV3Conflict
 from app.services.arena_v4_admin_review import ArenaV4AdminReviewService
 from app.services import arena_v4_settlement
@@ -95,11 +98,24 @@ def _foundation(db):
 
 
 def _decide(db, review, decision, *, key="decision-1", reason="Verified"):
+    if decision == ArenaV4ResultType.CANCEL:
+        payload = ArenaV4AdminCancelRequest(admin_id=9999, reason=reason)
+        return ArenaV4AdminReviewService(db).submit_cancel(
+            review_id=review.id,
+            admin_id=9999,
+            payload=payload,
+            idempotency_key=key,
+        )
+    scores = {
+        ArenaV4ResultType.PLAYER_A_WIN: (2, 1),
+        ArenaV4ResultType.PLAYER_B_WIN: (1, 2),
+        ArenaV4ResultType.DRAW: (2, 2),
+    }
+    owner_score, opponent_score = scores[decision]
     payload = ArenaV4AdminDecisionRequest(
         admin_id=9999,
-        decision=decision,
-        owner_score=2,
-        opponent_score=1,
+        owner_score=owner_score,
+        opponent_score=opponent_score,
         reason=reason,
     )
     return ArenaV4AdminReviewService(db).submit_decision(
@@ -173,10 +189,11 @@ def test_draw_refunds_both_players_with_zero_fee_and_draw_stats(session_factory)
     assert match.settlement_status == ArenaV3SettlementStatus.REFUNDED
     assert match.commission_efc == Decimal("0.00")
     assert match.winner_reward_efc == Decimal("0.00")
-    assert match.reward_hold_status == ArenaV4RewardHoldStatus.NONE
+    assert match.reward_hold_status == ArenaV4RewardHoldStatus.LOCKED
     for player_id in (1001, 2002):
         wallet = db.get(Wallet, player_id)
-        assert wallet.efc_balance == Decimal("500.00")
+        assert wallet.efc_balance == Decimal("0.00")
+        assert wallet.locked_reward_efc == Decimal("500.00")
         assert wallet.locked_efc == Decimal("0.00")
         assert db.get(ArenaV3Stats, player_id).draws == 1
     assert {
@@ -197,8 +214,8 @@ def test_cancel_refunds_without_competitive_stats(session_factory):
     assert match.cancel_reason == "ADMIN_CANCEL"
     assert match.commission_efc == Decimal("0.00")
     assert db.query(ArenaV3Stats).count() == 0
-    assert db.get(Wallet, 1001).efc_balance == Decimal("500.00")
-    assert db.get(Wallet, 2002).efc_balance == Decimal("500.00")
+    assert db.get(Wallet, 1001).locked_reward_efc == Decimal("500.00")
+    assert db.get(Wallet, 2002).locked_reward_efc == Decimal("500.00")
 
 
 def test_decision_replay_is_idempotent_and_second_decision_is_blocked(
