@@ -128,6 +128,7 @@ class ArenaV4AppealResponse(BaseModel):
 
 class ArenaV4AdminAppealResponse(ArenaV4AppealResponse):
     video_storage_key: str
+    video_url: str | None = None
     file_hash: str
     resolution: str | None
     admin_comment: str | None
@@ -241,6 +242,7 @@ class ArenaV3ScreenshotResponse(BaseModel):
     height: int
     validation_status: ArenaV3EvidenceStatus
     uploaded_at: datetime
+    media_url: str | None = None
 
 
 class ArenaV3ScreenshotListResponse(BaseModel):
@@ -365,8 +367,16 @@ class ArenaV4AdminReviewListResponse(BaseModel):
     reviews: list[ArenaV4AdminReviewResponse]
 
 
+class ArenaV4AdminPlayerResponse(BaseModel):
+    telegram_id: int
+    display_name: str
+    username: str | None
+
+
 class ArenaV4AdminReviewDetailResponse(BaseModel):
     review: ArenaV4AdminReviewResponse
     match: ArenaV3MatchResponse
+    player_a: ArenaV4AdminPlayerResponse
+    player_b: ArenaV4AdminPlayerResponse
     screenshots: list[ArenaV3ScreenshotResponse]
     appeal: ArenaV4AdminAppealResponse | None = None
