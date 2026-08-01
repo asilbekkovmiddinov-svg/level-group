@@ -99,6 +99,32 @@ class ArenaV3AppealResponse(BaseModel):
     resolved_at: datetime | None
 
 
+class ArenaV4AppealRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=1, max_length=500)
+
+    @field_validator("reason")
+    @classmethod
+    def normalize_reason(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Appeal reason is required")
+        return normalized
+
+
+class ArenaV4AppealResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    match_id: int
+    submitted_by: int
+    reason: str
+    status: str
+    submitted_at: datetime
+    deadline_at: datetime
+
+
 class ArenaV3AppealDecisionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -178,6 +204,8 @@ class ArenaV3MatchResponse(BaseModel):
     result_source: str | None
     settled_at: datetime | None
     finished_at: datetime | None
+    appeal_deadline_at: datetime | None
+    has_appeal: bool
     cancel_reason: str | None
     version: int
     created_at: datetime

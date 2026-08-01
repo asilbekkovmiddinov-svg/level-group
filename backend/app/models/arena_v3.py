@@ -43,6 +43,7 @@ class ArenaV3AIReviewStatus(str, Enum):
 
 class ArenaV3AppealStatus(str, Enum):
     OPEN = "OPEN"
+    PENDING = "PENDING"
     SUBMITTED = "SUBMITTED"
     UNDER_REVIEW = "UNDER_REVIEW"
     ACCEPTED = "ACCEPTED"
@@ -137,6 +138,7 @@ class ArenaV3Match(Base):
     opponent_score = Column(Integer)
     result_source = Column(String(24))
     appeal_deadline_at = Column(DateTime(timezone=True))
+    has_appeal = Column(Boolean, nullable=False, default=False, index=True)
     reward_hold_status = Column(
         SQLEnum(ArenaV4RewardHoldStatus, native_enum=False),
         nullable=False, default=ArenaV4RewardHoldStatus.NONE, index=True,

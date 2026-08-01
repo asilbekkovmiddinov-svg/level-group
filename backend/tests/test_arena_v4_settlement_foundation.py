@@ -137,6 +137,8 @@ def test_winner_settlement_uses_ten_percent_fee_and_locked_reward(
     assert match.loser_id == loser_id
     assert match.reward_hold_status == ArenaV4RewardHoldStatus.LOCKED
     assert int((match.reward_release_at - match.settled_at).total_seconds()) == 1800
+    assert match.appeal_deadline_at == match.reward_release_at
+    assert match.has_appeal is False
 
     winner = db.get(Wallet, winner_id)
     loser = db.get(Wallet, loser_id)

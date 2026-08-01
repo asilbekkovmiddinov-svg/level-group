@@ -77,6 +77,7 @@ def run_arena_v3_migrations(bind: Engine | Connection) -> None:
                 "reward_hold_status": "VARCHAR(32) NOT NULL DEFAULT 'NONE'",
                 "reward_release_at": "TIMESTAMP",
                 "appeal_deadline_at": "TIMESTAMP",
+                "has_appeal": "BOOLEAN NOT NULL DEFAULT false",
                 "current_result_type": "VARCHAR(32)",
                 "result_version": "INTEGER NOT NULL DEFAULT 0",
                 "current_decision_id": (
@@ -116,6 +117,10 @@ def run_arena_v3_migrations(bind: Engine | Connection) -> None:
                 "CREATE INDEX IF NOT EXISTS "
                 "ix_arena_matches_reward_release "
                 "ON arena_matches (reward_hold_status, reward_release_at)"
+            ))
+            connection.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_arena_matches_has_appeal "
+                "ON arena_matches (has_appeal)"
             ))
             connection.execute(text(
                 "CREATE INDEX IF NOT EXISTS ix_arena_appeal_deadline "
