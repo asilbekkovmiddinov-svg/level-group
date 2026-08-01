@@ -19,6 +19,12 @@ from app.services.arena_v4_settlement import (
     apply_admin_settlement,
     result_from_score,
 )
+from app.models.user import User
+from app.services.object_storage import (
+    StorageConfigurationError,
+    StorageOperationError,
+    generate_presigned_get_url,
+)
 
 
 class ArenaV4AdminReviewService:
@@ -26,25 +32,95 @@ class ArenaV4AdminReviewService:
         self.db = db
         self.repository = ArenaV3Repository(db)
 
-    def list_reviews(self, *, status=None, limit: int = 50, offset: int = 0):
+    def list_reviews(
+        self, *, status=None, review_type=None, limit: int = 50, offset: int = 0
+    ):
         return self.repository.list_admin_reviews(
-            status=status, limit=limit, offset=offset
+            status=status, review_type=review_type, limit=limit, offset=offset
         )
+
+    @staticmethod
+    def _profile(user, player_id):
+        if user is None:
+            return {
+                "telegram_id": player_id,
+                "display_name": f"Telegram user {player_id}",
+                "username": None,
+            }
+        display_name = " ".join(
+            value for value in (user.first_name, user.last_name) if value
+        )
+        return {
+            "telegram_id": user.telegram_id,
+            "display_name": (
+                display_name or user.username or f"Telegram user {player_id}"
+            ),
+            "username": user.username,
+        }
+
+    @staticmethod
+    def _media_url(storage_key):
+        if not storage_key:
+            return None
+        try:
+            return generate_presigned_get_url(storage_key)
+        except (StorageConfigurationError, StorageOperationError):
+            return None
 
     def detail(self, review_id: int):
         review = self.repository.get_admin_review(review_id)
         if review is None:
             raise ArenaV3NotFound("Arena admin review not found")
         match = self.repository.get_match(review.match_id)
+        screenshots = self.repository.list_screenshots(review.match_id)
+        screenshot_data = [
+            {
+                "id": item.id,
+                "match_id": item.match_id,
+                "player_id": item.player_id,
+                "mime_type": item.mime_type,
+                "file_size": item.file_size,
+                "width": item.width,
+                "height": item.height,
+                "validation_status": item.validation_status,
+                "uploaded_at": item.uploaded_at,
+                "media_url": self._media_url(item.storage_key),
+            }
+            for item in screenshots
+        ]
+        appeal = (
+            self.repository.get_appeal(review.match_id)
+            if review.review_type == ArenaV4ReviewType.APPEAL
+            else None
+        )
+        appeal_data = None
+        if appeal is not None:
+            appeal_data = {
+                "id": appeal.id,
+                "match_id": appeal.match_id,
+                "submitted_by": appeal.submitted_by,
+                "reason": appeal.reason,
+                "status": appeal.status,
+                "submitted_at": appeal.submitted_at,
+                "deadline_at": appeal.deadline_at,
+                "video_storage_key": appeal.video_storage_key,
+                "video_url": self._media_url(appeal.video_storage_key),
+                "file_hash": appeal.file_hash,
+                "resolution": appeal.resolution,
+                "admin_comment": appeal.admin_comment,
+                "resolved_at": appeal.resolved_at,
+            }
         return {
             "review": review,
             "match": match,
-            "screenshots": self.repository.list_screenshots(review.match_id),
-            "appeal": (
-                self.repository.get_appeal(review.match_id)
-                if review.review_type == ArenaV4ReviewType.APPEAL
-                else None
+            "player_a": self._profile(
+                self.db.get(User, match.owner_id), match.owner_id
             ),
+            "player_b": self._profile(
+                self.db.get(User, match.opponent_id), match.opponent_id
+            ),
+            "screenshots": screenshot_data,
+            "appeal": appeal_data,
         }
 
     def claim(self, *, review_id: int, admin_id: int):

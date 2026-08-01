@@ -24,6 +24,7 @@ from app.models.arena_v3 import (
     ArenaV4AdminReviewStatus,
 )
 from app.models.wallet import Wallet
+from app.models.user import User
 from app.routers import arena_v3 as arena_router
 from app.services.arena_v3 import (
     ArenaV3Conflict,
@@ -38,6 +39,7 @@ from app.services.arena_v3_workers import (
     retry_ai_review,
     start_ai_review,
 )
+from app.services import arena_v4_admin_review
 
 
 NOW = datetime(2026, 7, 30, 8, 0, tzinfo=timezone.utc)
@@ -332,10 +334,22 @@ def test_v2_routes_are_absent_from_sprint5_routers():
     assert all(not path.startswith("/matches") for path in paths)
 
 
-def test_internal_admin_review_claim_and_idempotent_decision(api):
+def test_internal_admin_review_claim_and_idempotent_decision(api, monkeypatch):
     client, _, match_id, session_factory = api
     db = session_factory()
     db.add_all([
+        User(
+            telegram_id=1001,
+            username="player_a",
+            first_name="Player",
+            last_name="A",
+        ),
+        User(
+            telegram_id=2002,
+            username="player_b",
+            first_name="Player",
+            last_name="B",
+        ),
         Wallet(
             telegram_id=1001, efc_balance=0, uzs_balance=0,
             locked_efc=100, locked_reward_efc=0, locked_uzs=0,
@@ -350,13 +364,30 @@ def test_internal_admin_review_claim_and_idempotent_decision(api):
     upload(ArenaV3Service(db), match_id, 2002, "opponent")
     review_id = db.query(ArenaV4AdminReview).one().id
     db.close()
+    monkeypatch.setattr(
+        arena_v4_admin_review,
+        "generate_presigned_get_url",
+        lambda key: f"https://media.example/{key}",
+    )
 
-    listed = client.get("/internal/arena/reviews?status=PENDING")
+    listed = client.get(
+        "/internal/arena/reviews?status=PENDING&review_type=INITIAL"
+    )
     assert listed.status_code == 200
     assert [item["id"] for item in listed.json()["reviews"]] == [review_id]
     detail = client.get(f"/internal/arena/reviews/{review_id}")
     assert detail.status_code == 200
     assert len(detail.json()["screenshots"]) == 2
+    assert detail.json()["player_a"] == {
+        "telegram_id": 1001,
+        "display_name": "Player A",
+        "username": "player_a",
+    }
+    assert detail.json()["player_b"]["username"] == "player_b"
+    assert all(
+        item["media_url"].startswith("https://media.example/")
+        for item in detail.json()["screenshots"]
+    )
 
     claimed = client.post(
         f"/internal/arena/reviews/{review_id}/claim",

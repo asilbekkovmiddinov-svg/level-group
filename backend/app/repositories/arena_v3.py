@@ -131,11 +131,18 @@ class ArenaV3Repository:
         ).scalar_one_or_none()
 
     def list_admin_reviews(
-        self, *, status: ArenaV4AdminReviewStatus | None, limit: int, offset: int
+        self,
+        *,
+        status: ArenaV4AdminReviewStatus | None,
+        review_type: ArenaV4ReviewType | None,
+        limit: int,
+        offset: int,
     ) -> Sequence[ArenaV4AdminReview]:
         query = select(ArenaV4AdminReview)
         if status is not None:
             query = query.where(ArenaV4AdminReview.status == status)
+        if review_type is not None:
+            query = query.where(ArenaV4AdminReview.review_type == review_type)
         return self.db.execute(
             query.order_by(
                 ArenaV4AdminReview.created_at.asc(), ArenaV4AdminReview.id.asc()

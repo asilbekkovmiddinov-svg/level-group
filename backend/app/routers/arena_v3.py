@@ -10,7 +10,11 @@ from app.core import config
 from app.core.database import get_db
 from app.core.arena_internal_auth import require_arena_internal_api_key
 from app.core.telegram_auth import TelegramUser, get_current_telegram_user
-from app.models.arena_v3 import ArenaV3Status, ArenaV4AdminReviewStatus
+from app.models.arena_v3 import (
+    ArenaV3Status,
+    ArenaV4AdminReviewStatus,
+    ArenaV4ReviewType,
+)
 from app.repositories.arena_v3 import ArenaV3Repository
 from app.schemas.arena_v3 import (
     ArenaV3AppealDecisionRequest, ArenaV3AppealRequest,
@@ -91,13 +95,19 @@ def internal_admin_review_list(
     review_status: ArenaV4AdminReviewStatus | None = Query(
         default=None, alias="status"
     ),
+    review_type: ArenaV4ReviewType | None = Query(
+        default=None, alias="review_type"
+    ),
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
     _: None = Depends(require_arena_internal_api_key),
     db: Session = Depends(get_db),
 ):
     reviews = ArenaV4AdminReviewService(db).list_reviews(
-        status=review_status, limit=limit, offset=offset
+        status=review_status,
+        review_type=review_type,
+        limit=limit,
+        offset=offset,
     )
     return {"reviews": reviews}
 
