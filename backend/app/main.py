@@ -58,6 +58,7 @@ from app.services.coin_promotion_timeouts import CoinPromotionTimeoutWorker
 from app.services.arena_timeouts import ArenaTimeoutWorker
 from app.services.arena_v3_workers import ArenaV3AIWorker, ArenaV3ScreenshotTimeoutWorker
 from app.services.arena_v3_notifications import ArenaV3NotificationWorker
+from app.services.arena_v4_reward_release import ArenaV4RewardReleaseWorker
 
 
 configure_logging()
@@ -67,6 +68,7 @@ arena_timeout_worker = ArenaTimeoutWorker(SessionLocal)
 arena_v3_timeout_worker = ArenaV3ScreenshotTimeoutWorker(SessionLocal)
 arena_v3_ai_worker = ArenaV3AIWorker(SessionLocal)
 arena_v3_notification_worker = ArenaV3NotificationWorker(SessionLocal)
+arena_v4_reward_release_worker = ArenaV4RewardReleaseWorker(SessionLocal)
 app = FastAPI(
     title="LEVEL_GROUP API",
     version="1.0.0",
@@ -84,6 +86,7 @@ def start_campaign_worker():
         arena_v3_ai_worker.start()
     if ARENA_V3_ENABLED:
         arena_v3_notification_worker.start()
+        arena_v4_reward_release_worker.start()
 
 
 @app.on_event("shutdown")
@@ -94,6 +97,7 @@ def stop_campaign_worker():
     arena_v3_timeout_worker.stop()
     arena_v3_ai_worker.stop()
     arena_v3_notification_worker.stop()
+    arena_v4_reward_release_worker.stop()
 app.middleware("http")(correlation_middleware)
 
 app.add_middleware(

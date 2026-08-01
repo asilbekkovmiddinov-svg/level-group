@@ -24,6 +24,7 @@ from app.schemas.arena_v3 import (
     ArenaV4AdminClaimRequest, ArenaV4AdminDecisionRequest,
     ArenaV4AdminReviewDetailResponse, ArenaV4AdminReviewListResponse,
     ArenaV4AdminReviewResponse,
+    ArenaV4AppealRequest, ArenaV4AppealResponse,
 )
 from app.services.arena_v3 import (
     ArenaV3FoundationOnly,
@@ -316,6 +317,62 @@ async def submit_appeal(
         raise HTTPException(502, "Appeal storage upload failed") from exc
     try:
         return core_match_call(lambda: submit_video_appeal(
+            db,
+            match_id=match_id,
+            player_id=current_user.telegram_id,
+            payload=payload,
+            idempotency_key=idempotency_key,
+            storage_key=storage_key,
+            file_hash=file_hash,
+        ))
+    except Exception:
+        try:
+            await run_in_threadpool(delete_object, storage_key)
+        except (StorageConfigurationError, StorageOperationError):
+            pass
+        raise
+
+
+@router.post("/{match_id}/appeal", response_model=ArenaV4AppealResponse)
+async def submit_v4_appeal(
+    match_id: int,
+    payload: ArenaV4AppealRequest = Depends(),
+    video: UploadFile = File(...),
+    current_user: TelegramUser = Depends(require_arena_v3_access),
+    idempotency_key: str = Depends(require_idempotency_key),
+    db: Session = Depends(get_db),
+):
+    from app.services.arena_v4_appeals import (
+        ensure_v4_appeal_upload_allowed,
+        submit_v4_video_appeal,
+    )
+    existing = core_match_call(lambda: ensure_v4_appeal_upload_allowed(
+        db,
+        match_id=match_id,
+        player_id=current_user.telegram_id,
+        idempotency_key=idempotency_key,
+    ))
+    if existing is not None:
+        return existing
+    content = await video.read(MAX_APPEAL_VIDEO_SIZE + 1)
+    metadata = core_match_call(lambda: validate_appeal_video(
+        video.filename, video.content_type, content
+    ))
+    file_hash = hashlib.sha256(content).hexdigest()
+    storage_key = (
+        f"arena/v4/{match_id}/appeals/"
+        f"{current_user.telegram_id}/{uuid4()}.{metadata.extension}"
+    )
+    try:
+        await run_in_threadpool(
+            upload_object, storage_key, content, metadata.mime_type
+        )
+    except StorageConfigurationError as exc:
+        raise HTTPException(503, "Appeal storage is not configured") from exc
+    except StorageOperationError as exc:
+        raise HTTPException(502, "Appeal storage upload failed") from exc
+    try:
+        return core_match_call(lambda: submit_v4_video_appeal(
             db,
             match_id=match_id,
             player_id=current_user.telegram_id,

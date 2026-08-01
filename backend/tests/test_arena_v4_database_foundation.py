@@ -27,6 +27,7 @@ def test_v4_models_expose_frozen_database_contract():
         "reward_hold_status",
         "reward_release_at",
         "appeal_deadline_at",
+        "has_appeal",
         "current_result_type",
         "result_version",
         "current_decision_id",
@@ -91,6 +92,7 @@ def test_additive_v4_migration_is_idempotent_and_preserves_existing_match():
         "reward_hold_status",
         "reward_release_at",
         "appeal_deadline_at",
+        "has_appeal",
         "current_result_type",
         "result_version",
         "current_decision_id",
@@ -102,12 +104,12 @@ def test_additive_v4_migration_is_idempotent_and_preserves_existing_match():
     assert "locked_reward_efc" in wallet_columns
     with engine.connect() as connection:
         row = connection.execute(text(
-            "SELECT public_id, status, reward_hold_status, result_version "
+            "SELECT public_id, status, reward_hold_status, result_version, has_appeal "
             "FROM arena_matches WHERE id = 1"
         )).one()
         wallet_row = connection.execute(text(
             "SELECT efc_balance, locked_efc, locked_reward_efc "
             "FROM wallets WHERE telegram_id = 1001"
         )).one()
-    assert tuple(row) == ("LEGACY-ACTIVE", "PLAYING", "NONE", 0)
+    assert tuple(row) == ("LEGACY-ACTIVE", "PLAYING", "NONE", 0, 0)
     assert tuple(wallet_row) == (25, 500, 0)

@@ -210,6 +210,8 @@ def apply_admin_settlement(db, *, repository, match, review, payload, now=None):
     if match.initial_decision_id is None:
         match.initial_decision_id = review.id
     match.result_source = "ADMIN"
+    match.appeal_deadline_at = now + timedelta(minutes=REWARD_HOLD_MINUTES)
+    match.has_appeal = False
     match.settlement_status = ArenaV3SettlementStatus.PENDING
 
     winner_id = None
