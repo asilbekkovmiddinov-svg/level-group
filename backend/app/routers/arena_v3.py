@@ -11,10 +11,12 @@ from app.core.database import get_db
 from app.core.arena_internal_auth import require_arena_internal_api_key
 from app.core.telegram_auth import TelegramUser, get_current_telegram_user
 from app.models.arena_v3 import (
+    ArenaV3Match,
     ArenaV3Status,
     ArenaV4AdminReviewStatus,
     ArenaV4ReviewType,
 )
+from app.models.user import User
 from app.repositories.arena_v3 import ArenaV3Repository
 from app.schemas.arena_v3 import (
     ArenaV3AppealDecisionRequest, ArenaV3AppealRequest,
@@ -52,6 +54,11 @@ from app.services.object_storage import (
     upload_object,
 )
 from app.services.arena_v4_admin_review import ArenaV4AdminReviewService
+from app.services.telegram_notifications import (
+    TelegramNotificationConfigError, TelegramNotificationTemporaryError,
+    send_admin_message, send_deposit_receipt_photo,
+    send_arena_appeal_video,
+)
 
 
 router = APIRouter(prefix="/arena", tags=["Arena V3"])
@@ -111,6 +118,36 @@ def internal_admin_review_list(
         offset=offset,
     )
     return {"reviews": reviews}
+
+
+@internal_router.post(
+    "/matches/{match_id}/score", response_model=ArenaV4AdminReviewResponse
+)
+def internal_channel_score(
+    match_id: int, payload: ArenaV4AdminDecisionRequest,
+    idempotency_key: str = Depends(require_idempotency_key),
+    _: None = Depends(require_arena_internal_api_key),
+    db: Session = Depends(get_db),
+):
+    return core_match_call(lambda: ArenaV4AdminReviewService(db).submit_channel_decision(
+        match_id=match_id, admin_id=payload.admin_id, payload=payload,
+        idempotency_key=idempotency_key,
+    ))
+
+
+@internal_router.post(
+    "/matches/{match_id}/cancel", response_model=ArenaV4AdminReviewResponse
+)
+def internal_channel_cancel(
+    match_id: int, payload: ArenaV4AdminCancelRequest,
+    idempotency_key: str = Depends(require_idempotency_key),
+    _: None = Depends(require_arena_internal_api_key),
+    db: Session = Depends(get_db),
+):
+    return core_match_call(lambda: ArenaV4AdminReviewService(db).submit_channel_cancel(
+        match_id=match_id, admin_id=payload.admin_id, payload=payload,
+        idempotency_key=idempotency_key,
+    ))
 
 
 @internal_router.get(
@@ -287,36 +324,61 @@ async def upload_screenshot(
         file.filename, file.content_type, content
     ))
     file_hash = hashlib.sha256(content).hexdigest()
-    storage_key = (
-        f"arena/v3/{match_id}/screenshots/"
-        f"{current_user.telegram_id}/{uuid4()}.{metadata.extension}"
-    )
+    match = db.get(ArenaV3Match, match_id)
+    if match is None:
+        raise HTTPException(404, "Arena match not found")
+    if not config.ARENA_ADMIN_CHANNEL_ID:
+        raise HTTPException(503, "Arena admin channel is not configured")
+    if match.admin_channel_message_id is None:
+        owner = db.get(User, match.owner_id)
+        opponent = db.get(User, match.opponent_id)
+        def player_line(label, user, efootball):
+            display = " ".join(filter(None, [getattr(user, "first_name", None), getattr(user, "last_name", None)])) or "O‘yinchi"
+            username = f"@{user.username}" if user and user.username else "—"
+            return f"{label}: {display} | {username} | eFootball: {efootball or '—'}"
+        text = "\n".join([
+            f"🎮 Arena Match #{match.public_id}",
+            player_line("Player A", owner, match.owner_efootball_username),
+            player_line("Player B", opponent, match.opponent_efootball_username),
+            f"Stake: {match.stake_efc} EFC",
+            f"Pot: {match.total_pool_efc} EFC",
+            f"Platform fee: {match.commission_efc} EFC",
+            f"Winner reward: {match.winner_reward_efc} EFC",
+        ])
+        try:
+            markup = {"inline_keyboard": [[
+                {"text": "📝 Hisobni kiritish", "callback_data": f"arv4:match:score:{match.id}"},
+                {"text": "❌ Bekor qilish", "callback_data": f"arv4:match:cancel:{match.id}"},
+            ]]}
+            post = await run_in_threadpool(
+                send_admin_message, text, markup, config.ARENA_ADMIN_CHANNEL_ID
+            )
+        except (TelegramNotificationConfigError, TelegramNotificationTemporaryError) as exc:
+            raise HTTPException(502, "Arena admin channel post failed") from exc
+        match.admin_channel_message_id = post.message_id
+        db.commit()
+    label = "Screenshot A" if current_user.telegram_id == match.owner_id else "Screenshot B"
     try:
-        await run_in_threadpool(
-            upload_object, storage_key, content, metadata.mime_type
+        telegram = await run_in_threadpool(
+            send_deposit_receipt_photo, content, metadata.mime_type,
+            file.filename or f"screenshot.{metadata.extension}", label,
+            config.ARENA_ADMIN_CHANNEL_ID, None, match.admin_channel_message_id,
         )
-    except StorageConfigurationError as exc:
-        raise HTTPException(503, "Screenshot storage is not configured") from exc
-    except StorageOperationError as exc:
-        raise HTTPException(502, "Screenshot storage upload failed") from exc
-    try:
-        return core_match_call(lambda: service.upload_screenshot(
+    except (TelegramNotificationConfigError, TelegramNotificationTemporaryError) as exc:
+        raise HTTPException(502, "Screenshot delivery to admin channel failed") from exc
+    return core_match_call(lambda: service.upload_screenshot(
             match_id=match_id,
             player_id=current_user.telegram_id,
             idempotency_key=idempotency_key,
-            storage_key=storage_key,
+            storage_key=f"telegram:{telegram.file_id or telegram.message_id}",
+            telegram_file_id=telegram.file_id or str(telegram.message_id),
+            telegram_message_id=telegram.message_id,
             file_hash=file_hash,
             mime_type=metadata.mime_type,
             file_size=metadata.file_size,
             width=metadata.width,
             height=metadata.height,
         ))
-    except Exception:
-        try:
-            await run_in_threadpool(delete_object, storage_key)
-        except (StorageConfigurationError, StorageOperationError):
-            pass
-        raise
 
 
 @router.get(
@@ -416,34 +478,28 @@ async def submit_v4_appeal(
         video.filename, video.content_type, content
     ))
     file_hash = hashlib.sha256(content).hexdigest()
-    storage_key = (
-        f"arena/v4/{match_id}/appeals/"
-        f"{current_user.telegram_id}/{uuid4()}.{metadata.extension}"
-    )
+    match = db.get(ArenaV3Match, match_id)
+    if match is None or match.admin_channel_message_id is None:
+        raise HTTPException(409, "Arena channel post is not available")
     try:
-        await run_in_threadpool(
-            upload_object, storage_key, content, metadata.mime_type
+        telegram = await run_in_threadpool(
+            send_arena_appeal_video, content, metadata.mime_type,
+            video.filename or f"appeal.{metadata.extension}",
+            f"⚠ Appeal\nSabab: {payload.reason}",
+            reply_to_message_id=match.admin_channel_message_id,
         )
-    except StorageConfigurationError as exc:
-        raise HTTPException(503, "Appeal storage is not configured") from exc
-    except StorageOperationError as exc:
-        raise HTTPException(502, "Appeal storage upload failed") from exc
-    try:
-        return core_match_call(lambda: submit_v4_video_appeal(
+    except (TelegramNotificationConfigError, TelegramNotificationTemporaryError) as exc:
+        raise HTTPException(502, "Appeal delivery to admin channel failed") from exc
+    return core_match_call(lambda: submit_v4_video_appeal(
             db,
             match_id=match_id,
             player_id=current_user.telegram_id,
             payload=payload,
             idempotency_key=idempotency_key,
-            storage_key=storage_key,
+            storage_key=f"telegram:{telegram.file_id or telegram.message_id}",
             file_hash=file_hash,
+            telegram_file_id=telegram.file_id or str(telegram.message_id),
         ))
-    except Exception:
-        try:
-            await run_in_threadpool(delete_object, storage_key)
-        except (StorageConfigurationError, StorageOperationError):
-            pass
-        raise
 
 
 @router.post(

@@ -221,8 +221,7 @@ def process_screenshot_timeout(
         transition_arena_v3(match, ArenaV3Status.WAITING_ADMIN)
         if repository.get_initial_admin_review(match.id, match.result_version) is None:
             repository.add_admin_review(ArenaV4AdminReview(
-                match_id=match.id,
-                review_type=ArenaV4ReviewType.INITIAL,
+                match_id=match.id, review_type=ArenaV4ReviewType.INITIAL,
                 status=ArenaV4AdminReviewStatus.PENDING,
                 result_version=match.result_version,
                 expected_match_version=match.version,

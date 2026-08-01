@@ -23,7 +23,7 @@ class ArenaV3CreateRequest(BaseModel):
     owner_efootball_username: str = Field(min_length=1, max_length=64)
     stake_efc: Decimal = Field(gt=0, max_digits=18, decimal_places=2)
     match_type: str = Field(min_length=1, max_length=32, pattern=r"^[A-Z0-9_]+$")
-    match_time_minutes: int = Field(ge=6, le=15)
+    match_time_minutes: Literal[6, 8, 10, 12, 15]
     extra_time_enabled: bool = False
     penalties_enabled: bool = True
     rules_accepted: bool
@@ -38,6 +38,8 @@ class ArenaV3CreateRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_rules(self):
+        if self.extra_time_enabled:
+            raise ValueError("Extra time is not allowed")
         if not self.penalties_enabled:
             raise ValueError("Penalties are mandatory")
         if not self.rules_accepted:
@@ -332,12 +334,20 @@ class ArenaV4AdminDecisionRequest(BaseModel):
     opponent_score: int = Field(ge=0, le=99)
     reason: str | None = Field(default=None, max_length=500)
 
+    @model_validator(mode="after")
+    def reject_draw(self):
+        if self.owner_score == self.opponent_score:
+            raise ValueError("Equal scores are not allowed; penalty shootout is mandatory")
+        return self
+
 
 class ArenaV4AdminCancelRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     admin_id: int = Field(gt=0)
-    reason: str = Field(min_length=1, max_length=500)
+    reason: Literal[
+        "FAKE_SCREENSHOT", "MATCH_NOT_PLAYED", "RULE_VIOLATION", "TECHNICAL_ISSUE"
+    ]
 
 
 class ArenaV4AppealReviewRequest(BaseModel):
@@ -357,6 +367,8 @@ class ArenaV4AppealReviewRequest(BaseModel):
         if self.action == ArenaV4AppealReviewAction.UPDATE_SCORE:
             if not has_both_scores:
                 raise ValueError("UPDATE_SCORE requires both scores")
+            if self.owner_score == self.opponent_score:
+                raise ValueError("Equal scores are not allowed; penalty shootout is mandatory")
         elif self.owner_score is not None or self.opponent_score is not None:
             raise ValueError("Scores are only accepted for UPDATE_SCORE")
         return self
