@@ -48,6 +48,7 @@ from app.routers.coin_package_admin import router as coin_package_admin_router
 from app.routers.wheel_coin_order_admin import router as wheel_coin_order_admin_router
 from app.routers.support import router as support_router
 from app.routers.monetag_ads import router as monetag_ads_router
+from app.routers.admin_metrics import router as admin_metrics_router
 from app.core.observability import configure_logging, correlation_middleware
 from app.core.config import (
     ARENA_V3_AI_ENABLED,
@@ -159,6 +160,7 @@ app.include_router(coin_package_admin_router)
 app.include_router(wheel_coin_order_admin_router)
 app.include_router(support_router)
 app.include_router(monetag_ads_router)
+app.include_router(admin_metrics_router)
 
 
 @app.get("/")
