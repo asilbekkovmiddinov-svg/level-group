@@ -44,6 +44,7 @@ from app.routers.campaign import router as campaign_router
 from app.routers.notification import router as notification_router
 from app.routers.campaign_delivery import router as campaign_delivery_router
 from app.routers.coin_promotion_admin import router as coin_promotion_admin_router
+from app.routers.coin_package_admin import router as coin_package_admin_router
 from app.routers.wheel_coin_order_admin import router as wheel_coin_order_admin_router
 from app.routers.support import router as support_router
 from app.routers.monetag_ads import router as monetag_ads_router
@@ -154,6 +155,7 @@ app.include_router(campaign_router)
 app.include_router(notification_router)
 app.include_router(campaign_delivery_router)
 app.include_router(coin_promotion_admin_router)
+app.include_router(coin_package_admin_router)
 app.include_router(wheel_coin_order_admin_router)
 app.include_router(support_router)
 app.include_router(monetag_ads_router)

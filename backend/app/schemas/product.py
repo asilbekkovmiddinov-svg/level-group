@@ -1,6 +1,42 @@
+from enum import Enum
+from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class CoinPackageScope(str, Enum):
+    ALL = "ALL"
+    ANDROID = "ANDROID"
+    JAPAN = "JAPAN"
+    TURKEY = "TURKEY"
+
+
+class CoinPackageCreate(BaseModel):
+    coin_amount: int = Field(gt=0)
+    price_uzs: float = Field(gt=0)
+    scope: CoinPackageScope
+    is_active: bool = True
+
+
+class CoinPackageUpdate(CoinPackageCreate):
+    pass
+
+
+class CoinPackageAdminResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    title: str
+    category: str
+    platform: str | None
+    region: str | None
+    scope: CoinPackageScope
+    coin_amount: int
+    price_uzs: float
+    is_active: bool
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
 
 class ProductCreate(BaseModel):

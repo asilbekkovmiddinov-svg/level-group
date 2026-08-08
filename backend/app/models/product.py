@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Numeric, Boolean, DateTime
+from sqlalchemy import Boolean, CheckConstraint, Column, DateTime, Index, Integer, Numeric, String, func
 from sqlalchemy.sql import func
 
 from app.core.database import Base
@@ -35,4 +35,16 @@ class Product(Base):
         DateTime(timezone=True),
         server_default=func.now(),
         onupdate=func.now(),
+    )
+
+    __table_args__ = (
+        CheckConstraint("coins_amount > 0", name="ck_products_coins_amount_positive"),
+        CheckConstraint("price_uzs > 0", name="ck_products_price_positive"),
+        Index(
+            "uq_products_scope_coin_amount",
+            func.upper(func.coalesce(platform, "")),
+            func.upper(func.coalesce(region, "")),
+            coins_amount,
+            unique=True,
+        ),
     )
