@@ -92,3 +92,55 @@ def test_user_metrics_return_zero_for_empty_database(monkeypatch):
         assert response.json()["monthly_active_users"] == 0
     finally:
         engine.dispose()
+
+
+def test_admin_user_list_supports_search_filter_and_pagination(monkeypatch):
+    client, sessions, engine = build(monkeypatch)
+    try:
+        now = datetime.now(timezone.utc)
+        db = sessions()
+        db.add_all([
+            User(telegram_id=101, username="alpha", first_name="Ali", last_name="One", last_seen_at=now),
+            User(telegram_id=102, username="beta", first_name="Vali", last_name="Two", last_seen_at=now - timedelta(days=40)),
+            User(telegram_id=103, username=None, first_name="No Username", last_seen_at=None),
+        ])
+        db.commit()
+        db.close()
+
+        assert client.get("/admin/metrics/users/list").status_code == 401
+        assert client.get("/admin/metrics/users/list", headers=headers(7001)).status_code == 403
+
+        response = client.get("/admin/metrics/users/list?per_page=2&page=1", headers=headers(9001))
+        assert response.status_code == 200
+        assert response.json()["total"] == 3
+        assert response.json()["pages"] == 2
+        assert len(response.json()["items"]) == 2
+
+        active = client.get("/admin/metrics/users/list?status=ACTIVE", headers=headers(9001)).json()
+        assert active["total"] == 1
+        assert active["items"][0]["username"] == "alpha"
+        assert active["items"][0]["is_active"] is True
+
+        inactive = client.get("/admin/metrics/users/list?status=INACTIVE", headers=headers(9001)).json()
+        assert inactive["total"] == 2
+        assert all(item["is_active"] is False for item in inactive["items"])
+
+        username = client.get("/admin/metrics/users/list?q=beta", headers=headers(9001)).json()
+        assert [item["telegram_id"] for item in username["items"]] == [102]
+        telegram_id = client.get("/admin/metrics/users/list?q=103", headers=headers(9001)).json()
+        assert telegram_id["items"][0]["username"] is None
+        assert set(telegram_id["items"][0]) == {
+            "telegram_id", "username", "first_name", "last_name", "language",
+            "created_at", "last_seen_at", "is_active",
+        }
+    finally:
+        engine.dispose()
+
+
+def test_admin_user_list_validates_public_query_limits(monkeypatch):
+    client, _sessions, engine = build(monkeypatch)
+    try:
+        assert client.get("/admin/metrics/users/list?status=UNKNOWN", headers=headers(9001)).status_code == 422
+        assert client.get("/admin/metrics/users/list?per_page=51", headers=headers(9001)).status_code == 422
+    finally:
+        engine.dispose()
