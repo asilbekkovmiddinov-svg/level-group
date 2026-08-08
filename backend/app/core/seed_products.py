@@ -40,13 +40,7 @@ def upsert_product(
     )
 
     if product:
-        product.title = f"{coins} Coins"
-        product.platform = platform
-        product.region = None
-        product.price_uzs = price
-        product.description = description
-        product.order_index = order_index
-        product.is_active = True
+        # Seed data is bootstrap-only. Admin changes must survive every restart.
         return
 
     db.add(

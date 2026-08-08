@@ -20,10 +20,12 @@ def _not_found() -> None:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Coin promotion not found")
 
 
-def _product(db: Session, product_id: int) -> Product:
+def _product(db: Session, product_id: int, require_active: bool = False) -> Product:
     product = db.get(Product, product_id)
     if product is None:
         raise HTTPException(status_code=422, detail="Coin package not found")
+    if require_active and not product.is_active:
+        raise HTTPException(status_code=422, detail="Inactive coin package cannot be used for a new promotion")
     return product
 
 
@@ -45,8 +47,11 @@ def _expire_due(items: list[CoinPromotion], now: datetime | None = None) -> bool
 
 
 def create(db: Session, data: CoinPromotionCreate) -> CoinPromotion:
-    _product(db, data.coin_package_id)
+    product = _product(db, data.coin_package_id, require_active=True)
     values = data.model_dump()
+    values["original_price"] = product.price_uzs
+    if values["promotion_price"] >= product.price_uzs:
+        raise HTTPException(status_code=422, detail="promotion_price must be less than package price")
     promotion = CoinPromotion(**values, status="DRAFT", reserved_quantity=0, sold_quantity=0)
     db.add(promotion)
     db.commit()
@@ -56,10 +61,18 @@ def create(db: Session, data: CoinPromotionCreate) -> CoinPromotion:
 
 def update(db: Session, promotion_id: int, data: CoinPromotionUpdate) -> CoinPromotion:
     promotion = _promotion(db, promotion_id)
-    _product(db, data.coin_package_id)
+    product = _product(
+        db,
+        data.coin_package_id,
+        require_active=data.coin_package_id != promotion.coin_package_id,
+    )
+    if data.promotion_price >= product.price_uzs:
+        raise HTTPException(status_code=422, detail="promotion_price must be less than package price")
     if data.total_quantity < promotion.reserved_quantity + promotion.sold_quantity:
         raise HTTPException(status_code=422, detail="total_quantity cannot be less than reserved and sold quantity")
-    for key, value in data.model_dump().items():
+    values = data.model_dump()
+    values["original_price"] = product.price_uzs
+    for key, value in values.items():
         setattr(promotion, key, value)
     db.commit()
     db.refresh(promotion)
