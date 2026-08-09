@@ -5,7 +5,8 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 
-from app.core import config\nfrom app.core.database import SessionLocal, get_db
+from app.core import config
+from app.core.database import SessionLocal, get_db
 from app.core.telegram_auth import (
     TelegramUser, get_current_telegram_user, verify_init_data,
 )
