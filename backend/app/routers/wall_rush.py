@@ -16,7 +16,7 @@ from app.schemas.wall_rush import (
     WallRushActionRequest,
 )
 from app.services.wall_rush import (
-    WallRushError, get_active_match, get_wallet, grant_ad_ticket, join_match,
+    WallRushError, cancel_waiting_match, get_active_match, get_wallet, grant_ad_ticket, join_match,
     match_response, process_timeout, submit_action, wallet_response,
 )
 
@@ -96,6 +96,19 @@ def matchmaking_join(
 ):
     try:
         return match_response(join_match(db, user.telegram_id, payload.mode))
+    except WallRushError as error:
+        db.rollback()
+        _conflict(error)
+
+
+@router.post("/matches/{match_id}/cancel-waiting")
+def cancel_waiting(
+    match_id: str,
+    user: TelegramUser = Depends(get_current_telegram_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        return match_response(cancel_waiting_match(db, match_id, user.telegram_id))
     except WallRushError as error:
         db.rollback()
         _conflict(error)

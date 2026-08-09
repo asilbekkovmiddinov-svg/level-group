@@ -133,6 +133,11 @@ def join_match(db: Session, telegram_id: int, mode: WallRushMode) -> WallRushMat
     if active:
         return active
 
+    if mode == WallRushMode.TICKET:
+        wallet = get_wallet(db, telegram_id, lock=True)
+        if wallet.game_tickets < 1:
+            raise WallRushError("One Game Ticket is required")
+
     waiting = (
         db.query(WallRushMatch)
         .filter(
@@ -315,6 +320,23 @@ def process_timeout(db: Session, match_id: str, telegram_id: int) -> WallRushMat
         match.current_turn_player_id = winner_id
         match.turn_number += 1
         match.turn_deadline_at = utc_now() + timedelta(seconds=TURN_SECONDS)
+    match.version += 1
+    db.commit()
+    db.refresh(match)
+    return match
+
+
+def cancel_waiting_match(
+    db: Session, match_id: str, telegram_id: int,
+) -> WallRushMatch:
+    match = db.query(WallRushMatch).filter_by(id=match_id).with_for_update().first()
+    if match is None or match.red_player_id != telegram_id:
+        raise WallRushError("Match not found")
+    if match.status != WallRushStatus.WAITING or match.blue_player_id is not None:
+        raise WallRushError("Only a waiting match can be cancelled")
+    match.status = WallRushStatus.CANCELLED
+    match.cancel_reason = "PLAYER_LEFT_QUEUE"
+    match.finished_at = utc_now()
     match.version += 1
     db.commit()
     db.refresh(match)

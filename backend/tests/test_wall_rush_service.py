@@ -12,7 +12,7 @@ from app.models.wall_rush import (
     WallRushMode, WallRushStatus,
 )
 from app.services.wall_rush import (
-    WallRushError, get_wallet, grant_ad_ticket, join_match, process_timeout,
+    WallRushError, cancel_waiting_match, get_wallet, grant_ad_ticket, join_match, process_timeout,
     submit_action, utc_now,
 )
 
@@ -72,7 +72,7 @@ def test_ticket_match_does_not_start_if_either_wallet_is_empty(db):
     db.commit()
     join_match(db, 101, WallRushMode.TICKET)
 
-    with pytest.raises(WallRushError, match="Both players"):
+    with pytest.raises(WallRushError, match="One Game Ticket"):
         join_match(db, 202, WallRushMode.TICKET)
     db.rollback()
     assert db.get(GameTicketWallet, 101).game_tickets == 1
@@ -147,3 +147,20 @@ def test_verified_ad_event_is_hourly_and_idempotent(db):
 
     wallet = grant_ad_ticket(db, 101, "provider-event-3", now + timedelta(hours=1))
     assert wallet.game_tickets == 2
+
+
+def test_ticket_queue_requires_ticket_before_search_starts(db):
+    with pytest.raises(WallRushError, match="One Game Ticket"):
+        join_match(db, 101, WallRushMode.TICKET)
+    db.rollback()
+    assert db.query(WallRushMatch).filter_by(red_player_id=101).count() == 0
+
+
+def test_waiting_player_can_cancel_without_spending_ticket(db):
+    get_wallet(db, 101).game_tickets = 1
+    db.commit()
+    waiting = join_match(db, 101, WallRushMode.TICKET)
+    cancelled = cancel_waiting_match(db, waiting.id, 101)
+    assert cancelled.status == WallRushStatus.CANCELLED
+    assert db.get(GameTicketWallet, 101).game_tickets == 1
+    assert join_match(db, 101, WallRushMode.FREE).status == WallRushStatus.WAITING
