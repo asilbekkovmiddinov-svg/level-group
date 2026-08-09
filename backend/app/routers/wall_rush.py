@@ -1,4 +1,6 @@
 import asyncio
+import hmac
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
@@ -9,7 +11,8 @@ from app.core.telegram_auth import (
 )
 from app.routers.internal_wallet import require_internal_api_key
 from app.schemas.wall_rush import (
-    JoinMatchRequest, TrustedAdRewardRequest, WallRushActionRequest,
+    JoinMatchRequest, TadsWebhookPayload, TrustedAdRewardRequest,
+    WallRushActionRequest,
 )
 from app.services.wall_rush import (
     WallRushError, get_active_match, get_wallet, grant_ad_ticket, join_match,
