@@ -72,7 +72,7 @@ def test_ticket_match_does_not_start_if_either_wallet_is_empty(db):
     db.commit()
     join_match(db, 101, WallRushMode.TICKET)
 
-    with pytest.raises(WallRushError, match="Both players"):
+    with pytest.raises(WallRushError, match="One Game Ticket"):
         join_match(db, 202, WallRushMode.TICKET)
     db.rollback()
     assert db.get(GameTicketWallet, 101).game_tickets == 1
