@@ -12,7 +12,7 @@ from app.models.wall_rush import (
     WallRushActionType, WallRushMatch, WallRushMode, WallRushStatus,
 )
 
-TURN_SECONDS = 15
+TURN_SECONDS = 30
 MAX_MISSED_TURNS = 3
 
 
