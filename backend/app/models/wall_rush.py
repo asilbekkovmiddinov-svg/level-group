@@ -43,6 +43,8 @@ class WallRushMatch(Base):
         CheckConstraint("red_walls_remaining BETWEEN 0 AND 10", name="ck_wall_rush_red_walls"),
         CheckConstraint("blue_walls_remaining BETWEEN 0 AND 10", name="ck_wall_rush_blue_walls"),
         CheckConstraint("turn_number > 0", name="ck_wall_rush_turn_number"),
+        CheckConstraint("red_missed_turns BETWEEN 0 AND 3", name="ck_wall_rush_red_misses"),
+        CheckConstraint("blue_missed_turns BETWEEN 0 AND 3", name="ck_wall_rush_blue_misses"),
         Index("ix_wall_rush_matchmaking", "mode", "status", "created_at"),
     )
 
@@ -58,6 +60,8 @@ class WallRushMatch(Base):
     blue_column = Column(Integer, nullable=False, default=6)
     red_walls_remaining = Column(Integer, nullable=False, default=10)
     blue_walls_remaining = Column(Integer, nullable=False, default=10)
+    red_missed_turns = Column(Integer, nullable=False, default=0)
+    blue_missed_turns = Column(Integer, nullable=False, default=0)
     walls = Column(JSON, nullable=False, default=list)
     turn_number = Column(Integer, nullable=False, default=1)
     turn_deadline_at = Column(DateTime(timezone=True))
