@@ -44,7 +44,7 @@ def match_response(match: WallRushMatch) -> dict:
         "red_missed_turns": match.red_missed_turns,
         "blue_missed_turns": match.blue_missed_turns,
         "turn_number": match.turn_number,
-        "turn_deadline_at": match.turn_deadline_at,
+        "turn_deadline_at": match.turn_deadline_at.isoformat() if match.turn_deadline_at else None,
         "winner_id": match.winner_id,
         "version": match.version,
     }
