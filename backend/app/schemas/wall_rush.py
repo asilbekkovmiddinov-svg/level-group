@@ -41,3 +41,9 @@ class MatchResponse(BaseModel):
     turn_deadline_at: object | None
     winner_id: int | None
     version: int
+
+
+class TrustedAdRewardRequest(BaseModel):
+    telegram_id: int = Field(gt=0)
+    provider: str = Field(min_length=2, max_length=32)
+    provider_event_id: str = Field(min_length=8, max_length=128)
