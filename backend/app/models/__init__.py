@@ -16,6 +16,12 @@ from .wheel_coin_order_audit import WheelCoinOrderAudit
 from .wheel import AdsgramRewardSession, MonetagRewardEvent
 from .p2p import P2POrder
 from .match import ArenaNotificationDelivery, Match, MatchStats
+from .wall_rush import (
+    GameTicketLedger,
+    GameTicketWallet,
+    WallRushAction,
+    WallRushMatch,
+)
 
 from .arena_v3 import (
     ArenaV3AIReview,

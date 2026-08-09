@@ -14,6 +14,14 @@ router = APIRouter(prefix="/admin/metrics", tags=["Admin Metrics"])
 ACTIVE_WINDOW_DAYS = 30
 
 
+def _as_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 @router.get("/users")
 def user_metrics(
     _admin: TelegramUser = Depends(require_promotions_admin),
@@ -79,7 +87,7 @@ def list_users(
                 "language": user.language,
                 "created_at": user.created_at,
                 "last_seen_at": user.last_seen_at,
-                "is_active": bool(user.last_seen_at and user.last_seen_at >= active_since),
+                "is_active": bool(_as_utc(user.last_seen_at) and _as_utc(user.last_seen_at) >= active_since),
             }
             for user in users
         ],
