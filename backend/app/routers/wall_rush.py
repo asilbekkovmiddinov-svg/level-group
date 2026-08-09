@@ -3,7 +3,7 @@ import asyncio
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 
-from app.core.database import SessionLocal, get_db
+from app.core import config\nfrom app.core.database import SessionLocal, get_db
 from app.core.telegram_auth import (
     TelegramUser, get_current_telegram_user, verify_init_data,
 )
@@ -50,6 +50,37 @@ def trusted_ad_reward(
         return wallet_response(wallet)
     except WallRushError as error:
         db.rollback()
+        _conflict(error)
+
+
+@router.post("/rewards/tads/webhook")
+def tads_reward_webhook(
+    payload: TadsWebhookPayload,
+    secret: str = "",
+    db: Session = Depends(get_db),
+):
+    if not config.TADS_WEBHOOK_SECRET:
+        raise HTTPException(status_code=503, detail="TADS webhook is not configured")
+    if not hmac.compare_digest(secret, config.TADS_WEBHOOK_SECRET):
+        raise HTTPException(status_code=401, detail="Invalid TADS webhook secret")
+    if not hmac.compare_digest(payload.widget_id, config.TADS_WALL_RUSH_WIDGET_ID):
+        raise HTTPException(status_code=403, detail="Unknown TADS widget")
+    try:
+        telegram_id = int(payload.telegram_id)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail="Invalid telegram_id") from error
+    if telegram_id <= 0:
+        raise HTTPException(status_code=422, detail="Invalid telegram_id")
+
+    hour = datetime.now(timezone.utc).strftime("%Y%m%d%H")
+    event_key = f"widget:{payload.widget_id}:user:{telegram_id}:hour:{hour}"
+    try:
+        wallet = grant_ad_ticket(db, telegram_id, f"tads:{event_key}")
+        return {"status": "ok", "rewarded": True, "wallet": wallet_response(wallet)}
+    except WallRushError as error:
+        db.rollback()
+        if "once per hour" in str(error):
+            return {"status": "ok", "rewarded": False, "reason": "cooldown"}
         _conflict(error)
 
 
