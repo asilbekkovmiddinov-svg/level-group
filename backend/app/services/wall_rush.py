@@ -1,12 +1,14 @@
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from app.domain.wall_rush import (
     GameState, InvalidAction, MoveAction, Orientation, Player, Wall, WallAction,
     apply_action,
 )
+from app.models.user import User
 from app.models.wall_rush import (
     GameTicketLedger, GameTicketWallet, TicketKind, WallRushAction,
     WallRushActionType, WallRushMatch, WallRushMode, WallRushStatus,
@@ -48,6 +50,71 @@ def match_response(match: WallRushMatch) -> dict:
         "winner_id": match.winner_id,
         "version": match.version,
     }
+
+
+
+def leaderboard_rows(
+    db: Session, mode: WallRushMode, limit: int = 20,
+) -> list[dict]:
+    """Return authoritative, mode-specific results from finished matches."""
+    red_results = (
+        db.query(
+            WallRushMatch.red_player_id.label("telegram_id"),
+            case(
+                (WallRushMatch.winner_id == WallRushMatch.red_player_id, 1),
+                else_=0,
+            ).label("won"),
+        )
+        .filter(
+            WallRushMatch.mode == mode,
+            WallRushMatch.status == WallRushStatus.FINISHED,
+            WallRushMatch.blue_player_id.isnot(None),
+            WallRushMatch.winner_id.isnot(None),
+        )
+    )
+    blue_results = (
+        db.query(
+            WallRushMatch.blue_player_id.label("telegram_id"),
+            case(
+                (WallRushMatch.winner_id == WallRushMatch.blue_player_id, 1),
+                else_=0,
+            ).label("won"),
+        )
+        .filter(
+            WallRushMatch.mode == mode,
+            WallRushMatch.status == WallRushStatus.FINISHED,
+            WallRushMatch.blue_player_id.isnot(None),
+            WallRushMatch.winner_id.isnot(None),
+        )
+    )
+    results = red_results.union_all(blue_results).subquery()
+    played = func.count(results.c.telegram_id)
+    wins = func.sum(results.c.won)
+    rows = (
+        db.query(User, played.label("played"), wins.label("wins"))
+        .join(results, results.c.telegram_id == User.telegram_id)
+        .group_by(User.telegram_id)
+        .order_by(wins.desc(), played.asc(), User.telegram_id.asc())
+        .limit(limit)
+        .all()
+    )
+    leaderboard = []
+    for rank, (user, games_played, games_won) in enumerate(rows, start=1):
+        display_name = " ".join(
+            part for part in (user.first_name, user.last_name) if part
+        ).strip()
+        won = int(games_won or 0)
+        total = int(games_played or 0)
+        leaderboard.append({
+            "rank": rank,
+            "telegram_id": user.telegram_id,
+            "display_name": display_name or user.username or str(user.telegram_id),
+            "username": user.username,
+            "played": total,
+            "wins": won,
+            "losses": total - won,
+        })
+    return leaderboard
 
 
 def get_wallet(db: Session, telegram_id: int, lock: bool = False) -> GameTicketWallet:
