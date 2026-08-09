@@ -12,7 +12,7 @@ from app.models.wall_rush import (
     WallRushMode, WallRushStatus,
 )
 from app.services.wall_rush import (
-    WallRushError, cancel_waiting_match, get_wallet, grant_ad_ticket, join_match, process_timeout,
+    WallRushError, cancel_waiting_match, get_wallet, grant_ad_ticket, join_match, leaderboard_rows, process_timeout,
     submit_action, utc_now,
 )
 
@@ -164,3 +164,35 @@ def test_waiting_player_can_cancel_without_spending_ticket(db):
     assert cancelled.status == WallRushStatus.CANCELLED
     assert db.get(GameTicketWallet, 101).game_tickets == 1
     assert join_match(db, 101, WallRushMode.FREE).status == WallRushStatus.WAITING
+
+
+
+def test_leaderboards_are_separate_and_include_played_wins_losses(db):
+    db.add_all([
+        WallRushMatch(
+            id="free-one", mode=WallRushMode.FREE, status=WallRushStatus.FINISHED,
+            red_player_id=101, blue_player_id=202, winner_id=101, walls=[],
+        ),
+        WallRushMatch(
+            id="free-two", mode=WallRushMode.FREE, status=WallRushStatus.FINISHED,
+            red_player_id=202, blue_player_id=101, winner_id=101, walls=[],
+        ),
+        WallRushMatch(
+            id="ticket-one", mode=WallRushMode.TICKET, status=WallRushStatus.FINISHED,
+            red_player_id=101, blue_player_id=202, winner_id=202, walls=[],
+        ),
+    ])
+    db.commit()
+
+    free = leaderboard_rows(db, WallRushMode.FREE)
+    ticket = leaderboard_rows(db, WallRushMode.TICKET)
+
+    assert [(row["telegram_id"], row["played"], row["wins"], row["losses"]) for row in free] == [
+        (101, 2, 2, 0),
+        (202, 2, 0, 2),
+    ]
+    assert [(row["telegram_id"], row["played"], row["wins"], row["losses"]) for row in ticket] == [
+        (202, 1, 1, 0),
+        (101, 1, 0, 1),
+    ]
+    assert [row["rank"] for row in free] == [1, 2]
