@@ -2,7 +2,7 @@ import asyncio
 import hmac
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 
 from app.core import config
@@ -15,9 +15,10 @@ from app.schemas.wall_rush import (
     JoinMatchRequest, TadsWebhookPayload, TrustedAdRewardRequest,
     WallRushActionRequest,
 )
+from app.models.wall_rush import WallRushMode
 from app.services.wall_rush import (
     WallRushError, cancel_waiting_match, get_active_match, get_wallet, grant_ad_ticket, join_match,
-    match_response, process_timeout, submit_action, wallet_response,
+    leaderboard_rows, match_response, process_timeout, submit_action, wallet_response,
 )
 
 router = APIRouter(prefix="/wall-rush", tags=["Wall Rush"])
@@ -86,6 +87,18 @@ def tads_reward_webhook(
         if "once per hour" in str(error):
             return {"status": "ok", "rewarded": False, "reason": "cooldown"}
         _conflict(error)
+
+
+
+@router.get("/leaderboard")
+def leaderboard(
+    mode: WallRushMode,
+    limit: int = Query(default=20, ge=1, le=50),
+    _: TelegramUser = Depends(get_current_telegram_user),
+    db: Session = Depends(get_db),
+):
+    return {"mode": mode.value, "rows": leaderboard_rows(db, mode, limit)}
+
 
 
 @router.post("/matchmaking/join")
