@@ -43,7 +43,7 @@ def test_wall_cannot_remove_every_finish_path():
     with pytest.raises(InvalidAction, match="finish path"):
         apply_action(
             state,
-            WallAction(Wall(BOARD_ROWS - 2, 1, Orientation.HORIZONTAL)),
+            WallAction(Wall(BOARD_ROWS - 3, 1, Orientation.HORIZONTAL)),
         )
 
 
