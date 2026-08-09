@@ -25,6 +25,8 @@ def upgrade():
         sa.Column("blue_column", sa.Integer(), nullable=False, server_default="6"),
         sa.Column("red_walls_remaining", sa.Integer(), nullable=False, server_default="10"),
         sa.Column("blue_walls_remaining", sa.Integer(), nullable=False, server_default="10"),
+        sa.Column("red_missed_turns", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column("blue_missed_turns", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("walls", sa.JSON(), nullable=False),
         sa.Column("turn_number", sa.Integer(), nullable=False, server_default="1"),
         sa.Column("turn_deadline_at", sa.DateTime(timezone=True)),
@@ -39,6 +41,8 @@ def upgrade():
         sa.CheckConstraint("red_walls_remaining BETWEEN 0 AND 10", name="ck_wall_rush_red_walls"),
         sa.CheckConstraint("blue_walls_remaining BETWEEN 0 AND 10", name="ck_wall_rush_blue_walls"),
         sa.CheckConstraint("turn_number > 0", name="ck_wall_rush_turn_number"),
+        sa.CheckConstraint("red_missed_turns BETWEEN 0 AND 3", name="ck_wall_rush_red_misses"),
+        sa.CheckConstraint("blue_missed_turns BETWEEN 0 AND 3", name="ck_wall_rush_blue_misses"),
     )
     op.create_index("ix_wall_rush_matchmaking", "wall_rush_matches", ["mode", "status", "created_at"])
     for column in ("mode", "status", "red_player_id", "blue_player_id", "winner_id"):
