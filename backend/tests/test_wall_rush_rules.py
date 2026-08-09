@@ -34,17 +34,17 @@ def test_wall_costs_one_and_overlap_or_crossing_is_rejected():
 
 
 def test_wall_cannot_remove_every_finish_path():
-    walls = frozenset(
-        Wall(0, column, Orientation.HORIZONTAL) for column in (0, 2, 4, 6)
-    )
-    state = GameState(
-        current_player=Player.RED,
-        walls=walls,
-        red_walls_remaining=2,
-    )
+    walls = frozenset({
+        Wall(BOARD_ROWS - 2, 1, Orientation.VERTICAL),
+        Wall(BOARD_ROWS - 2, 2, Orientation.VERTICAL),
+    })
+    state = GameState(walls=walls, red_walls_remaining=2)
     assert has_finish_path(state.red, state.walls)
     with pytest.raises(InvalidAction, match="finish path"):
-        apply_action(state, WallAction(Wall(0, 7, Orientation.HORIZONTAL)))
+        apply_action(
+            state,
+            WallAction(Wall(BOARD_ROWS - 2, 1, Orientation.HORIZONTAL)),
+        )
 
 
 def test_reaching_top_row_finishes_match():
