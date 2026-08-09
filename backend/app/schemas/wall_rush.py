@@ -47,3 +47,8 @@ class TrustedAdRewardRequest(BaseModel):
     telegram_id: int = Field(gt=0)
     provider: str = Field(min_length=2, max_length=32)
     provider_event_id: str = Field(min_length=8, max_length=128)
+
+
+class TadsWebhookPayload(BaseModel):
+    telegram_id: str = Field(min_length=1, max_length=32)
+    widget_id: str = Field(min_length=1, max_length=32)
