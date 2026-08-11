@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import uuid4
 
@@ -24,8 +24,6 @@ from app.models.user import User
 from app.models.wall_rush import GameTicketWallet
 from app.schemas.division import DivisionSeasonCreate
 
-
-SEASON_DURATION_DAYS = 30
 
 
 def utc_now() -> datetime:
@@ -78,22 +76,28 @@ class DivisionService:
         registration_opens_at = as_utc(payload.registration_opens_at)
         registration_closes_at = as_utc(payload.registration_closes_at)
         starts_at = as_utc(payload.starts_at)
-        if not registration_opens_at < registration_closes_at <= starts_at:
+        ends_at = as_utc(payload.ends_at)
+        if not registration_opens_at < registration_closes_at <= starts_at < ends_at:
             raise DivisionServiceError(
                 422,
-                "Registration must open before it closes and close no later than season start",
+                "Registration must close no later than season start, before season end",
+            )
+        duration_days = (ends_at.date() - starts_at.date()).days
+        if duration_days < 1 or duration_days > 365:
+            raise DivisionServiceError(
+                422, "Division duration must be between 1 and 365 days"
             )
         season = DivisionSeason(
             name=payload.name.strip(),
             status=DivisionSeasonStatus.REGISTRATION,
-            duration_days=SEASON_DURATION_DAYS,
+            duration_days=duration_days,
             ticket_cost=1,
             points_for_win=3,
             points_for_loss=0,
             registration_opens_at=registration_opens_at,
             registration_closes_at=registration_closes_at,
             starts_at=starts_at,
-            ends_at=starts_at + timedelta(days=SEASON_DURATION_DAYS),
+            ends_at=ends_at,
             created_by=admin_id,
         )
         self.db.add(season)
