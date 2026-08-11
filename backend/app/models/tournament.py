@@ -187,6 +187,8 @@ class TournamentMatch(Base):
     arena_match_id = Column(
         Integer, ForeignKey("arena_matches.id", ondelete="SET NULL"), nullable=True
     )
+    player_a_ticket_state = Column(String(16))
+    player_b_ticket_state = Column(String(16))
     winner_id = Column(BigInteger, ForeignKey("users.telegram_id"))
     player_a_score = Column(Integer)
     player_b_score = Column(Integer)
