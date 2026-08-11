@@ -13,6 +13,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
 )
+from sqlalchemy.orm import relationship
 
 from app.core.database import Base
 
@@ -126,6 +127,20 @@ class DivisionParticipant(Base):
     applied_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
     reviewed_at = Column(DateTime(timezone=True))
     reviewed_by = Column(BigInteger)
+    user = relationship("User", foreign_keys=[telegram_id])
+
+    @property
+    def username(self):
+        return self.user.username if self.user else None
+
+    @property
+    def first_name(self):
+        return self.user.first_name if self.user else None
+
+    @property
+    def last_name(self):
+        return self.user.last_name if self.user else None
+
     updated_at = Column(
         DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now
     )
