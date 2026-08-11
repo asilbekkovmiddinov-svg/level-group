@@ -1,8 +1,14 @@
 from datetime import datetime, timezone
+from decimal import Decimal
 from uuid import uuid4
 
 from sqlalchemy.orm import Session
 
+from app.models.arena_v3 import (
+    ArenaV3Match,
+    ArenaV3SettlementStatus,
+    ArenaV3Status,
+)
 from app.models.tournament import (
     Tournament,
     TournamentFormat,
@@ -12,6 +18,8 @@ from app.models.tournament import (
     TournamentParticipantStatus,
     TournamentStatus,
 )
+from app.models.user import User
+from app.models.wall_rush import GameTicketWallet
 from app.schemas.tournament import (
     TournamentApplicationDecision,
     TournamentCreate,
@@ -297,3 +305,150 @@ class TournamentService:
             .order_by(TournamentMatch.scheduled_at, TournamentMatch.round_number)
             .all()
         )
+
+
+    def _wallet(self, telegram_id: int) -> GameTicketWallet:
+        wallet = (
+            self.db.query(GameTicketWallet)
+            .filter_by(telegram_id=telegram_id)
+            .with_for_update()
+            .one_or_none()
+        )
+        if wallet is None:
+            wallet = GameTicketWallet(telegram_id=telegram_id)
+            self.db.add(wallet)
+            self.db.flush()
+        return wallet
+
+    def open_match(self, tournament_id: int, match_id: str) -> TournamentMatch:
+        tournament = self.require(tournament_id)
+        match = (
+            self.db.query(TournamentMatch)
+            .filter_by(id=match_id, tournament_id=tournament_id)
+            .with_for_update()
+            .one_or_none()
+        )
+        if match is None:
+            raise TournamentServiceError(404, "Tournament match not found")
+        if match.arena_match_id is not None:
+            return match
+        if tournament.status != TournamentStatus.ACTIVE:
+            raise TournamentServiceError(409, "Tournament must be active")
+        if match.status != TournamentMatchStatus.SCHEDULED:
+            raise TournamentServiceError(409, "Only scheduled match can be opened")
+        users = {
+            user.telegram_id: user
+            for user in self.db.query(User)
+            .filter(User.telegram_id.in_([match.player_a_id, match.player_b_id]))
+            .all()
+        }
+        if len(users) != 2:
+            raise TournamentServiceError(409, "Tournament player profile is missing")
+        for player_id in (match.player_a_id, match.player_b_id):
+            wallet = self._wallet(player_id)
+            if wallet.tournament_tickets < tournament.ticket_cost:
+                raise TournamentServiceError(409, "Both players need Tournament Ticket")
+        for player_id in (match.player_a_id, match.player_b_id):
+            wallet = self._wallet(player_id)
+            wallet.tournament_tickets -= tournament.ticket_cost
+            wallet.locked_tournament_tickets += tournament.ticket_cost
+        def game_name(user: User) -> str:
+            return (user.username or user.first_name or str(user.telegram_id))[:64]
+        arena_match = ArenaV3Match(
+            public_id=f"TRN{uuid4().hex[:20].upper()}",
+            owner_id=match.player_a_id,
+            opponent_id=match.player_b_id,
+            owner_efootball_username=game_name(users[match.player_a_id]),
+            opponent_efootball_username=game_name(users[match.player_b_id]),
+            stake_efc=Decimal("0.00"),
+            total_pool_efc=Decimal("0.00"),
+            commission_efc=Decimal("0.00"),
+            winner_reward_efc=Decimal("0.00"),
+            match_type="TOURNAMENT",
+            match_time_minutes=10,
+            extra_time_enabled=False,
+            penalties_enabled=True,
+            status=ArenaV3Status.READY,
+            settlement_status=ArenaV3SettlementStatus.NOT_STARTED,
+            idempotency_key=f"tournament:{match.id}",
+            request_fingerprint=match.id.replace("-", ""),
+        )
+        self.db.add(arena_match)
+        self.db.flush()
+        match.arena_match_id = arena_match.id
+        match.player_a_ticket_state = "LOCKED"
+        match.player_b_ticket_state = "LOCKED"
+        match.status = TournamentMatchStatus.READY
+        self.db.commit()
+        self.db.refresh(match)
+        return match
+
+    def activate_arena_match(
+        self, arena_match_id: int, *, commit: bool = True
+    ) -> TournamentMatch:
+        match = (
+            self.db.query(TournamentMatch)
+            .filter_by(arena_match_id=arena_match_id)
+            .with_for_update()
+            .one_or_none()
+        )
+        if match is None:
+            raise TournamentServiceError(404, "Linked Tournament match is missing")
+        if match.status == TournamentMatchStatus.PLAYING:
+            return match
+        if match.status != TournamentMatchStatus.READY:
+            raise TournamentServiceError(409, "Tournament match is not ready")
+        tournament = self.require(match.tournament_id)
+        for player_id, state_name in (
+            (match.player_a_id, "player_a_ticket_state"),
+            (match.player_b_id, "player_b_ticket_state"),
+        ):
+            if getattr(match, state_name) != "LOCKED":
+                raise TournamentServiceError(409, "Tournament Ticket is not locked")
+            wallet = self._wallet(player_id)
+            if wallet.locked_tournament_tickets < tournament.ticket_cost:
+                raise TournamentServiceError(409, "Locked Tournament Ticket is missing")
+            wallet.locked_tournament_tickets -= tournament.ticket_cost
+            setattr(match, state_name, "SPENT")
+        match.status = TournamentMatchStatus.PLAYING
+        if commit:
+            self.db.commit()
+            self.db.refresh(match)
+        else:
+            self.db.flush()
+        return match
+
+    def cancel_before_start(
+        self, arena_match_id: int, *, commit: bool = True
+    ) -> TournamentMatch:
+        match = (
+            self.db.query(TournamentMatch)
+            .filter_by(arena_match_id=arena_match_id)
+            .with_for_update()
+            .one_or_none()
+        )
+        if match is None:
+            raise TournamentServiceError(404, "Linked Tournament match is missing")
+        if match.status == TournamentMatchStatus.CANCELLED:
+            return match
+        if match.status != TournamentMatchStatus.READY:
+            raise TournamentServiceError(409, "Started Tournament match cannot refund")
+        tournament = self.require(match.tournament_id)
+        for player_id, state_name in (
+            (match.player_a_id, "player_a_ticket_state"),
+            (match.player_b_id, "player_b_ticket_state"),
+        ):
+            if getattr(match, state_name) == "LOCKED":
+                wallet = self._wallet(player_id)
+                if wallet.locked_tournament_tickets < tournament.ticket_cost:
+                    raise TournamentServiceError(409, "Locked Tournament Ticket is missing")
+                wallet.locked_tournament_tickets -= tournament.ticket_cost
+                wallet.tournament_tickets += tournament.ticket_cost
+                setattr(match, state_name, "REFUNDED")
+        match.status = TournamentMatchStatus.CANCELLED
+        if commit:
+            self.db.commit()
+            self.db.refresh(match)
+        else:
+            self.db.flush()
+        return match
