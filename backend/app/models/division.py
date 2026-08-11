@@ -28,6 +28,20 @@ class DivisionSeasonStatus(str, Enum):
     CANCELLED = "CANCELLED"
 
 
+class DivisionMatchStatus(str, Enum):
+    WAITING = "WAITING"
+    MATCHED = "MATCHED"
+    ACTIVE = "ACTIVE"
+    FINISHED = "FINISHED"
+    CANCELLED = "CANCELLED"
+
+
+class DivisionTicketState(str, Enum):
+    LOCKED = "LOCKED"
+    SPENT = "SPENT"
+    REFUNDED = "REFUNDED"
+
+
 class DivisionParticipantStatus(str, Enum):
     PENDING = "PENDING"
     APPROVED = "APPROVED"
@@ -115,3 +129,106 @@ class DivisionParticipant(Base):
     updated_at = Column(
         DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now
     )
+
+
+class DivisionMatch(Base):
+    __tablename__ = "division_matches"
+    __table_args__ = (
+        CheckConstraint(
+            "player_b_id IS NULL OR player_a_id <> player_b_id",
+            name="ck_division_match_distinct_players",
+        ),
+        Index(
+            "ix_division_matchmaking",
+            "season_id",
+            "status",
+            "created_at",
+        ),
+        Index(
+            "ix_division_player_a_active",
+            "player_a_id",
+            "status",
+        ),
+        Index(
+            "ix_division_player_b_active",
+            "player_b_id",
+            "status",
+        ),
+    )
+
+    id = Column(String(36), primary_key=True)
+    season_id = Column(
+        Integer,
+        ForeignKey("division_seasons.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    player_a_id = Column(
+        BigInteger, ForeignKey("users.telegram_id"), nullable=False, index=True
+    )
+    player_b_id = Column(
+        BigInteger, ForeignKey("users.telegram_id"), nullable=True, index=True
+    )
+    status = Column(
+        SQLEnum(DivisionMatchStatus, native_enum=False),
+        nullable=False,
+        default=DivisionMatchStatus.WAITING,
+        index=True,
+    )
+    player_a_ticket_state = Column(
+        SQLEnum(DivisionTicketState, native_enum=False),
+        nullable=False,
+        default=DivisionTicketState.LOCKED,
+    )
+    player_b_ticket_state = Column(
+        SQLEnum(DivisionTicketState, native_enum=False), nullable=True
+    )
+    arena_match_id = Column(
+        Integer, ForeignKey("arena_matches.id", ondelete="SET NULL"), nullable=True
+    )
+    winner_id = Column(BigInteger, ForeignKey("users.telegram_id"), nullable=True)
+    loser_id = Column(BigInteger, ForeignKey("users.telegram_id"), nullable=True)
+    player_a_score = Column(Integer)
+    player_b_score = Column(Integer)
+    cancel_reason = Column(String(255))
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+    matched_at = Column(DateTime(timezone=True))
+    started_at = Column(DateTime(timezone=True))
+    finished_at = Column(DateTime(timezone=True))
+    updated_at = Column(
+        DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now
+    )
+
+
+class DivisionTicketLedger(Base):
+    __tablename__ = "division_ticket_ledger"
+    __table_args__ = (
+        UniqueConstraint(
+            "idempotency_key", name="uq_division_ticket_ledger_idempotency"
+        ),
+        CheckConstraint(
+            "available_delta <> 0 OR locked_delta <> 0",
+            name="ck_division_ticket_ledger_nonzero",
+        ),
+        Index(
+            "ix_division_ticket_ledger_user_created",
+            "telegram_id",
+            "created_at",
+        ),
+    )
+
+    id = Column(String(36), primary_key=True)
+    telegram_id = Column(
+        BigInteger, ForeignKey("users.telegram_id"), nullable=False, index=True
+    )
+    match_id = Column(
+        String(36),
+        ForeignKey("division_matches.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    operation = Column(String(24), nullable=False)
+    available_delta = Column(Integer, nullable=False, default=0)
+    locked_delta = Column(Integer, nullable=False, default=0)
+    idempotency_key = Column(String(128), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
