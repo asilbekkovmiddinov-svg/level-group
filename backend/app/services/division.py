@@ -1,15 +1,21 @@
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 
-from sqlalchemy import case
+from sqlalchemy import case, or_
 from sqlalchemy.orm import Session
 
 from app.models.division import (
+    DivisionMatch,
+    DivisionMatchStatus,
     DivisionParticipant,
     DivisionParticipantStatus,
     DivisionSeason,
     DivisionSeasonStatus,
+    DivisionTicketLedger,
+    DivisionTicketState,
 )
 from app.models.user import User
+from app.models.wall_rush import GameTicketWallet
 from app.schemas.division import DivisionSeasonCreate
 
 
@@ -273,3 +279,258 @@ class DivisionService:
                 }
             )
         return season, items, total
+
+
+    def active_match(
+        self, season_id: int, telegram_id: int
+    ) -> DivisionMatch | None:
+        return (
+            self.db.query(DivisionMatch)
+            .filter(
+                DivisionMatch.season_id == season_id,
+                DivisionMatch.status.in_(
+                    [
+                        DivisionMatchStatus.WAITING,
+                        DivisionMatchStatus.MATCHED,
+                        DivisionMatchStatus.ACTIVE,
+                    ]
+                ),
+                or_(
+                    DivisionMatch.player_a_id == telegram_id,
+                    DivisionMatch.player_b_id == telegram_id,
+                ),
+            )
+            .order_by(DivisionMatch.created_at.desc())
+            .first()
+        )
+
+    def _locked_wallet(self, telegram_id: int) -> GameTicketWallet:
+        wallet = (
+            self.db.query(GameTicketWallet)
+            .filter(GameTicketWallet.telegram_id == telegram_id)
+            .with_for_update()
+            .one_or_none()
+        )
+        if wallet is None:
+            wallet = GameTicketWallet(
+                telegram_id=telegram_id,
+                game_tickets=0,
+                locked_game_tickets=0,
+                tournament_tickets=0,
+                locked_tournament_tickets=0,
+            )
+            self.db.add(wallet)
+            self.db.flush()
+        return wallet
+
+    def _ticket_ledger(
+        self,
+        *,
+        match_id: str,
+        telegram_id: int,
+        operation: str,
+        available_delta: int,
+        locked_delta: int,
+    ) -> None:
+        key = f"division:{match_id}:{telegram_id}:{operation.lower()}"
+        existing = (
+            self.db.query(DivisionTicketLedger)
+            .filter(DivisionTicketLedger.idempotency_key == key)
+            .one_or_none()
+        )
+        if existing is not None:
+            return
+        self.db.add(
+            DivisionTicketLedger(
+                id=str(uuid4()),
+                telegram_id=telegram_id,
+                match_id=match_id,
+                operation=operation,
+                available_delta=available_delta,
+                locked_delta=locked_delta,
+                idempotency_key=key,
+            )
+        )
+
+    def _lock_tournament_ticket(
+        self, match_id: str, telegram_id: int
+    ) -> None:
+        wallet = self._locked_wallet(telegram_id)
+        if wallet.tournament_tickets < 1:
+            raise DivisionServiceError(409, "Tournament Ticket is required")
+        wallet.tournament_tickets -= 1
+        wallet.locked_tournament_tickets += 1
+        self._ticket_ledger(
+            match_id=match_id,
+            telegram_id=telegram_id,
+            operation="LOCK",
+            available_delta=-1,
+            locked_delta=1,
+        )
+
+    def _refund_tournament_ticket(
+        self, match_id: str, telegram_id: int
+    ) -> None:
+        wallet = self._locked_wallet(telegram_id)
+        if wallet.locked_tournament_tickets < 1:
+            raise DivisionServiceError(409, "Locked Tournament Ticket is missing")
+        wallet.locked_tournament_tickets -= 1
+        wallet.tournament_tickets += 1
+        self._ticket_ledger(
+            match_id=match_id,
+            telegram_id=telegram_id,
+            operation="REFUND",
+            available_delta=1,
+            locked_delta=-1,
+        )
+
+    def _spend_tournament_ticket(
+        self, match_id: str, telegram_id: int
+    ) -> None:
+        wallet = self._locked_wallet(telegram_id)
+        if wallet.locked_tournament_tickets < 1:
+            raise DivisionServiceError(409, "Locked Tournament Ticket is missing")
+        wallet.locked_tournament_tickets -= 1
+        self._ticket_ledger(
+            match_id=match_id,
+            telegram_id=telegram_id,
+            operation="SPEND",
+            available_delta=0,
+            locked_delta=-1,
+        )
+
+    def join_matchmaking(self, telegram_id: int) -> DivisionMatch:
+        season = self.current_season()
+        if season is None or season.status != DivisionSeasonStatus.ACTIVE:
+            raise DivisionServiceError(409, "Division season is not active")
+        participant = self.participant(season.id, telegram_id)
+        if (
+            participant is None
+            or participant.status != DivisionParticipantStatus.APPROVED
+        ):
+            raise DivisionServiceError(403, "Approved Division participant required")
+
+        existing = self.active_match(season.id, telegram_id)
+        if existing is not None:
+            return existing
+
+        opponent_match = (
+            self.db.query(DivisionMatch)
+            .filter(
+                DivisionMatch.season_id == season.id,
+                DivisionMatch.status == DivisionMatchStatus.WAITING,
+                DivisionMatch.player_b_id.is_(None),
+                DivisionMatch.player_a_id != telegram_id,
+            )
+            .order_by(DivisionMatch.created_at, DivisionMatch.id)
+            .with_for_update()
+            .first()
+        )
+        if opponent_match is None:
+            match = DivisionMatch(
+                id=str(uuid4()),
+                season_id=season.id,
+                player_a_id=telegram_id,
+                status=DivisionMatchStatus.WAITING,
+                player_a_ticket_state=DivisionTicketState.LOCKED,
+            )
+            self.db.add(match)
+            self._lock_tournament_ticket(match.id, telegram_id)
+        else:
+            match = opponent_match
+            self._lock_tournament_ticket(match.id, telegram_id)
+            match.player_b_id = telegram_id
+            match.player_b_ticket_state = DivisionTicketState.LOCKED
+            match.status = DivisionMatchStatus.MATCHED
+            match.matched_at = utc_now()
+
+        self.db.commit()
+        self.db.refresh(match)
+        return match
+
+    def cancel_waiting_match(
+        self, match_id: str, telegram_id: int
+    ) -> DivisionMatch:
+        match = (
+            self.db.query(DivisionMatch)
+            .filter(DivisionMatch.id == match_id)
+            .with_for_update()
+            .one_or_none()
+        )
+        if match is None or match.player_a_id != telegram_id:
+            raise DivisionServiceError(404, "Division match not found")
+        if (
+            match.status != DivisionMatchStatus.WAITING
+            or match.player_b_id is not None
+        ):
+            raise DivisionServiceError(409, "Only waiting search can be cancelled")
+        if match.player_a_ticket_state == DivisionTicketState.LOCKED:
+            self._refund_tournament_ticket(match.id, telegram_id)
+            match.player_a_ticket_state = DivisionTicketState.REFUNDED
+        match.status = DivisionMatchStatus.CANCELLED
+        match.cancel_reason = "PLAYER_LEFT_QUEUE"
+        match.finished_at = utc_now()
+        self.db.commit()
+        self.db.refresh(match)
+        return match
+
+    def cancel_before_start(
+        self, match_id: str, reason: str
+    ) -> DivisionMatch:
+        match = (
+            self.db.query(DivisionMatch)
+            .filter(DivisionMatch.id == match_id)
+            .with_for_update()
+            .one_or_none()
+        )
+        if match is None:
+            raise DivisionServiceError(404, "Division match not found")
+        if match.status != DivisionMatchStatus.MATCHED:
+            raise DivisionServiceError(409, "Division match cannot be refunded")
+        players = (
+            (match.player_a_id, "player_a_ticket_state"),
+            (match.player_b_id, "player_b_ticket_state"),
+        )
+        for player_id, state_attribute in players:
+            if (
+                player_id is not None
+                and getattr(match, state_attribute) == DivisionTicketState.LOCKED
+            ):
+                self._refund_tournament_ticket(match.id, player_id)
+                setattr(match, state_attribute, DivisionTicketState.REFUNDED)
+        match.status = DivisionMatchStatus.CANCELLED
+        match.cancel_reason = reason
+        match.finished_at = utc_now()
+        self.db.commit()
+        self.db.refresh(match)
+        return match
+
+    def activate_match(self, match_id: str) -> DivisionMatch:
+        match = (
+            self.db.query(DivisionMatch)
+            .filter(DivisionMatch.id == match_id)
+            .with_for_update()
+            .one_or_none()
+        )
+        if match is None:
+            raise DivisionServiceError(404, "Division match not found")
+        if match.status == DivisionMatchStatus.ACTIVE:
+            return match
+        if (
+            match.status != DivisionMatchStatus.MATCHED
+            or match.player_b_id is None
+        ):
+            raise DivisionServiceError(409, "Matched opponent is required")
+        for player_id, state_attribute in (
+            (match.player_a_id, "player_a_ticket_state"),
+            (match.player_b_id, "player_b_ticket_state"),
+        ):
+            if getattr(match, state_attribute) != DivisionTicketState.LOCKED:
+                raise DivisionServiceError(409, "Tournament Ticket is not locked")
+            self._spend_tournament_ticket(match.id, player_id)
+            setattr(match, state_attribute, DivisionTicketState.SPENT)
+        match.status = DivisionMatchStatus.ACTIVE
+        match.started_at = utc_now()
+        self.db.commit()
+        self.db.refresh(match)
+        return match
