@@ -101,7 +101,11 @@ class ArenaV3Match(Base):
     __table_args__ = (
         UniqueConstraint("public_id", name="uq_arena_matches_public_id"),
         UniqueConstraint("owner_id", "idempotency_key", name="uq_arena_matches_owner_idempotency"),
-        CheckConstraint("stake_efc > 0", name="ck_arena_matches_positive_stake"),
+        CheckConstraint(
+            "(match_type = 'DIVISION' AND stake_efc = 0) OR "
+            "(match_type <> 'DIVISION' AND stake_efc > 0)",
+            name="ck_arena_matches_stake_by_type",
+        ),
         CheckConstraint("match_time_minutes BETWEEN 6 AND 15", name="ck_arena_matches_time"),
         CheckConstraint("penalties_enabled = true", name="ck_arena_matches_penalties_required"),
         CheckConstraint("owner_id <> opponent_id", name="ck_arena_matches_distinct_players"),
