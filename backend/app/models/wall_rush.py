@@ -73,6 +73,8 @@ class WallRushMatch(Base):
     finished_at = Column(DateTime(timezone=True))
     updated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
 
+    red_player = relationship("User", foreign_keys=[red_player_id])
+    blue_player = relationship("User", foreign_keys=[blue_player_id])
     actions = relationship("WallRushAction", back_populates="match", cascade="all, delete-orphan")
 
 
