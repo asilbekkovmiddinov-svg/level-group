@@ -50,6 +50,10 @@ from app.routers.support import router as support_router
 from app.routers.monetag_ads import router as monetag_ads_router
 from app.routers.admin_metrics import router as admin_metrics_router
 from app.routers.wall_rush import router as wall_rush_router
+from app.routers.division import (
+    admin_router as division_admin_router,
+    router as division_router,
+)
 from app.core.observability import configure_logging, correlation_middleware
 from app.core.config import (
     ARENA_V3_AI_ENABLED,
@@ -163,6 +167,8 @@ app.include_router(support_router)
 app.include_router(monetag_ads_router)
 app.include_router(admin_metrics_router)
 app.include_router(wall_rush_router)
+app.include_router(division_router)
+app.include_router(division_admin_router)
 
 
 @app.get("/")
