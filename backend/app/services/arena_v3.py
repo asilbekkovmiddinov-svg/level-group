@@ -246,6 +246,18 @@ class ArenaV3Service:
                 )
             except DivisionServiceError as exc:
                 raise ArenaV3Conflict(str(exc)) from exc
+        elif match.match_type == "TOURNAMENT":
+            from app.services.tournament import (
+                TournamentService,
+                TournamentServiceError,
+            )
+
+            try:
+                TournamentService(self.db).activate_arena_match(
+                    match.id, commit=False
+                )
+            except TournamentServiceError as exc:
+                raise ArenaV3Conflict(str(exc)) from exc
         from_status = ArenaV3Status(match.status)
         now = datetime.now(timezone.utc)
         match.room_code = payload.room_code
@@ -422,6 +434,18 @@ class ArenaV3Service:
                     commit=False,
                 )
             except DivisionServiceError as exc:
+                raise ArenaV3Conflict(str(exc)) from exc
+        elif match.match_type == "TOURNAMENT":
+            from app.services.tournament import (
+                TournamentService,
+                TournamentServiceError,
+            )
+
+            try:
+                TournamentService(self.db).cancel_before_start(
+                    match.id, commit=False
+                )
+            except TournamentServiceError as exc:
                 raise ArenaV3Conflict(str(exc)) from exc
         elif config.ARENA_V3_SETTLEMENT_ENABLED:
             from app.services.arena_v3_settlement import refund_match
