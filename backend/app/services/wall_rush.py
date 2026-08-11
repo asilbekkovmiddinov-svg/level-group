@@ -37,6 +37,16 @@ def match_response(match: WallRushMatch) -> dict:
         "status": _enum_value(match.status),
         "red_player_id": match.red_player_id,
         "blue_player_id": match.blue_player_id,
+        "red_username": match.red_player.username if match.red_player else None,
+        "blue_username": match.blue_player.username if match.blue_player else None,
+        "red_display_name": (
+            match.red_player.first_name or match.red_player.username
+            if match.red_player else None
+        ),
+        "blue_display_name": (
+            match.blue_player.first_name or match.blue_player.username
+            if match.blue_player else None
+        ),
         "current_turn_player_id": match.current_turn_player_id,
         "red": (match.red_row, match.red_column),
         "blue": (match.blue_row, match.blue_column),
@@ -320,6 +330,14 @@ def submit_action(
         raise WallRushError("Turn deadline has passed")
 
     state = _domain_state(match)
+    wall_owners = {
+        (
+            item["row"],
+            item["column"],
+            item["orientation"],
+        ): item.get("owner_id")
+        for item in (match.walls or [])
+    }
     try:
         if action_type == "MOVE":
             action = MoveAction((row, column))
@@ -340,8 +358,19 @@ def submit_action(
     match.red_walls_remaining = updated.red_walls_remaining
     match.blue_walls_remaining = updated.blue_walls_remaining
     match.walls = [
-        {"row": wall.row, "column": wall.column, "orientation": wall.orientation.value}
-        for wall in sorted(updated.walls, key=lambda item: (item.row, item.column, item.orientation.value))
+        {
+            "row": wall.row,
+            "column": wall.column,
+            "orientation": wall.orientation.value,
+            "owner_id": wall_owners.get(
+                (wall.row, wall.column, wall.orientation.value),
+                telegram_id,
+            ),
+        }
+        for wall in sorted(
+            updated.walls,
+            key=lambda item: (item.row, item.column, item.orientation.value),
+        )
     ]
     match.turn_number = updated.turn_number
     match.current_turn_player_id = (
