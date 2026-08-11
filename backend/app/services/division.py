@@ -524,7 +524,7 @@ class DivisionService:
         return match
 
     def cancel_before_start(
-        self, match_id: str, reason: str
+        self, match_id: str, reason: str, *, commit: bool = True
     ) -> DivisionMatch:
         match = (
             self.db.query(DivisionMatch)
@@ -550,11 +550,16 @@ class DivisionService:
         match.status = DivisionMatchStatus.CANCELLED
         match.cancel_reason = reason
         match.finished_at = utc_now()
-        self.db.commit()
-        self.db.refresh(match)
+        if commit:
+            self.db.commit()
+            self.db.refresh(match)
+        else:
+            self.db.flush()
         return match
 
-    def activate_match(self, match_id: str) -> DivisionMatch:
+    def activate_match(
+        self, match_id: str, *, commit: bool = True
+    ) -> DivisionMatch:
         match = (
             self.db.query(DivisionMatch)
             .filter(DivisionMatch.id == match_id)
@@ -580,6 +585,9 @@ class DivisionService:
             setattr(match, state_attribute, DivisionTicketState.SPENT)
         match.status = DivisionMatchStatus.ACTIVE
         match.started_at = utc_now()
-        self.db.commit()
-        self.db.refresh(match)
+        if commit:
+            self.db.commit()
+            self.db.refresh(match)
+        else:
+            self.db.flush()
         return match
