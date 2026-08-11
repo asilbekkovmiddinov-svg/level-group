@@ -134,6 +134,7 @@ def wallet_response(wallet: GameTicketWallet) -> dict:
         "game_tickets": wallet.game_tickets,
         "locked_game_tickets": wallet.locked_game_tickets,
         "tournament_tickets": wallet.tournament_tickets,
+        "locked_tournament_tickets": wallet.locked_tournament_tickets,
         "last_rewarded_ad_at": wallet.last_rewarded_ad_at,
     }
 
