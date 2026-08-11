@@ -86,7 +86,7 @@ def run_division_migrations(bind: Engine | Connection) -> None:
 
             if (
                 connection.dialect.name == "postgresql"
-                and "ck_arena_matches_stake_by_type" not in arena_checks
+                and "ck_arena_matches_stake_by_mode" not in arena_checks
             ):
                 connection.execute(
                     text(
@@ -96,10 +96,16 @@ def run_division_migrations(bind: Engine | Connection) -> None:
                 )
                 connection.execute(
                     text(
+                        "ALTER TABLE arena_matches DROP CONSTRAINT IF EXISTS "
+                        "ck_arena_matches_stake_by_type"
+                    )
+                )
+                connection.execute(
+                    text(
                         "ALTER TABLE arena_matches ADD CONSTRAINT "
-                        "ck_arena_matches_stake_by_type CHECK ("
-                        "(match_type = 'DIVISION' AND stake_efc = 0) OR "
-                        "(match_type <> 'DIVISION' AND stake_efc > 0)"
+                        "ck_arena_matches_stake_by_mode CHECK ("
+                        "(match_type IN ('DIVISION', 'TOURNAMENT') AND stake_efc = 0) OR "
+                        "(match_type NOT IN ('DIVISION', 'TOURNAMENT') AND stake_efc > 0)"
                         ")"
                     )
                 )
