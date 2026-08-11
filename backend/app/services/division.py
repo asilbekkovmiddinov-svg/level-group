@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
-from sqlalchemy import case, or_
+from sqlalchemy import case, or_, text
 from sqlalchemy.orm import Session
 
 from app.models.division import (
@@ -281,6 +281,13 @@ class DivisionService:
         return season, items, total
 
 
+    def _serialize_matchmaking(self, season_id: int) -> None:
+        if self.db.bind is not None and self.db.bind.dialect.name == "postgresql":
+            self.db.execute(
+                text("SELECT pg_advisory_xact_lock(:lock_id)"),
+                {"lock_id": 730000000 + season_id},
+            )
+
     def active_match(
         self, season_id: int, telegram_id: int
     ) -> DivisionMatch | None:
@@ -410,6 +417,7 @@ class DivisionService:
         ):
             raise DivisionServiceError(403, "Approved Division participant required")
 
+        self._serialize_matchmaking(season.id)
         existing = self.active_match(season.id, telegram_id)
         if existing is not None:
             return existing
