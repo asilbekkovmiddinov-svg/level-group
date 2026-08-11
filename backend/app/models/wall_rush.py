@@ -101,12 +101,17 @@ class GameTicketWallet(Base):
         CheckConstraint("game_tickets >= 0", name="ck_game_ticket_wallet_game"),
         CheckConstraint("locked_game_tickets >= 0", name="ck_game_ticket_wallet_locked"),
         CheckConstraint("tournament_tickets >= 0", name="ck_game_ticket_wallet_tournament"),
+        CheckConstraint(
+            "locked_tournament_tickets >= 0",
+            name="ck_game_ticket_wallet_locked_tournament",
+        ),
     )
 
     telegram_id = Column(BigInteger, ForeignKey("users.telegram_id"), primary_key=True)
     game_tickets = Column(Integer, nullable=False, default=0)
     locked_game_tickets = Column(Integer, nullable=False, default=0)
     tournament_tickets = Column(Integer, nullable=False, default=0)
+    locked_tournament_tickets = Column(Integer, nullable=False, default=0)
     last_rewarded_ad_at = Column(DateTime(timezone=True))
     updated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
 
