@@ -3,7 +3,12 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.division import DivisionParticipantStatus, DivisionSeasonStatus
+from app.models.division import (
+    DivisionMatchStatus,
+    DivisionParticipantStatus,
+    DivisionSeasonStatus,
+    DivisionTicketState,
+)
 
 
 class DivisionSeasonCreate(BaseModel):
@@ -84,3 +89,21 @@ class DivisionApplicationListResponse(BaseModel):
 
 class DivisionApplicationDecision(BaseModel):
     decision: Literal["APPROVED", "REJECTED"]
+
+
+class DivisionMatchResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    season_id: int
+    player_a_id: int
+    player_b_id: int | None
+    status: DivisionMatchStatus
+    player_a_ticket_state: DivisionTicketState
+    player_b_ticket_state: DivisionTicketState | None
+    arena_match_id: int | None
+    created_at: datetime
+    matched_at: datetime | None
+    started_at: datetime | None
+    finished_at: datetime | None
+    cancel_reason: str | None
