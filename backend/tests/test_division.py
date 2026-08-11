@@ -372,13 +372,19 @@ def test_matched_cancel_before_start_refunds_both_players(monkeypatch):
         ).json()
 
         db = sessions()
-        cancelled = DivisionService(db).cancel_before_start(
-            matched["id"], "READY_TIMEOUT"
+        division_match = db.get(DivisionMatch, matched["id"])
+        cancelled_arena = ArenaV3Service(db).cancel_match(
+            match_id=division_match.arena_match_id,
+            player_id=101,
+            payload=SimpleNamespace(reason_code="READY_TIMEOUT"),
+            idempotency_key="division-ready-timeout",
         )
-        assert cancelled.status.value == "CANCELLED"
+        assert cancelled_arena.status.value == "CANCELLED"
         db.close()
 
         db = sessions()
+        cancelled = db.get(DivisionMatch, matched["id"])
+        assert cancelled.status.value == "CANCELLED"
         for telegram_id in (101, 102):
             wallet = db.get(GameTicketWallet, telegram_id)
             assert wallet.tournament_tickets == 1
