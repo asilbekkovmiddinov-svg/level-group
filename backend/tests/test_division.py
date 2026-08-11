@@ -2,6 +2,8 @@ import hashlib
 import hmac
 import json
 import time
+from decimal import Decimal
+from types import SimpleNamespace
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 
@@ -13,6 +15,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.core import admin_auth, telegram_auth
 from app.core.database import Base, get_db
+from app.models.arena_v3 import ArenaV3Match, ArenaV3MatchEvent
 from app.models.division import (
     DivisionMatch,
     DivisionParticipant,
@@ -22,6 +25,7 @@ from app.models.division import (
 from app.models.user import User
 from app.models.wall_rush import GameTicketWallet
 from app.routers.division import admin_router, router
+from app.services.arena_v3 import ArenaV3Service
 from app.services.division import DivisionService
 
 
@@ -56,6 +60,8 @@ def build(monkeypatch):
             DivisionSeason.__table__,
             DivisionParticipant.__table__,
             GameTicketWallet.__table__,
+            ArenaV3Match.__table__,
+            ArenaV3MatchEvent.__table__,
             DivisionMatch.__table__,
             DivisionTicketLedger.__table__,
         ],
@@ -307,11 +313,30 @@ def test_matchmaking_locks_refunds_and_spends_tournament_tickets(monkeypatch):
         db.close()
 
         db = sessions()
-        activated = DivisionService(db).activate_match(matched.json()["id"])
-        assert activated.status.value == "ACTIVE"
+        division_match = db.get(DivisionMatch, matched.json()["id"])
+        arena_match = db.get(ArenaV3Match, division_match.arena_match_id)
+        assert arena_match.match_type == "DIVISION"
+        assert arena_match.status.value == "READY"
+        assert arena_match.stake_efc == Decimal("0.00")
+        assert arena_match.total_pool_efc == Decimal("0.00")
+        arena_service = ArenaV3Service(db)
+        arena_service.ready(
+            match_id=arena_match.id, player_id=101
+        )
+        arena_service.ready(
+            match_id=arena_match.id, player_id=102
+        )
+        started = arena_service.submit_room_code(
+            match_id=arena_match.id,
+            owner_id=101,
+            payload=SimpleNamespace(room_code="ABC123"),
+        )
+        assert started.status.value == "PLAYING"
         db.close()
 
         db = sessions()
+        activated = db.get(DivisionMatch, matched.json()["id"])
+        assert activated.status.value == "ACTIVE"
         for telegram_id in (101, 102):
             wallet = db.get(GameTicketWallet, telegram_id)
             assert wallet.tournament_tickets == 0
