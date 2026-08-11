@@ -15,7 +15,13 @@ from sqlalchemy.pool import StaticPool
 
 from app.core import admin_auth, telegram_auth
 from app.core.database import Base, get_db
-from app.models.arena_v3 import ArenaV3Match, ArenaV3MatchEvent
+from app.models.arena_v3 import (
+    ArenaV3Match,
+    ArenaV3MatchEvent,
+    ArenaV3NotificationDelivery,
+    ArenaV3Status,
+    ArenaV4ResultRevision,
+)
 from app.models.division import (
     DivisionMatch,
     DivisionParticipant,
@@ -25,7 +31,9 @@ from app.models.division import (
 from app.models.user import User
 from app.models.wall_rush import GameTicketWallet
 from app.routers.division import admin_router, router
+from app.repositories.arena_v3 import ArenaV3Repository
 from app.services.arena_v3 import ArenaV3Service
+from app.services.arena_v4_settlement import apply_admin_settlement
 
 
 def init_data(telegram_id: int) -> str:
@@ -61,6 +69,8 @@ def build(monkeypatch):
             GameTicketWallet.__table__,
             ArenaV3Match.__table__,
             ArenaV3MatchEvent.__table__,
+            ArenaV3NotificationDelivery.__table__,
+            ArenaV4ResultRevision.__table__,
             DivisionMatch.__table__,
             DivisionTicketLedger.__table__,
         ],
@@ -340,6 +350,38 @@ def test_matchmaking_locks_refunds_and_spends_tournament_tickets(monkeypatch):
             wallet = db.get(GameTicketWallet, telegram_id)
             assert wallet.tournament_tickets == 0
             assert wallet.locked_tournament_tickets == 0
+        arena_match = db.get(ArenaV3Match, activated.arena_match_id)
+        arena_match.status = ArenaV3Status.WAITING_ADMIN
+        apply_admin_settlement(
+            db,
+            repository=ArenaV3Repository(db),
+            match=arena_match,
+            review=SimpleNamespace(id=7001, assigned_admin_id=9001),
+            payload=SimpleNamespace(
+                owner_score=3,
+                opponent_score=1,
+                reason="SCREENSHOT_VERIFIED",
+            ),
+        )
+        db.commit()
+        db.refresh(activated)
+        assert activated.status.value == "FINISHED"
+        assert activated.winner_id == 101
+        alpha = (
+            db.query(DivisionParticipant)
+            .filter_by(season_id=season["id"], telegram_id=101)
+            .one()
+        )
+        beta = (
+            db.query(DivisionParticipant)
+            .filter_by(season_id=season["id"], telegram_id=102)
+            .one()
+        )
+        assert (alpha.matches_played, alpha.wins, alpha.points) == (1, 1, 3)
+        assert (beta.matches_played, beta.losses, beta.points) == (1, 1, 0)
+        assert arena_match.stake_efc == Decimal("0.00")
+        assert arena_match.winner_reward_efc == Decimal("0.00")
+
         operations = [
             row.operation
             for row in db.query(DivisionTicketLedger)
