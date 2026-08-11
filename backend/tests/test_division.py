@@ -13,9 +13,16 @@ from sqlalchemy.pool import StaticPool
 
 from app.core import admin_auth, telegram_auth
 from app.core.database import Base, get_db
-from app.models.division import DivisionParticipant, DivisionSeason
+from app.models.division import (
+    DivisionMatch,
+    DivisionParticipant,
+    DivisionSeason,
+    DivisionTicketLedger,
+)
 from app.models.user import User
+from app.models.wall_rush import GameTicketWallet
 from app.routers.division import admin_router, router
+from app.services.division import DivisionService
 
 
 def init_data(telegram_id: int) -> str:
@@ -48,6 +55,9 @@ def build(monkeypatch):
             User.__table__,
             DivisionSeason.__table__,
             DivisionParticipant.__table__,
+            GameTicketWallet.__table__,
+            DivisionMatch.__table__,
+            DivisionTicketLedger.__table__,
         ],
     )
     sessions = sessionmaker(bind=engine)
@@ -72,6 +82,12 @@ def build(monkeypatch):
             User(telegram_id=9001, username="admin", first_name="Admin"),
             User(telegram_id=101, username="alpha", first_name="Ali"),
             User(telegram_id=102, username="beta", first_name="Vali"),
+        ]
+    )
+    db.add_all(
+        [
+            GameTicketWallet(telegram_id=101, tournament_tickets=1),
+            GameTicketWallet(telegram_id=102, tournament_tickets=1),
         ]
     )
     db.commit()
@@ -205,5 +221,152 @@ def test_application_approval_and_standings_flow(monkeypatch):
         )
         assert finished.status_code == 200
         assert finished.json()["status"] == "FINISHED"
+    finally:
+        engine.dispose()
+
+
+
+def approve_and_start(client, season_id: int):
+    participants = []
+    for telegram_id in (101, 102):
+        participant = client.post(
+            "/division/apply", headers=headers(telegram_id)
+        ).json()
+        participants.append(participant)
+        response = client.post(
+            (
+                f"/admin/division/seasons/{season_id}/applications/"
+                f"{participant['id']}/decision"
+            ),
+            json={"decision": "APPROVED"},
+            headers=headers(9001),
+        )
+        assert response.status_code == 200
+    response = client.post(
+        f"/admin/division/seasons/{season_id}/start",
+        headers=headers(9001),
+    )
+    assert response.status_code == 200
+    return participants
+
+
+def test_matchmaking_locks_refunds_and_spends_tournament_tickets(monkeypatch):
+    client, sessions, engine = build(monkeypatch)
+    try:
+        season = client.post(
+            "/admin/division/seasons",
+            json=season_payload(),
+            headers=headers(9001),
+        ).json()
+        approve_and_start(client, season["id"])
+
+        waiting = client.post(
+            "/division/matchmaking/join", headers=headers(101)
+        )
+        assert waiting.status_code == 200
+        assert waiting.json()["status"] == "WAITING"
+        repeated = client.post(
+            "/division/matchmaking/join", headers=headers(101)
+        )
+        assert repeated.json()["id"] == waiting.json()["id"]
+
+        db = sessions()
+        wallet = db.get(GameTicketWallet, 101)
+        assert wallet.tournament_tickets == 0
+        assert wallet.locked_tournament_tickets == 1
+        db.close()
+
+        cancelled = client.post(
+            (
+                f"/division/matches/{waiting.json()['id']}/"
+                "cancel-waiting"
+            ),
+            headers=headers(101),
+        )
+        assert cancelled.status_code == 200
+        assert cancelled.json()["status"] == "CANCELLED"
+        assert cancelled.json()["player_a_ticket_state"] == "REFUNDED"
+
+        first = client.post(
+            "/division/matchmaking/join", headers=headers(101)
+        ).json()
+        matched = client.post(
+            "/division/matchmaking/join", headers=headers(102)
+        )
+        assert matched.status_code == 200
+        assert matched.json()["id"] == first["id"]
+        assert matched.json()["status"] == "MATCHED"
+        assert matched.json()["player_a_ticket_state"] == "LOCKED"
+        assert matched.json()["player_b_ticket_state"] == "LOCKED"
+
+        db = sessions()
+        for telegram_id in (101, 102):
+            wallet = db.get(GameTicketWallet, telegram_id)
+            assert wallet.tournament_tickets == 0
+            assert wallet.locked_tournament_tickets == 1
+        db.close()
+
+        db = sessions()
+        activated = DivisionService(db).activate_match(matched.json()["id"])
+        assert activated.status.value == "ACTIVE"
+        db.close()
+
+        db = sessions()
+        for telegram_id in (101, 102):
+            wallet = db.get(GameTicketWallet, telegram_id)
+            assert wallet.tournament_tickets == 0
+            assert wallet.locked_tournament_tickets == 0
+        operations = [
+            row.operation
+            for row in db.query(DivisionTicketLedger)
+            .filter(
+                DivisionTicketLedger.match_id == matched.json()["id"]
+            )
+            .order_by(DivisionTicketLedger.created_at)
+            .all()
+        ]
+        assert operations.count("LOCK") == 2
+        assert operations.count("SPEND") == 2
+        db.close()
+    finally:
+        engine.dispose()
+
+
+def test_matched_cancel_before_start_refunds_both_players(monkeypatch):
+    client, sessions, engine = build(monkeypatch)
+    try:
+        season = client.post(
+            "/admin/division/seasons",
+            json=season_payload(),
+            headers=headers(9001),
+        ).json()
+        approve_and_start(client, season["id"])
+        client.post("/division/matchmaking/join", headers=headers(101))
+        matched = client.post(
+            "/division/matchmaking/join", headers=headers(102)
+        ).json()
+
+        db = sessions()
+        cancelled = DivisionService(db).cancel_before_start(
+            matched["id"], "READY_TIMEOUT"
+        )
+        assert cancelled.status.value == "CANCELLED"
+        db.close()
+
+        db = sessions()
+        for telegram_id in (101, 102):
+            wallet = db.get(GameTicketWallet, telegram_id)
+            assert wallet.tournament_tickets == 1
+            assert wallet.locked_tournament_tickets == 0
+        assert (
+            db.query(DivisionTicketLedger)
+            .filter(
+                DivisionTicketLedger.match_id == matched["id"],
+                DivisionTicketLedger.operation == "REFUND",
+            )
+            .count()
+            == 2
+        )
+        db.close()
     finally:
         engine.dispose()
