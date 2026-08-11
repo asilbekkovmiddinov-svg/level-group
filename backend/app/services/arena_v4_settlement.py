@@ -501,6 +501,83 @@ def _release_appeal_reward(db, repository, match, *, now):
     match.reward_release_at = now
 
 
+def _apply_division_admin_result(
+    db, *, repository, match, review, payload, now, decision
+):
+    from app.services.division import DivisionService, DivisionServiceError
+
+    owner_score = getattr(payload, "owner_score", None)
+    opponent_score = getattr(payload, "opponent_score", None)
+    try:
+        division_match = DivisionService(db).finish_arena_result(
+            match.id,
+            player_a_score=owner_score,
+            player_b_score=opponent_score,
+            cancelled=decision == ArenaV4ResultType.CANCEL,
+            commit=False,
+        )
+    except DivisionServiceError as exc:
+        raise ArenaV3Conflict(str(exc)) from exc
+
+    result_version = match.result_version + 1
+    match.owner_score = owner_score
+    match.opponent_score = opponent_score
+    match.current_result_type = decision
+    match.result_version = result_version
+    match.current_decision_id = review.id
+    if match.initial_decision_id is None:
+        match.initial_decision_id = review.id
+    match.result_source = "ADMIN"
+    match.appeal_deadline_at = now + timedelta(minutes=REWARD_HOLD_MINUTES)
+    match.has_appeal = False
+    match.stake_efc = Decimal("0.00")
+    match.total_pool_efc = Decimal("0.00")
+    match.commission_efc = Decimal("0.00")
+    match.winner_reward_efc = Decimal("0.00")
+    match.winner_id = division_match.winner_id
+    match.loser_id = division_match.loser_id
+    match.reward_hold_status = ArenaV4RewardHoldStatus.NONE
+    match.reward_release_at = None
+    match.settlement_status = ArenaV3SettlementStatus.COMPLETED
+    match.cancel_reason = (
+        "ADMIN_CANCEL" if decision == ArenaV4ResultType.CANCEL else None
+    )
+
+    repository.add_result_revision(ArenaV4ResultRevision(
+        match_id=match.id,
+        version=result_version,
+        review_id=review.id,
+        previous_result_type=None,
+        new_result_type=decision.value,
+        previous_winner_id=None,
+        new_winner_id=match.winner_id,
+        new_owner_score=owner_score,
+        new_opponent_score=opponent_score,
+        new_reward_efc=Decimal("0.00"),
+        new_fee_efc=Decimal("0.00"),
+        admin_id=review.assigned_admin_id,
+        reason=payload.reason or "INITIAL_DIVISION_DECISION",
+    ))
+    _queue_initial_result_notifications(repository, match, decision)
+    transition_arena_v3(match, ArenaV3Status.FINISHED)
+    match.settled_at = now
+    match.finished_at = now
+    repository.add_event(ArenaV3MatchEvent(
+        match_id=match.id,
+        event_type="DIVISION_ADMIN_RESULT_COMPLETED",
+        from_status=ArenaV3Status.WAITING_ADMIN.value,
+        to_status=ArenaV3Status.FINISHED.value,
+        actor_type="ADMIN",
+        actor_id=review.assigned_admin_id,
+        idempotency_key=f"division-admin-result:{review.id}",
+        event_metadata={
+            "decision": decision.value,
+            "result_version": result_version,
+            "points_awarded": 3 if match.winner_id is not None else 0,
+        },
+    ))
+
+
 def apply_admin_settlement(
     db, *, repository, match, review, payload, now=None, decision=None
 ):
@@ -510,10 +587,22 @@ def apply_admin_settlement(
         raise ArenaV3Conflict("Arena V4 match is already settled")
 
     now = now or datetime.now(timezone.utc)
-    result_version = match.result_version + 1
     decision = decision or result_from_score(
         payload.owner_score, payload.opponent_score
     )
+    if match.match_type == "DIVISION":
+        _apply_division_admin_result(
+            db,
+            repository=repository,
+            match=match,
+            review=review,
+            payload=payload,
+            now=now,
+            decision=decision,
+        )
+        return
+
+    result_version = match.result_version + 1
     stake = _money(match.stake_efc)
     total_pool = _money(stake * Decimal("2"))
     match.total_pool_efc = total_pool
@@ -626,6 +715,127 @@ def apply_admin_settlement(
     ))
 
 
+def _resolve_division_appeal(
+    db,
+    *,
+    repository,
+    match,
+    review,
+    appeal,
+    action,
+    owner_score,
+    opponent_score,
+    reason,
+    now,
+):
+    from app.services.division import DivisionService, DivisionServiceError
+
+    old_version = match.result_version
+    old_result = match.current_result_type
+    old_winner_id = match.winner_id
+    old_owner_score = match.owner_score
+    old_opponent_score = match.opponent_score
+
+    if action.value == "KEEP_RESULT":
+        event_type = "DIVISION_APPEAL_RESULT_KEPT"
+    else:
+        cancelled = action.value == "CANCEL_MATCH"
+        if not cancelled:
+            if (
+                owner_score == old_owner_score
+                and opponent_score == old_opponent_score
+            ):
+                raise ArenaV3Conflict(
+                    "Updated score must differ from current score"
+                )
+            new_result = result_from_score(owner_score, opponent_score)
+        else:
+            owner_score = None
+            opponent_score = None
+            new_result = ArenaV4ResultType.CANCEL
+        try:
+            division_match = DivisionService(db).revise_arena_result(
+                match.id,
+                player_a_score=owner_score,
+                player_b_score=opponent_score,
+                cancelled=cancelled,
+                commit=False,
+            )
+        except DivisionServiceError as exc:
+            raise ArenaV3Conflict(str(exc)) from exc
+
+        new_version = old_version + 1
+        match.owner_score = owner_score
+        match.opponent_score = opponent_score
+        match.current_result_type = new_result
+        match.result_version = new_version
+        match.current_decision_id = review.id
+        match.result_source = "ADMIN_APPEAL"
+        match.winner_id = division_match.winner_id
+        match.loser_id = division_match.loser_id
+        match.cancel_reason = (
+            "APPEAL_ADMIN_CANCEL" if cancelled else None
+        )
+        match.stake_efc = Decimal("0.00")
+        match.total_pool_efc = Decimal("0.00")
+        match.commission_efc = Decimal("0.00")
+        match.winner_reward_efc = Decimal("0.00")
+        match.reward_hold_status = ArenaV4RewardHoldStatus.NONE
+        match.reward_release_at = None
+        match.settlement_status = ArenaV3SettlementStatus.COMPLETED
+        repository.add_result_revision(ArenaV4ResultRevision(
+            match_id=match.id,
+            version=new_version,
+            review_id=review.id,
+            appeal_id=appeal.id,
+            previous_result_type=old_result.value if old_result else None,
+            new_result_type=new_result.value,
+            previous_winner_id=old_winner_id,
+            new_winner_id=match.winner_id,
+            previous_owner_score=old_owner_score,
+            previous_opponent_score=old_opponent_score,
+            new_owner_score=owner_score,
+            new_opponent_score=opponent_score,
+            previous_reward_efc=Decimal("0.00"),
+            new_reward_efc=Decimal("0.00"),
+            previous_fee_efc=Decimal("0.00"),
+            new_fee_efc=Decimal("0.00"),
+            admin_id=review.assigned_admin_id,
+            reason=reason,
+        ))
+        event_type = (
+            "DIVISION_APPEAL_SCORE_UPDATED"
+            if not cancelled
+            else "DIVISION_APPEAL_MATCH_CANCELLED"
+        )
+
+    for player_id in (match.owner_id, match.opponent_id):
+        queue_v4_notification(
+            repository,
+            match_id=match.id,
+            recipient_id=player_id,
+            event_type="APPEAL_RESOLVED",
+            dedup_key=(
+                f"division:{match.id}:appeal-resolved:"
+                f"{review.id}:{player_id}"
+            ),
+        )
+    repository.add_event(ArenaV3MatchEvent(
+        match_id=match.id,
+        event_type=event_type,
+        from_status=ArenaV3Status.FINISHED.value,
+        to_status=ArenaV3Status.FINISHED.value,
+        actor_type="ADMIN",
+        actor_id=review.assigned_admin_id,
+        idempotency_key=f"division-appeal-resolution:{review.id}",
+        event_metadata={
+            "action": action.value,
+            "old_result_version": old_version,
+            "new_result_version": match.result_version,
+        },
+    ))
+
+
 def resolve_appeal_settlement(
     db,
     *,
@@ -647,6 +857,21 @@ def resolve_appeal_settlement(
     old_opponent_score = match.opponent_score
     old_reward = _money(match.winner_reward_efc)
     old_fee = _money(match.commission_efc)
+
+    if match.match_type == "DIVISION":
+        _resolve_division_appeal(
+            db,
+            repository=repository,
+            match=match,
+            review=review,
+            appeal=appeal,
+            action=action,
+            owner_score=owner_score,
+            opponent_score=opponent_score,
+            reason=reason,
+            now=now,
+        )
+        return
 
     if action.value == "KEEP_RESULT":
         _release_appeal_reward(db, repository, match, now=now)
