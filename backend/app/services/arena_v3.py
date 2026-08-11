@@ -225,6 +225,27 @@ class ArenaV3Service:
             return match
         if match.status != ArenaV3Status.WAITING_ROOM_CODE:
             raise ArenaV3Conflict("Arena V3 match is not waiting for room code")
+        if match.match_type == "DIVISION":
+            from app.models.division import DivisionMatch
+            from app.services.division import (
+                DivisionService,
+                DivisionServiceError,
+            )
+
+            division_match = (
+                self.db.query(DivisionMatch)
+                .filter(DivisionMatch.arena_match_id == match.id)
+                .with_for_update()
+                .one_or_none()
+            )
+            if division_match is None:
+                raise ArenaV3Conflict("Linked Division match is missing")
+            try:
+                DivisionService(self.db).activate_match(
+                    division_match.id, commit=False
+                )
+            except DivisionServiceError as exc:
+                raise ArenaV3Conflict(str(exc)) from exc
         from_status = ArenaV3Status(match.status)
         now = datetime.now(timezone.utc)
         match.room_code = payload.room_code
@@ -379,7 +400,30 @@ class ArenaV3Service:
             match, event_type="CANCEL", actor_id=player_id,
             idempotency_key=f"cancel:{idempotency_key}", from_status=from_status,
         )
-        if config.ARENA_V3_SETTLEMENT_ENABLED:
+        if match.match_type == "DIVISION":
+            from app.models.division import DivisionMatch
+            from app.services.division import (
+                DivisionService,
+                DivisionServiceError,
+            )
+
+            division_match = (
+                self.db.query(DivisionMatch)
+                .filter(DivisionMatch.arena_match_id == match.id)
+                .with_for_update()
+                .one_or_none()
+            )
+            if division_match is None:
+                raise ArenaV3Conflict("Linked Division match is missing")
+            try:
+                DivisionService(self.db).cancel_before_start(
+                    division_match.id,
+                    payload.reason_code,
+                    commit=False,
+                )
+            except DivisionServiceError as exc:
+                raise ArenaV3Conflict(str(exc)) from exc
+        elif config.ARENA_V3_SETTLEMENT_ENABLED:
             from app.services.arena_v3_settlement import refund_match
             return refund_match(
                 self.db, match.id, reason=payload.reason_code
