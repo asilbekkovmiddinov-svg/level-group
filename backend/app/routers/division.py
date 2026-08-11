@@ -8,6 +8,7 @@ from app.models.division import DivisionParticipantStatus
 from app.schemas.division import (
     DivisionApplicationDecision,
     DivisionApplicationListResponse,
+    DivisionMatchResponse,
     DivisionOverviewResponse,
     DivisionParticipantResponse,
     DivisionSeasonCreate,
@@ -76,6 +77,51 @@ def standings(
         "offset": offset,
         "total": total,
     }
+
+
+@router.post(
+    "/matchmaking/join", response_model=DivisionMatchResponse
+)
+def join_matchmaking(
+    current_user: TelegramUser = Depends(get_current_telegram_user),
+    db: Session = Depends(get_db),
+):
+    return division_call(
+        lambda: DivisionService(db).join_matchmaking(
+            current_user.telegram_id
+        )
+    )
+
+
+@router.get(
+    "/matches/active", response_model=DivisionMatchResponse | None
+)
+def active_division_match(
+    current_user: TelegramUser = Depends(get_current_telegram_user),
+    db: Session = Depends(get_db),
+):
+    season = DivisionService(db).current_season()
+    if season is None:
+        return None
+    return DivisionService(db).active_match(
+        season.id, current_user.telegram_id
+    )
+
+
+@router.post(
+    "/matches/{match_id}/cancel-waiting",
+    response_model=DivisionMatchResponse,
+)
+def cancel_waiting_match(
+    match_id: str,
+    current_user: TelegramUser = Depends(get_current_telegram_user),
+    db: Session = Depends(get_db),
+):
+    return division_call(
+        lambda: DivisionService(db).cancel_waiting_match(
+            match_id, current_user.telegram_id
+        )
+    )
 
 
 @admin_router.post(
