@@ -26,7 +26,6 @@ from app.models.user import User
 from app.models.wall_rush import GameTicketWallet
 from app.routers.division import admin_router, router
 from app.services.arena_v3 import ArenaV3Service
-from app.services.division import DivisionService
 
 
 def init_data(telegram_id: int) -> str:
