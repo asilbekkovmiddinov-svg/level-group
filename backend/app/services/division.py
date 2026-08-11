@@ -591,3 +591,191 @@ class DivisionService:
         else:
             self.db.flush()
         return match
+
+
+    def _result_participants(
+        self, match: DivisionMatch
+    ) -> tuple[DivisionParticipant, DivisionParticipant]:
+        rows = (
+            self.db.query(DivisionParticipant)
+            .filter(
+                DivisionParticipant.season_id == match.season_id,
+                DivisionParticipant.telegram_id.in_(
+                    [match.player_a_id, match.player_b_id]
+                ),
+            )
+            .with_for_update()
+            .all()
+        )
+        by_id = {row.telegram_id: row for row in rows}
+        player_a = by_id.get(match.player_a_id)
+        player_b = by_id.get(match.player_b_id)
+        if player_a is None or player_b is None:
+            raise DivisionServiceError(409, "Division standings row is missing")
+        return player_a, player_b
+
+    def _apply_result_stats(
+        self,
+        match: DivisionMatch,
+        player_a_score: int,
+        player_b_score: int,
+    ) -> None:
+        if player_a_score == player_b_score:
+            raise DivisionServiceError(
+                409, "Equal scores are not allowed; penalties are required"
+            )
+        season = self.require_season(match.season_id)
+        player_a, player_b = self._result_participants(match)
+        for participant in (player_a, player_b):
+            participant.matches_played += 1
+        player_a.goals_for += player_a_score
+        player_a.goals_against += player_b_score
+        player_b.goals_for += player_b_score
+        player_b.goals_against += player_a_score
+        if player_a_score > player_b_score:
+            winner, loser = player_a, player_b
+            winner_id, loser_id = match.player_a_id, match.player_b_id
+        else:
+            winner, loser = player_b, player_a
+            winner_id, loser_id = match.player_b_id, match.player_a_id
+        winner.wins += 1
+        winner.points += season.points_for_win
+        loser.losses += 1
+        loser.points += season.points_for_loss
+        match.winner_id = winner_id
+        match.loser_id = loser_id
+        match.player_a_score = player_a_score
+        match.player_b_score = player_b_score
+        match.status = DivisionMatchStatus.FINISHED
+        match.finished_at = utc_now()
+
+    def _rollback_result_stats(self, match: DivisionMatch) -> None:
+        if match.status != DivisionMatchStatus.FINISHED:
+            return
+        if (
+            match.player_a_score is None
+            or match.player_b_score is None
+            or match.winner_id is None
+        ):
+            raise DivisionServiceError(409, "Division result is incomplete")
+        season = self.require_season(match.season_id)
+        player_a, player_b = self._result_participants(match)
+        for participant in (player_a, player_b):
+            participant.matches_played -= 1
+        player_a.goals_for -= match.player_a_score
+        player_a.goals_against -= match.player_b_score
+        player_b.goals_for -= match.player_b_score
+        player_b.goals_against -= match.player_a_score
+        winner = (
+            player_a
+            if match.winner_id == match.player_a_id
+            else player_b
+        )
+        loser = player_b if winner is player_a else player_a
+        winner.wins -= 1
+        winner.points -= season.points_for_win
+        loser.losses -= 1
+        loser.points -= season.points_for_loss
+        counters = [
+            player_a.matches_played,
+            player_b.matches_played,
+            player_a.wins,
+            player_a.losses,
+            player_b.wins,
+            player_b.losses,
+            player_a.points,
+            player_b.points,
+            player_a.goals_for,
+            player_a.goals_against,
+            player_b.goals_for,
+            player_b.goals_against,
+        ]
+        if any(value < 0 for value in counters):
+            raise DivisionServiceError(409, "Division standings rollback failed")
+
+    def finish_arena_result(
+        self,
+        arena_match_id: int,
+        *,
+        player_a_score: int | None,
+        player_b_score: int | None,
+        cancelled: bool = False,
+        commit: bool = True,
+    ) -> DivisionMatch:
+        match = (
+            self.db.query(DivisionMatch)
+            .filter(DivisionMatch.arena_match_id == arena_match_id)
+            .with_for_update()
+            .one_or_none()
+        )
+        if match is None:
+            raise DivisionServiceError(404, "Linked Division match is missing")
+        if match.status not in {
+            DivisionMatchStatus.ACTIVE,
+            DivisionMatchStatus.FINISHED,
+            DivisionMatchStatus.CANCELLED,
+        }:
+            raise DivisionServiceError(409, "Division match has not started")
+        if match.status in {
+            DivisionMatchStatus.FINISHED,
+            DivisionMatchStatus.CANCELLED,
+        }:
+            return match
+        if cancelled:
+            match.status = DivisionMatchStatus.CANCELLED
+            match.cancel_reason = "ADMIN_CANCEL"
+            match.finished_at = utc_now()
+        else:
+            if player_a_score is None or player_b_score is None:
+                raise DivisionServiceError(422, "Division score is required")
+            self._apply_result_stats(match, player_a_score, player_b_score)
+        if commit:
+            self.db.commit()
+            self.db.refresh(match)
+        else:
+            self.db.flush()
+        return match
+
+    def revise_arena_result(
+        self,
+        arena_match_id: int,
+        *,
+        player_a_score: int | None,
+        player_b_score: int | None,
+        cancelled: bool = False,
+        commit: bool = True,
+    ) -> DivisionMatch:
+        match = (
+            self.db.query(DivisionMatch)
+            .filter(DivisionMatch.arena_match_id == arena_match_id)
+            .with_for_update()
+            .one_or_none()
+        )
+        if match is None:
+            raise DivisionServiceError(404, "Linked Division match is missing")
+        if match.status not in {
+            DivisionMatchStatus.FINISHED,
+            DivisionMatchStatus.CANCELLED,
+        }:
+            raise DivisionServiceError(409, "Division result is not final")
+        self._rollback_result_stats(match)
+        match.winner_id = None
+        match.loser_id = None
+        match.player_a_score = None
+        match.player_b_score = None
+        match.cancel_reason = None
+        if cancelled:
+            match.status = DivisionMatchStatus.CANCELLED
+            match.cancel_reason = "APPEAL_ADMIN_CANCEL"
+            match.finished_at = utc_now()
+        else:
+            if player_a_score is None or player_b_score is None:
+                raise DivisionServiceError(422, "Division score is required")
+            match.status = DivisionMatchStatus.ACTIVE
+            self._apply_result_stats(match, player_a_score, player_b_score)
+        if commit:
+            self.db.commit()
+            self.db.refresh(match)
+        else:
+            self.db.flush()
+        return match
