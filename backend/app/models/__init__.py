@@ -22,6 +22,10 @@ from .wall_rush import (
     WallRushAction,
     WallRushMatch,
 )
+from .division import (
+    DivisionParticipant,
+    DivisionSeason,
+)
 
 from .arena_v3 import (
     ArenaV3AIReview,
