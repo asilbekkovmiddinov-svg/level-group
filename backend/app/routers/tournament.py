@@ -169,3 +169,18 @@ def start(
     db: Session = Depends(get_db),
 ):
     return tournament_call(lambda: TournamentService(db).start(tournament_id))
+
+
+@admin_router.post(
+    "/{tournament_id}/matches/{match_id}/open",
+    response_model=TournamentMatchResponse,
+)
+def open_match(
+    tournament_id: int,
+    match_id: str,
+    _admin: TelegramUser = Depends(require_promotions_admin),
+    db: Session = Depends(get_db),
+):
+    return tournament_call(
+        lambda: TournamentService(db).open_match(tournament_id, match_id)
+    )
