@@ -188,6 +188,10 @@ def test_application_approval_and_standings_flow(monkeypatch):
         )
         assert pending.status_code == 200
         assert pending.json()["total"] == 2
+        assert [item["username"] for item in pending.json()["items"]] == [
+            "alpha", "beta"
+        ]
+        assert pending.json()["items"][0]["first_name"] == "Ali"
 
         for participant in (first.json(), second.json()):
             approved = client.post(
