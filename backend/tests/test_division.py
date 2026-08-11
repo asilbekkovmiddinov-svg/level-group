@@ -34,6 +34,7 @@ from app.routers.division import admin_router, router
 from app.repositories.arena_v3 import ArenaV3Repository
 from app.services.arena_v3 import ArenaV3Service
 from app.services.arena_v4_settlement import apply_admin_settlement
+from app.services.division import DivisionService
 
 
 def init_data(telegram_id: int) -> str:
@@ -381,6 +382,19 @@ def test_matchmaking_locks_refunds_and_spends_tournament_tickets(monkeypatch):
         assert (beta.matches_played, beta.losses, beta.points) == (1, 1, 0)
         assert arena_match.stake_efc == Decimal("0.00")
         assert arena_match.winner_reward_efc == Decimal("0.00")
+
+        revised = DivisionService(db).revise_arena_result(
+            arena_match.id,
+            player_a_score=0,
+            player_b_score=2,
+        )
+        assert revised.winner_id == 102
+        db.refresh(alpha)
+        db.refresh(beta)
+        assert (alpha.matches_played, alpha.losses, alpha.points) == (1, 1, 0)
+        assert (beta.matches_played, beta.wins, beta.points) == (1, 1, 3)
+        assert alpha.goals_for == 0
+        assert beta.goals_for == 2
 
         operations = [
             row.operation
