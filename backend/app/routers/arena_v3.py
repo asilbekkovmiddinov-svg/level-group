@@ -336,15 +336,26 @@ async def upload_screenshot(
             display = " ".join(filter(None, [getattr(user, "first_name", None), getattr(user, "last_name", None)])) or "O‘yinchi"
             username = f"@{user.username}" if user and user.username else "—"
             return f"{label}: {display} | {username} | eFootball: {efootball or '—'}"
-        text = "\n".join([
+        match_lines = [
             f"🎮 Arena Match #{match.public_id}",
             player_line("Player A", owner, match.owner_efootball_username),
             player_line("Player B", opponent, match.opponent_efootball_username),
-            f"Stake: {match.stake_efc} EFC",
-            f"Pot: {match.total_pool_efc} EFC",
-            f"Platform fee: {match.commission_efc} EFC",
-            f"Winner reward: {match.winner_reward_efc} EFC",
-        ])
+        ]
+        if match.match_type == "DIVISION":
+            match_lines.extend([
+                "Mode: Global Division",
+                "Entry: 1 Tournament Ticket per player",
+                "Result: winner +3 points, loser 0 points",
+                "Penalties: required",
+            ])
+        else:
+            match_lines.extend([
+                f"Stake: {match.stake_efc} EFC",
+                f"Pot: {match.total_pool_efc} EFC",
+                f"Platform fee: {match.commission_efc} EFC",
+                f"Winner reward: {match.winner_reward_efc} EFC",
+            ])
+        text = "\n".join(match_lines)
         try:
             markup = {"inline_keyboard": [[
                 {"text": "📝 Hisobni kiritish", "callback_data": f"arv4:match:score:{match.id}"},
