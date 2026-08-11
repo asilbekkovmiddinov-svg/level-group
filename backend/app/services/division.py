@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import case, func
+from sqlalchemy import case
 from sqlalchemy.orm import Session
 
 from app.models.division import (
