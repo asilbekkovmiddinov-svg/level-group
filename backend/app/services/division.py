@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from uuid import uuid4
 
 from sqlalchemy import case, or_, text
@@ -13,6 +14,11 @@ from app.models.division import (
     DivisionSeasonStatus,
     DivisionTicketLedger,
     DivisionTicketState,
+)
+from app.models.arena_v3 import (
+    ArenaV3Match,
+    ArenaV3SettlementStatus,
+    ArenaV3Status,
 )
 from app.models.user import User
 from app.models.wall_rush import GameTicketWallet
@@ -451,6 +457,41 @@ class DivisionService:
             match.player_b_ticket_state = DivisionTicketState.LOCKED
             match.status = DivisionMatchStatus.MATCHED
             match.matched_at = utc_now()
+
+            player_a = self.db.get(User, match.player_a_id)
+            player_b = self.db.get(User, telegram_id)
+            if player_a is None or player_b is None:
+                raise DivisionServiceError(409, "Division player profile is missing")
+
+            def game_name(user: User) -> str:
+                return (
+                    user.username
+                    or user.first_name
+                    or str(user.telegram_id)
+                )[:64]
+
+            arena_match = ArenaV3Match(
+                public_id=f"DIV{uuid4().hex[:20].upper()}",
+                owner_id=match.player_a_id,
+                opponent_id=telegram_id,
+                owner_efootball_username=game_name(player_a),
+                opponent_efootball_username=game_name(player_b),
+                stake_efc=Decimal("0.00"),
+                total_pool_efc=Decimal("0.00"),
+                commission_efc=Decimal("0.00"),
+                winner_reward_efc=Decimal("0.00"),
+                match_type="DIVISION",
+                match_time_minutes=10,
+                extra_time_enabled=False,
+                penalties_enabled=True,
+                status=ArenaV3Status.READY,
+                settlement_status=ArenaV3SettlementStatus.NOT_STARTED,
+                idempotency_key=f"division:{match.id}",
+                request_fingerprint=match.id.replace("-", ""),
+            )
+            self.db.add(arena_match)
+            self.db.flush()
+            match.arena_match_id = arena_match.id
 
         self.db.commit()
         self.db.refresh(match)
