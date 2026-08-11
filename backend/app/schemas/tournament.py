@@ -102,6 +102,8 @@ class TournamentMatchResponse(BaseModel):
     scheduled_at: datetime
     status: TournamentMatchStatus
     arena_match_id: int | None
+    player_a_ticket_state: str | None
+    player_b_ticket_state: str | None
     winner_id: int | None
     player_a_score: int | None
     player_b_score: int | None
