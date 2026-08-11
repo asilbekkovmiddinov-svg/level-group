@@ -28,6 +28,7 @@ from .division import (
     DivisionSeason,
     DivisionTicketLedger,
 )
+from .tournament import Tournament, TournamentMatch, TournamentParticipant
 
 from .arena_v3 import (
     ArenaV3AIReview,
