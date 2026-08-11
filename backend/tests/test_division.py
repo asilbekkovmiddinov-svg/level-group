@@ -118,10 +118,11 @@ def season_payload():
         "registration_opens_at": (now - timedelta(hours=1)).isoformat(),
         "registration_closes_at": (now + timedelta(hours=1)).isoformat(),
         "starts_at": (now + timedelta(hours=2)).isoformat(),
+        "ends_at": (now + timedelta(days=14, hours=2)).isoformat(),
     }
 
 
-def test_division_admin_creates_fixed_30_day_global_season(monkeypatch):
+def test_division_admin_creates_flexible_duration_season(monkeypatch):
     client, _sessions, engine = build(monkeypatch)
     try:
         assert client.post("/admin/division/seasons", json=season_payload()).status_code == 401
@@ -143,14 +144,14 @@ def test_division_admin_creates_fixed_30_day_global_season(monkeypatch):
         data = response.json()
         assert data["name"] == "Global Division S1"
         assert data["status"] == "REGISTRATION"
-        assert data["duration_days"] == 30
+        assert data["duration_days"] == 14
         assert data["ticket_cost"] == 1
         assert data["points_for_win"] == 3
         assert data["points_for_loss"] == 0
         assert (
             datetime.fromisoformat(data["ends_at"])
             - datetime.fromisoformat(data["starts_at"])
-            == timedelta(days=30)
+            == timedelta(days=14)
         )
 
         duplicate = client.post(
