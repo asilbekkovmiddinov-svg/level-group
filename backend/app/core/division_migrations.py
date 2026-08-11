@@ -32,6 +32,14 @@ def run_division_migrations(bind: Engine | Connection) -> None:
         if inspector.has_table("arena_matches")
         else set()
     )
+    division_checks = (
+        {
+            constraint["name"]
+            for constraint in inspector.get_check_constraints("division_seasons")
+        }
+        if inspector.has_table("division_seasons")
+        else set()
+    )
 
     connection = bind.connect() if isinstance(bind, Engine) else bind
     owns_connection = isinstance(bind, Engine)
@@ -57,6 +65,24 @@ def run_division_migrations(bind: Engine | Connection) -> None:
                             "CHECK (locked_tournament_tickets >= 0)"
                         )
                     )
+
+            if (
+                connection.dialect.name == "postgresql"
+                and "ck_division_season_duration_range" not in division_checks
+            ):
+                connection.execute(
+                    text(
+                        "ALTER TABLE division_seasons DROP CONSTRAINT IF EXISTS "
+                        "ck_division_season_duration"
+                    )
+                )
+                connection.execute(
+                    text(
+                        "ALTER TABLE division_seasons ADD CONSTRAINT "
+                        "ck_division_season_duration_range "
+                        "CHECK (duration_days BETWEEN 1 AND 365)"
+                    )
+                )
 
             if (
                 connection.dialect.name == "postgresql"
