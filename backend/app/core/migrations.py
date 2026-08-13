@@ -12,6 +12,10 @@ logger = logging.getLogger(__name__)
 def run_migrations():
     with engine.begin() as connection:
         connection.execute(text("""
+            ALTER TABLE adsgram_reward_sessions
+            ADD COLUMN IF NOT EXISTS purpose VARCHAR(30) NOT NULL DEFAULT 'WHEEL';
+        """))
+        connection.execute(text("""
             ALTER TABLE orders
             ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(128),
             ADD COLUMN IF NOT EXISTS request_fingerprint VARCHAR(64);

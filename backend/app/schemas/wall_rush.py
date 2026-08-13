@@ -1,6 +1,6 @@
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.wall_rush import WallRushMode
 
@@ -52,3 +52,9 @@ class TrustedAdRewardRequest(BaseModel):
 class TadsWebhookPayload(BaseModel):
     telegram_id: str = Field(min_length=1, max_length=32)
     widget_id: str = Field(min_length=1, max_length=32)
+
+
+class WallRushAdsgramRewardToken(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    token: str = Field(min_length=32, max_length=128)

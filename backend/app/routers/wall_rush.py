@@ -13,13 +13,14 @@ from app.core.telegram_auth import (
 from app.routers.internal_wallet import require_internal_api_key
 from app.schemas.wall_rush import (
     JoinMatchRequest, TadsWebhookPayload, TrustedAdRewardRequest,
-    WallRushActionRequest,
+    WallRushActionRequest, WallRushAdsgramRewardToken,
 )
 from app.models.wall_rush import WallRushMode
 from app.services.wall_rush import (
     WallRushError, cancel_waiting_match, get_active_match, get_wallet, grant_ad_ticket, join_match,
     leaderboard_rows, match_response, process_timeout, submit_action, wallet_response,
 )
+from app.services import adsgram_reward
 
 router = APIRouter(prefix="/wall-rush", tags=["Wall Rush"])
 
@@ -87,6 +88,63 @@ def tads_reward_webhook(
         if "once per hour" in str(error):
             return {"status": "ok", "rewarded": False, "reason": "cooldown"}
         _conflict(error)
+
+
+@router.post("/rewards/adsgram/session")
+def create_adsgram_reward_session(
+    user: TelegramUser = Depends(get_current_telegram_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        session, token = adsgram_reward.create_wall_rush_reward_session(
+            db, user.telegram_id,
+        )
+    except ValueError as error:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(error))
+    return {
+        "session_id": session.id,
+        "token": token,
+        "expires_at": session.expires_at,
+    }
+
+
+@router.post("/rewards/adsgram/claim")
+def claim_adsgram_reward(
+    payload: WallRushAdsgramRewardToken,
+    user: TelegramUser = Depends(get_current_telegram_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        session, wallet = adsgram_reward.claim_wall_rush_reward(
+            db, user.telegram_id, payload.token,
+        )
+    except ValueError as error:
+        db.rollback()
+        message = str(error)
+        status_code = 425 if "hali kelmadi" in message else 409
+        raise HTTPException(status_code=status_code, detail=message)
+    return {
+        "success": True,
+        "session_id": session.id,
+        "wallet": wallet_response(wallet),
+    }
+
+
+@router.post("/rewards/adsgram/cancel")
+def cancel_adsgram_reward_session(
+    payload: WallRushAdsgramRewardToken,
+    user: TelegramUser = Depends(get_current_telegram_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        session = adsgram_reward.cancel_wall_rush_reward_session(
+            db, user.telegram_id, payload.token,
+        )
+    except ValueError as error:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(error))
+    return {"success": True, "session_id": session.id, "status": session.status}
 
 
 

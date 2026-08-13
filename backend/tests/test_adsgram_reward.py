@@ -16,8 +16,10 @@ from app.core import telegram_auth
 from app.core.database import Base, get_db
 from app.crud import wheel
 from app.models.user import User
+from app.models.wall_rush import GameTicketLedger, GameTicketWallet
 from app.models.wheel import AdsgramRewardSession, WheelDailyLimit
 from app.routers import wheel as wheel_router
+from app.routers import wall_rush as wall_rush_router
 from app.services import adsgram_reward
 
 
@@ -51,6 +53,8 @@ def db(monkeypatch):
             User.__table__,
             WheelDailyLimit.__table__,
             AdsgramRewardSession.__table__,
+            GameTicketWallet.__table__,
+            GameTicketLedger.__table__,
         ],
     )
     session = sessionmaker(bind=engine)()
@@ -99,6 +103,44 @@ def test_replayed_callback_and_expired_session_never_add_reward(db):
 
     limit = db.query(WheelDailyLimit).filter_by(telegram_id=1001).one()
     assert limit.rewarded_ad_spins == 0
+
+
+def test_wall_rush_adsgram_reward_is_scoped_and_granted_exactly_once(db):
+    session, token = adsgram_reward.create_wall_rush_reward_session(db, 1001)
+    assert session.purpose == adsgram_reward.WALL_RUSH_PURPOSE
+
+    with pytest.raises(ValueError, match="hali kelmadi"):
+        adsgram_reward.claim_wall_rush_reward(db, 1001, token)
+
+    assert adsgram_reward.verify_adsgram_callback(db, 1001).id == session.id
+    with pytest.raises(ValueError, match="bu o‘yin uchun"):
+        adsgram_reward.claim_reward(db, 1001, token)
+
+    claimed, wallet = adsgram_reward.claim_wall_rush_reward(db, 1001, token)
+    assert claimed.status == adsgram_reward.CLAIMED
+    assert wallet.game_tickets == 1
+
+    with pytest.raises(ValueError, match="allaqachon"):
+        adsgram_reward.claim_wall_rush_reward(db, 1001, token)
+    db.expire_all()
+    assert db.get(GameTicketWallet, 1001).game_tickets == 1
+    assert db.query(GameTicketLedger).filter_by(operation="AD_GRANT").count() == 1
+
+    with pytest.raises(ValueError, match="cooldown"):
+        adsgram_reward.create_wall_rush_reward_session(db, 1001)
+
+
+def test_failed_wall_rush_adsgram_session_can_be_cancelled_before_tads(db):
+    session, token = adsgram_reward.create_wall_rush_reward_session(db, 1001)
+    cancelled = adsgram_reward.cancel_wall_rush_reward_session(db, 1001, token)
+
+    assert cancelled.id == session.id
+    assert cancelled.status == adsgram_reward.EXPIRED
+    assert adsgram_reward.verify_adsgram_callback(db, 1001) is None
+
+    replacement, _ = adsgram_reward.create_wall_rush_reward_session(db, 1001)
+    assert replacement.id != session.id
+    assert replacement.status == adsgram_reward.PENDING
 
 
 def test_reward_routes_require_authentication_and_server_callback(db, monkeypatch):
@@ -150,3 +192,51 @@ def test_reward_routes_require_authentication_and_server_callback(db, monkeypatc
     db.expire_all()
     limit = db.query(WheelDailyLimit).filter_by(telegram_id=1001).one()
     assert limit.rewarded_ad_spins == 1
+
+
+def test_wall_rush_adsgram_routes_use_auth_callback_and_server_wallet(db, monkeypatch):
+    monkeypatch.setattr(telegram_auth, "BOT_TOKEN", "test-token")
+    monkeypatch.setattr(wheel_router, "ADSGRAM_REWARD_SECRET", "callback-secret")
+
+    app = FastAPI()
+    app.include_router(wheel_router.router)
+    app.include_router(wall_rush_router.router)
+    app.dependency_overrides[get_db] = lambda: db
+    client = TestClient(app)
+
+    assert client.post("/wall-rush/rewards/adsgram/session").status_code == 401
+    issued = client.post(
+        "/wall-rush/rewards/adsgram/session",
+        headers=auth_headers(1001),
+    )
+    assert issued.status_code == 200
+    token = issued.json()["token"]
+
+    pending = client.post(
+        "/wall-rush/rewards/adsgram/claim",
+        json={"token": token},
+        headers=auth_headers(1001),
+    )
+    assert pending.status_code == 425
+
+    verified = client.get(
+        "/wheel/adsgram/reward",
+        params={"user_id": 1001, "key": "callback-secret"},
+    )
+    assert verified.json() == {"success": True, "verified": True}
+
+    claimed = client.post(
+        "/wall-rush/rewards/adsgram/claim",
+        json={"token": token},
+        headers=auth_headers(1001),
+    )
+    assert claimed.status_code == 200
+    assert claimed.json()["wallet"]["game_tickets"] == 1
+
+    duplicate = client.post(
+        "/wall-rush/rewards/adsgram/claim",
+        json={"token": token},
+        headers=auth_headers(1001),
+    )
+    assert duplicate.status_code == 409
+    assert db.get(GameTicketWallet, 1001).game_tickets == 1
