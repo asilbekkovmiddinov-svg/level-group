@@ -9,6 +9,7 @@ from app.core.migrations import run_migrations
 from app.core.arena_v3_migrations import run_arena_v3_migrations
 from app.core.coin_chat_migration import run_coin_chat_migration
 from app.core.division_migrations import run_division_migrations
+from app.core.tournament_migrations import run_tournament_migrations
 from app.core.seed_products import seed_products
 
 import app.models
@@ -54,6 +55,10 @@ from app.routers.wall_rush import router as wall_rush_router
 from app.routers.division import (
     admin_router as division_admin_router,
     router as division_router,
+)
+from app.routers.tournament import (
+    admin_router as tournament_admin_router,
+    router as tournament_router,
 )
 from app.core.observability import configure_logging, correlation_middleware
 from app.core.config import (
@@ -124,6 +129,7 @@ create_tables()
 run_migrations()
 run_arena_v3_migrations(engine)
 run_division_migrations(engine)
+run_tournament_migrations(engine)
 run_coin_chat_migration()
 
 db = SessionLocal()
@@ -171,6 +177,8 @@ app.include_router(admin_metrics_router)
 app.include_router(wall_rush_router)
 app.include_router(division_router)
 app.include_router(division_admin_router)
+app.include_router(tournament_router)
+app.include_router(tournament_admin_router)
 
 
 @app.get("/")

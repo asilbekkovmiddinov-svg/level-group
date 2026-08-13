@@ -32,6 +32,14 @@ def run_division_migrations(bind: Engine | Connection) -> None:
         if inspector.has_table("arena_matches")
         else set()
     )
+    division_checks = (
+        {
+            constraint["name"]
+            for constraint in inspector.get_check_constraints("division_seasons")
+        }
+        if inspector.has_table("division_seasons")
+        else set()
+    )
 
     connection = bind.connect() if isinstance(bind, Engine) else bind
     owns_connection = isinstance(bind, Engine)
@@ -60,7 +68,25 @@ def run_division_migrations(bind: Engine | Connection) -> None:
 
             if (
                 connection.dialect.name == "postgresql"
-                and "ck_arena_matches_stake_by_type" not in arena_checks
+                and "ck_division_season_duration_range" not in division_checks
+            ):
+                connection.execute(
+                    text(
+                        "ALTER TABLE division_seasons DROP CONSTRAINT IF EXISTS "
+                        "ck_division_season_duration"
+                    )
+                )
+                connection.execute(
+                    text(
+                        "ALTER TABLE division_seasons ADD CONSTRAINT "
+                        "ck_division_season_duration_range "
+                        "CHECK (duration_days BETWEEN 1 AND 365)"
+                    )
+                )
+
+            if (
+                connection.dialect.name == "postgresql"
+                and "ck_arena_matches_stake_by_mode" not in arena_checks
             ):
                 connection.execute(
                     text(
@@ -70,10 +96,16 @@ def run_division_migrations(bind: Engine | Connection) -> None:
                 )
                 connection.execute(
                     text(
+                        "ALTER TABLE arena_matches DROP CONSTRAINT IF EXISTS "
+                        "ck_arena_matches_stake_by_type"
+                    )
+                )
+                connection.execute(
+                    text(
                         "ALTER TABLE arena_matches ADD CONSTRAINT "
-                        "ck_arena_matches_stake_by_type CHECK ("
-                        "(match_type = 'DIVISION' AND stake_efc = 0) OR "
-                        "(match_type <> 'DIVISION' AND stake_efc > 0)"
+                        "ck_arena_matches_stake_by_mode CHECK ("
+                        "(match_type IN ('DIVISION', 'TOURNAMENT') AND stake_efc = 0) OR "
+                        "(match_type NOT IN ('DIVISION', 'TOURNAMENT') AND stake_efc > 0)"
                         ")"
                     )
                 )

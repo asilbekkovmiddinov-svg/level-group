@@ -53,7 +53,10 @@ class DivisionParticipantStatus(str, Enum):
 class DivisionSeason(Base):
     __tablename__ = "division_seasons"
     __table_args__ = (
-        CheckConstraint("duration_days = 30", name="ck_division_season_duration"),
+        CheckConstraint(
+            "duration_days BETWEEN 1 AND 365",
+            name="ck_division_season_duration_range",
+        ),
         CheckConstraint("ticket_cost = 1", name="ck_division_season_ticket_cost"),
         CheckConstraint("points_for_win = 3", name="ck_division_season_win_points"),
         CheckConstraint("points_for_loss = 0", name="ck_division_season_loss_points"),

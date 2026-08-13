@@ -16,6 +16,7 @@ class DivisionSeasonCreate(BaseModel):
     registration_opens_at: datetime
     registration_closes_at: datetime
     starts_at: datetime
+    ends_at: datetime
 
 
 class DivisionSeasonResponse(BaseModel):
