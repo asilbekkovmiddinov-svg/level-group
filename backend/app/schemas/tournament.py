@@ -63,6 +63,7 @@ class TournamentParticipantResponse(BaseModel):
     wins: int
     losses: int
     points: int
+    advanced_round: int
     applied_at: datetime
     reviewed_at: datetime | None
     username: str | None = None
