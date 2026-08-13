@@ -1,24 +1,70 @@
 import hashlib
 import secrets
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
 from app.core.config import ADSGRAM_REWARD_SESSION_TTL_SECONDS
 from app.crud import wheel
 from app.models.user import User
+from app.models.wall_rush import GameTicketWallet
 from app.models.wheel import AdsgramRewardSession, WheelDailyLimit
 from app.services.arena_time import utc_now
+from app.services.wall_rush import WallRushError, get_wallet, grant_ad_ticket
 
 
 PENDING = "PENDING"
 VERIFIED = "VERIFIED"
 CLAIMED = "CLAIMED"
 EXPIRED = "EXPIRED"
+WHEEL_PURPOSE = "WHEEL"
+WALL_RUSH_PURPOSE = "WALL_RUSH"
 
 
 def _token_hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _expire_or_reject_open_sessions(
+    db: Session, telegram_id: int, now,
+) -> None:
+    pending = (
+        db.query(AdsgramRewardSession)
+        .filter(
+            AdsgramRewardSession.telegram_id == telegram_id,
+            AdsgramRewardSession.status.in_((PENDING, VERIFIED)),
+        )
+        .with_for_update()
+        .all()
+    )
+    for session in pending:
+        if _as_utc(session.expires_at) > _as_utc(now):
+            raise ValueError("Reklama sessiyasi allaqachon ochilgan")
+        session.status = EXPIRED
+
+
+def _new_session(
+    db: Session, telegram_id: int, purpose: str, now,
+) -> tuple[AdsgramRewardSession, str]:
+    _expire_or_reject_open_sessions(db, telegram_id, now)
+    token = secrets.token_urlsafe(32)
+    session = AdsgramRewardSession(
+        telegram_id=telegram_id,
+        token_hash=_token_hash(token),
+        purpose=purpose,
+        status=PENDING,
+        expires_at=now + timedelta(seconds=ADSGRAM_REWARD_SESSION_TTL_SECONDS),
+    )
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+    return session, token
 
 
 def create_reward_session(db: Session, telegram_id: int) -> tuple[AdsgramRewardSession, str]:
@@ -54,31 +100,20 @@ def create_reward_session(db: Session, telegram_id: int) -> tuple[AdsgramRewardS
     if int(getattr(limit, "rewarded_ad_spins", 0) or 0) > 0:
         raise ValueError("Foydalanilmagan reklama spini mavjud")
 
-    pending = (
-        db.query(AdsgramRewardSession)
-        .filter(
-            AdsgramRewardSession.telegram_id == telegram_id,
-            AdsgramRewardSession.status.in_((PENDING, VERIFIED)),
-        )
-        .with_for_update()
-        .all()
-    )
-    for session in pending:
-        if session.expires_at > now:
-            raise ValueError("Reklama sessiyasi allaqachon ochilgan")
-        session.status = EXPIRED
+    return _new_session(db, telegram_id, WHEEL_PURPOSE, now)
 
-    token = secrets.token_urlsafe(32)
-    session = AdsgramRewardSession(
-        telegram_id=telegram_id,
-        token_hash=_token_hash(token),
-        status=PENDING,
-        expires_at=now + timedelta(seconds=ADSGRAM_REWARD_SESSION_TTL_SECONDS),
-    )
-    db.add(session)
-    db.commit()
-    db.refresh(session)
-    return session, token
+
+def create_wall_rush_reward_session(
+    db: Session, telegram_id: int,
+) -> tuple[AdsgramRewardSession, str]:
+    now = utc_now()
+    db.query(User).filter(User.telegram_id == telegram_id).with_for_update().one()
+    wallet = get_wallet(db, telegram_id, lock=True)
+    last = wallet.last_rewarded_ad_at
+    if last is not None:
+        if _as_utc(now) < _as_utc(last) + timedelta(hours=1):
+            raise ValueError("Rewarded reklama cooldown faol")
+    return _new_session(db, telegram_id, WALL_RUSH_PURPOSE, now)
 
 
 def verify_adsgram_callback(db: Session, telegram_id: int) -> AdsgramRewardSession | None:
@@ -160,7 +195,9 @@ def grant_rewarded_spin(
     return limit
 
 
-def claim_reward(db: Session, telegram_id: int, token: str) -> AdsgramRewardSession:
+def _claimable_session(
+    db: Session, telegram_id: int, token: str, purpose: str,
+) -> tuple[AdsgramRewardSession, datetime]:
     now = utc_now()
     session = (
         db.query(AdsgramRewardSession)
@@ -173,18 +210,64 @@ def claim_reward(db: Session, telegram_id: int, token: str) -> AdsgramRewardSess
     )
     if not session:
         raise ValueError("Reward sessiyasi topilmadi")
+    if session.purpose != purpose:
+        raise ValueError("Reward sessiyasi bu o‘yin uchun yaratilmagan")
     if session.status == CLAIMED:
         raise ValueError("Reward allaqachon olingan")
-    if session.expires_at <= now:
+    if _as_utc(session.expires_at) <= _as_utc(now):
         session.status = EXPIRED
         db.commit()
         raise ValueError("Reward sessiyasi eskirgan")
     if session.status != VERIFIED:
         raise ValueError("Adsgram tasdig‘i hali kelmadi")
+    return session, now
+
+
+def claim_reward(db: Session, telegram_id: int, token: str) -> AdsgramRewardSession:
+    session, now = _claimable_session(db, telegram_id, token, WHEEL_PURPOSE)
 
     grant_rewarded_spin(db, telegram_id, now=now)
     session.status = CLAIMED
     session.claimed_at = now
     db.commit()
     db.refresh(session)
+    return session
+
+
+def claim_wall_rush_reward(
+    db: Session, telegram_id: int, token: str,
+) -> tuple[AdsgramRewardSession, GameTicketWallet]:
+    session, now = _claimable_session(db, telegram_id, token, WALL_RUSH_PURPOSE)
+    try:
+        wallet = grant_ad_ticket(
+            db, telegram_id, f"adsgram:session:{session.id}", now=now,
+        )
+    except WallRushError as error:
+        raise ValueError(str(error)) from error
+    session.status = CLAIMED
+    session.claimed_at = now
+    db.commit()
+    db.refresh(session)
+    return session, wallet
+
+
+def cancel_wall_rush_reward_session(
+    db: Session, telegram_id: int, token: str,
+) -> AdsgramRewardSession:
+    session = (
+        db.query(AdsgramRewardSession)
+        .filter(
+            AdsgramRewardSession.telegram_id == telegram_id,
+            AdsgramRewardSession.token_hash == _token_hash(token),
+            AdsgramRewardSession.purpose == WALL_RUSH_PURPOSE,
+        )
+        .with_for_update()
+        .first()
+    )
+    if not session:
+        raise ValueError("Reward sessiyasi topilmadi")
+    if session.status == PENDING:
+        session.status = EXPIRED
+        db.commit()
+        db.refresh(session)
     return session

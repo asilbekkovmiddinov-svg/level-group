@@ -134,6 +134,9 @@ class AdsgramRewardSession(Base):
         index=True,
     )
     token_hash = Column(String(64), nullable=False, unique=True, index=True)
+    purpose = Column(
+        String(30), nullable=False, default="WHEEL", server_default="WHEEL",
+    )
     status = Column(String(20), nullable=False, default="PENDING", index=True)
     expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
     verified_at = Column(DateTime(timezone=True), nullable=True)
