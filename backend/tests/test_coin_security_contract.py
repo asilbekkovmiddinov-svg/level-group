@@ -114,6 +114,17 @@ def client(monkeypatch):
                 price_uzs=Decimal("25000"),
                 is_active=True,
             ),
+            Product(
+                id=8,
+                title="Lionel Messi",
+                product_type="PLAYER",
+                category="PLAYERS",
+                platform="ALL",
+                region="ALL",
+                coins_amount=None,
+                price_uzs=Decimal("80000"),
+                is_active=True,
+            ),
         ]
     )
     setup.commit()
@@ -220,6 +231,36 @@ def test_order_create_accepts_telegram_id_above_integer_range(client):
     try:
         assert db.query(Order).filter(Order.telegram_id == telegram_id).one()
         assert db.query(Transaction).filter(Transaction.telegram_id == telegram_id).one()
+    finally:
+        db.close()
+
+
+def test_named_player_product_uses_existing_shop_order_flow(client):
+    http, sessions = client
+    catalog = http.get("/products/active", headers=headers(99)).json()["data"]
+    player = next(item for item in catalog if item["id"] == 8)
+    assert player["product_type"] == "PLAYER"
+    assert player["item_name"] == "Lionel Messi"
+    assert player["coin_amount"] is None
+
+    created = http.post(
+        "/orders/create",
+        json={"product_id": 8},
+        headers=headers(99, "player-order-99"),
+    )
+    assert created.status_code == 200
+    data = created.json()["data"]
+    assert data["product_title"] == "Lionel Messi"
+    assert data["product_type"] == "PLAYER"
+    assert data["coins_amount"] == 0
+    assert data["platform"] == "ALL"
+    assert data["region"] == "ALL"
+
+    db = sessions()
+    try:
+        order = db.get(Order, data["id"])
+        assert order.product_type == "PLAYER"
+        assert float(db.get(Wallet, 99).uzs_balance) == 20000
     finally:
         db.close()
 

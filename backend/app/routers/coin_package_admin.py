@@ -19,6 +19,8 @@ def response(product) -> dict:
         "platform": product.platform,
         "region": product.region,
         "scope": service.package_scope(product).value,
+        "product_type": service.item_type(product).value,
+        "name": product.title if service.item_type(product).value != "COIN" else None,
         "coin_amount": product.coins_amount,
         "price_uzs": float(product.price_uzs),
         "is_active": bool(product.is_active),

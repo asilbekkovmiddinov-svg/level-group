@@ -51,6 +51,7 @@ def _snapshot(order_type: str, order, user, username=None):
         "type": order_type,
         "coins": order.coins_amount if order_type == "SHOP" else order.coin_amount,
         "product_title": getattr(order, "product_title", None),
+        "product_type": getattr(order, "product_type", "COIN"),
         "price_uzs": getattr(order, "price_uzs", None),
         "platform": order.platform if order_type == "SHOP" else order.device,
         "region": order.region,
@@ -66,6 +67,19 @@ def _text(value):
     created_at = _utc(value["created_at"] or datetime.now(timezone.utc)).astimezone(TASHKENT)
     created_text = created_at.strftime("%d.%m.%Y %H:%M:%S")
     if value["type"] == "SHOP":
+        product_type = str(value.get("product_type") or "COIN").upper()
+        if product_type != "COIN":
+            labels = {"PLAYER": "O‘yinchi", "MANAGER": "Murabbiy"}
+            label = labels.get(product_type, "Mahsulot")
+            return "\n".join((
+                "🛒 Yangi Shop buyurtma",
+                "",
+                f"🔢 Tartib raqami: {value['id']}",
+                f"👤 Username: {username}",
+                f"📦 Turi: {label}",
+                f"⚽ Nomi: {value['product_title'] or '—'}",
+                f"🕒 Buyurtma vaqti: {created_text}",
+            ))
         return "\n".join((
             "🪙 Yangi Coin buyurtma",
             "",

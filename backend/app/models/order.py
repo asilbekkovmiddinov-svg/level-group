@@ -43,6 +43,8 @@ class Order(Base):
 
     product_title = Column(String(150), nullable=False)
 
+    product_type = Column(String(20), nullable=False, default="COIN", server_default="COIN")
+
     coins_amount = Column(Integer, nullable=False)
 
     price_uzs = Column(Numeric(18, 2), nullable=False)

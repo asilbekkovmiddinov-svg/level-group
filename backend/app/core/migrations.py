@@ -288,6 +288,52 @@ def run_migrations():
             ADD COLUMN IF NOT EXISTS order_index INTEGER DEFAULT 0;
         """))
 
+        connection.execute(text("""
+            ALTER TABLE products
+            ADD COLUMN IF NOT EXISTS product_type VARCHAR(20) NOT NULL DEFAULT 'COIN';
+        """))
+
+        connection.execute(text("""
+            ALTER TABLE products
+            ALTER COLUMN coins_amount DROP NOT NULL;
+        """))
+
+        connection.execute(text("""
+            ALTER TABLE products
+            DROP CONSTRAINT IF EXISTS ck_products_coins_amount_positive;
+        """))
+
+        connection.execute(text("""
+            DO $$ BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint WHERE conname = 'ck_products_type_coins'
+                ) THEN
+                    ALTER TABLE products ADD CONSTRAINT ck_products_type_coins CHECK (
+                        (product_type = 'COIN' AND coins_amount > 0)
+                        OR (product_type IN ('PLAYER','MANAGER') AND coins_amount IS NULL)
+                    );
+                END IF;
+            END $$;
+        """))
+
+        connection.execute(text("""
+            DO $$ BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint WHERE conname = 'ck_products_product_type'
+                ) THEN
+                    ALTER TABLE products ADD CONSTRAINT ck_products_product_type CHECK (
+                        product_type IN ('COIN','PLAYER','MANAGER')
+                    );
+                END IF;
+            END $$;
+        """))
+
+        connection.execute(text("""
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_products_named_item
+            ON products (product_type, UPPER(title))
+            WHERE product_type IN ('PLAYER','MANAGER');
+        """))
+
         # =========================
         # ORDERS
         # =========================
@@ -295,6 +341,11 @@ def run_migrations():
         connection.execute(text("""
             ALTER TABLE orders
             ADD COLUMN IF NOT EXISTS region VARCHAR(100);
+        """))
+
+        connection.execute(text("""
+            ALTER TABLE orders
+            ADD COLUMN IF NOT EXISTS product_type VARCHAR(20) NOT NULL DEFAULT 'COIN';
         """))
 
         # =========================
