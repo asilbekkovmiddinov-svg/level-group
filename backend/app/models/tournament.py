@@ -125,6 +125,7 @@ class TournamentParticipant(Base):
     wins = Column(Integer, nullable=False, default=0)
     losses = Column(Integer, nullable=False, default=0)
     points = Column(Integer, nullable=False, default=0)
+    advanced_round = Column(Integer, nullable=False, default=0)
     applied_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
     reviewed_at = Column(DateTime(timezone=True))
     reviewed_by = Column(BigInteger)
