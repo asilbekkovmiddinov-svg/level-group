@@ -578,6 +578,94 @@ def _apply_division_admin_result(
     ))
 
 
+def _apply_tournament_admin_result(
+    db, *, repository, match, review, payload, now, decision
+):
+    from app.services.tournament import (
+        TournamentService,
+        TournamentServiceError,
+    )
+
+    owner_score = getattr(payload, "owner_score", None)
+    opponent_score = getattr(payload, "opponent_score", None)
+    try:
+        tournament_match = TournamentService(db).finish_arena_result(
+            match.id,
+            player_a_score=owner_score,
+            player_b_score=opponent_score,
+            cancelled=decision == ArenaV4ResultType.CANCEL,
+            commit=False,
+        )
+    except TournamentServiceError as exc:
+        raise ArenaV3Conflict(str(exc)) from exc
+
+    result_version = match.result_version + 1
+    match.owner_score = owner_score
+    match.opponent_score = opponent_score
+    match.current_result_type = decision
+    match.result_version = result_version
+    match.current_decision_id = review.id
+    if match.initial_decision_id is None:
+        match.initial_decision_id = review.id
+    match.result_source = "ADMIN"
+    match.appeal_deadline_at = now + timedelta(minutes=REWARD_HOLD_MINUTES)
+    match.has_appeal = False
+    match.stake_efc = Decimal("0.00")
+    match.total_pool_efc = Decimal("0.00")
+    match.commission_efc = Decimal("0.00")
+    match.winner_reward_efc = Decimal("0.00")
+    match.winner_id = tournament_match.winner_id
+    match.loser_id = (
+        None
+        if tournament_match.winner_id is None
+        else (
+            match.opponent_id
+            if tournament_match.winner_id == match.owner_id
+            else match.owner_id
+        )
+    )
+    match.reward_hold_status = ArenaV4RewardHoldStatus.NONE
+    match.reward_release_at = None
+    match.settlement_status = ArenaV3SettlementStatus.COMPLETED
+    match.cancel_reason = (
+        "ADMIN_CANCEL" if decision == ArenaV4ResultType.CANCEL else None
+    )
+
+    repository.add_result_revision(ArenaV4ResultRevision(
+        match_id=match.id,
+        version=result_version,
+        review_id=review.id,
+        previous_result_type=None,
+        new_result_type=decision.value,
+        previous_winner_id=None,
+        new_winner_id=match.winner_id,
+        new_owner_score=owner_score,
+        new_opponent_score=opponent_score,
+        new_reward_efc=Decimal("0.00"),
+        new_fee_efc=Decimal("0.00"),
+        admin_id=review.assigned_admin_id,
+        reason=payload.reason or "INITIAL_TOURNAMENT_DECISION",
+    ))
+    _queue_initial_result_notifications(repository, match, decision)
+    transition_arena_v3(match, ArenaV3Status.FINISHED)
+    match.settled_at = now
+    match.finished_at = now
+    repository.add_event(ArenaV3MatchEvent(
+        match_id=match.id,
+        event_type="TOURNAMENT_ADMIN_RESULT_COMPLETED",
+        from_status=ArenaV3Status.WAITING_ADMIN.value,
+        to_status=ArenaV3Status.FINISHED.value,
+        actor_type="ADMIN",
+        actor_id=review.assigned_admin_id,
+        idempotency_key=f"tournament-admin-result:{review.id}",
+        event_metadata={
+            "decision": decision.value,
+            "result_version": result_version,
+            "tournament_match_id": tournament_match.id,
+        },
+    ))
+
+
 def apply_admin_settlement(
     db, *, repository, match, review, payload, now=None, decision=None
 ):
@@ -592,6 +680,17 @@ def apply_admin_settlement(
     )
     if match.match_type == "DIVISION":
         _apply_division_admin_result(
+            db,
+            repository=repository,
+            match=match,
+            review=review,
+            payload=payload,
+            now=now,
+            decision=decision,
+        )
+        return
+    if match.match_type == "TOURNAMENT":
+        _apply_tournament_admin_result(
             db,
             repository=repository,
             match=match,
