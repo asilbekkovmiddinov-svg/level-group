@@ -184,3 +184,104 @@ def test_group_match_requires_players_from_same_group():
     finally:
         db.close()
         engine.dispose()
+
+
+def _approved_players(service, tournament):
+    players = [
+        service.apply(tournament.id, telegram_id)
+        for telegram_id in (101, 102)
+    ]
+    for seed, player in enumerate(players, start=1):
+        service.review(
+            tournament.id,
+            player.id,
+            TournamentApplicationDecision(
+                decision="APPROVED",
+                seed=seed,
+                group_name=(
+                    "A"
+                    if tournament.format == TournamentFormat.GROUP_PLAYOFF
+                    else None
+                ),
+            ),
+            9001,
+        )
+    return players
+
+
+def test_olympic_result_eliminates_loser_and_advances_winner():
+    db, engine = build()
+    try:
+        service = TournamentService(db)
+        tournament = service.create(payload(), 9001)
+        _approved_players(service, tournament)
+        match = service.schedule_match(
+            tournament.id,
+            TournamentMatchSchedule(
+                player_a_id=101,
+                player_b_id=102,
+                round_number=2,
+                round_name="Quarter-final",
+                scheduled_at=tournament.starts_at + timedelta(hours=1),
+            ),
+            9001,
+        )
+        match.status = "PLAYING"
+        match.arena_match_id = 7001
+        db.commit()
+
+        result = service.finish_arena_result(
+            7001, player_a_score=3, player_b_score=1
+        )
+        assert result.winner_id == 101
+        winner = service.participant(tournament.id, 101)
+        loser = service.participant(tournament.id, 102)
+        assert winner.advanced_round == 2
+        assert loser.status == TournamentParticipantStatus.ELIMINATED
+    finally:
+        db.close()
+        engine.dispose()
+
+
+def test_group_result_awards_three_points_and_revision_reverses_it():
+    db, engine = build()
+    try:
+        service = TournamentService(db)
+        tournament = service.create(
+            payload(TournamentFormat.GROUP_PLAYOFF), 9001
+        )
+        _approved_players(service, tournament)
+        match = service.schedule_match(
+            tournament.id,
+            TournamentMatchSchedule(
+                player_a_id=101,
+                player_b_id=102,
+                round_number=1,
+                round_name="Group A",
+                group_name="A",
+                scheduled_at=tournament.starts_at + timedelta(hours=1),
+            ),
+            9001,
+        )
+        match.status = "PLAYING"
+        match.arena_match_id = 7002
+        db.commit()
+
+        service.finish_arena_result(
+            7002, player_a_score=2, player_b_score=1
+        )
+        alpha = service.participant(tournament.id, 101)
+        beta = service.participant(tournament.id, 102)
+        assert (alpha.played, alpha.wins, alpha.points) == (1, 1, 3)
+        assert (beta.played, beta.losses, beta.points) == (1, 1, 0)
+
+        service.revise_arena_result(
+            7002, player_a_score=0, player_b_score=2
+        )
+        db.refresh(alpha)
+        db.refresh(beta)
+        assert (alpha.played, alpha.losses, alpha.points) == (1, 1, 0)
+        assert (beta.played, beta.wins, beta.points) == (1, 1, 3)
+    finally:
+        db.close()
+        engine.dispose()
