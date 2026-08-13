@@ -43,9 +43,9 @@ def build():
     db = sessions()
     db.add_all(
         [
-            User(telegram_id=9001, username="admin"),
-            User(telegram_id=101, username="alpha"),
-            User(telegram_id=102, username="beta"),
+            User(telegram_id=9001, username="admin", first_name="Admin"),
+            User(telegram_id=101, username="alpha", first_name="Alpha"),
+            User(telegram_id=102, username="beta", first_name="Beta"),
         ]
     )
     db.commit()
@@ -181,6 +181,35 @@ def test_group_match_requires_players_from_same_group():
                 ),
                 9001,
             )
+    finally:
+        db.close()
+        engine.dispose()
+
+
+def test_public_participants_excludes_pending_and_rejected_applications():
+    db, engine = build()
+    try:
+        service = TournamentService(db)
+        tournament = service.create(payload(), 9001)
+        approved = service.apply(tournament.id, 101)
+        rejected = service.apply(tournament.id, 102)
+        service.review(
+            tournament.id,
+            approved.id,
+            TournamentApplicationDecision(decision="APPROVED", seed=1),
+            9001,
+        )
+        service.review(
+            tournament.id,
+            rejected.id,
+            TournamentApplicationDecision(decision="REJECTED"),
+            9001,
+        )
+
+        visible = service.public_participants(tournament.id)
+
+        assert [item.telegram_id for item in visible] == [101]
+        assert visible[0].username == "alpha"
     finally:
         db.close()
         engine.dispose()

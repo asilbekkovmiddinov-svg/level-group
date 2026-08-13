@@ -113,4 +113,5 @@ class TournamentMatchResponse(BaseModel):
 class TournamentOverviewResponse(BaseModel):
     tournament: TournamentResponse | None
     participant: TournamentParticipantResponse | None
-    matches: list[TournamentMatchResponse] = []
+    participants: list[TournamentParticipantResponse] = Field(default_factory=list)
+    matches: list[TournamentMatchResponse] = Field(default_factory=list)

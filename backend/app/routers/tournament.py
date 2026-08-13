@@ -39,10 +39,16 @@ def current(
     service = TournamentService(db)
     tournament = service.current()
     if tournament is None:
-        return {"tournament": None, "participant": None, "matches": []}
+        return {
+            "tournament": None,
+            "participant": None,
+            "participants": [],
+            "matches": [],
+        }
     return {
         "tournament": tournament,
         "participant": service.participant(tournament.id, current_user.telegram_id),
+        "participants": service.public_participants(tournament.id),
         "matches": service.matches(tournament.id),
     }
 

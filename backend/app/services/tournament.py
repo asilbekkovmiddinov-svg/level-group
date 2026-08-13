@@ -148,6 +148,31 @@ class TournamentService:
             query = query.filter(TournamentParticipant.status == status)
         return query.order_by(TournamentParticipant.applied_at).all()
 
+    def public_participants(
+        self, tournament_id: int
+    ) -> list[TournamentParticipant]:
+        """Return only players who were accepted into the public competition."""
+        self.require(tournament_id)
+        return (
+            self.db.query(TournamentParticipant)
+            .filter(
+                TournamentParticipant.tournament_id == tournament_id,
+                TournamentParticipant.status.in_(
+                    [
+                        TournamentParticipantStatus.APPROVED,
+                        TournamentParticipantStatus.ELIMINATED,
+                        TournamentParticipantStatus.WITHDRAWN,
+                    ]
+                ),
+            )
+            .order_by(
+                TournamentParticipant.group_name,
+                TournamentParticipant.seed,
+                TournamentParticipant.applied_at,
+            )
+            .all()
+        )
+
     def review(
         self,
         tournament_id: int,
