@@ -935,6 +935,136 @@ def _resolve_division_appeal(
     ))
 
 
+def _resolve_tournament_appeal(
+    db,
+    *,
+    repository,
+    match,
+    review,
+    appeal,
+    action,
+    owner_score,
+    opponent_score,
+    reason,
+):
+    from app.services.tournament import (
+        TournamentService,
+        TournamentServiceError,
+    )
+
+    old_version = match.result_version
+    old_result = match.current_result_type
+    old_winner_id = match.winner_id
+    old_owner_score = match.owner_score
+    old_opponent_score = match.opponent_score
+    if action.value == "KEEP_RESULT":
+        event_type = "TOURNAMENT_APPEAL_RESULT_KEPT"
+    else:
+        cancelled = action.value == "CANCEL_MATCH"
+        if cancelled:
+            owner_score = None
+            opponent_score = None
+            new_result = ArenaV4ResultType.CANCEL
+        else:
+            if (
+                owner_score == old_owner_score
+                and opponent_score == old_opponent_score
+            ):
+                raise ArenaV3Conflict(
+                    "Updated score must differ from current score"
+                )
+            new_result = result_from_score(owner_score, opponent_score)
+        try:
+            tournament_match = TournamentService(db).revise_arena_result(
+                match.id,
+                player_a_score=owner_score,
+                player_b_score=opponent_score,
+                cancelled=cancelled,
+                commit=False,
+            )
+        except TournamentServiceError as exc:
+            raise ArenaV3Conflict(str(exc)) from exc
+
+        new_version = old_version + 1
+        match.owner_score = owner_score
+        match.opponent_score = opponent_score
+        match.current_result_type = new_result
+        match.result_version = new_version
+        match.current_decision_id = review.id
+        match.result_source = "ADMIN_APPEAL"
+        match.winner_id = tournament_match.winner_id
+        match.loser_id = (
+            None
+            if match.winner_id is None
+            else (
+                match.opponent_id
+                if match.winner_id == match.owner_id
+                else match.owner_id
+            )
+        )
+        match.cancel_reason = (
+            "APPEAL_ADMIN_CANCEL" if cancelled else None
+        )
+        match.stake_efc = Decimal("0.00")
+        match.total_pool_efc = Decimal("0.00")
+        match.commission_efc = Decimal("0.00")
+        match.winner_reward_efc = Decimal("0.00")
+        match.reward_hold_status = ArenaV4RewardHoldStatus.NONE
+        match.reward_release_at = None
+        match.settlement_status = ArenaV3SettlementStatus.COMPLETED
+        repository.add_result_revision(ArenaV4ResultRevision(
+            match_id=match.id,
+            version=new_version,
+            review_id=review.id,
+            appeal_id=appeal.id,
+            previous_result_type=old_result.value if old_result else None,
+            new_result_type=new_result.value,
+            previous_winner_id=old_winner_id,
+            new_winner_id=match.winner_id,
+            previous_owner_score=old_owner_score,
+            previous_opponent_score=old_opponent_score,
+            new_owner_score=owner_score,
+            new_opponent_score=opponent_score,
+            previous_reward_efc=Decimal("0.00"),
+            new_reward_efc=Decimal("0.00"),
+            previous_fee_efc=Decimal("0.00"),
+            new_fee_efc=Decimal("0.00"),
+            admin_id=review.assigned_admin_id,
+            reason=reason,
+        ))
+        event_type = (
+            "TOURNAMENT_APPEAL_MATCH_CANCELLED"
+            if cancelled
+            else "TOURNAMENT_APPEAL_SCORE_UPDATED"
+        )
+
+    for player_id in (match.owner_id, match.opponent_id):
+        queue_v4_notification(
+            repository,
+            match_id=match.id,
+            recipient_id=player_id,
+            event_type="APPEAL_RESOLVED",
+            dedup_key=(
+                f"tournament:{match.id}:appeal-resolved:"
+                f"{review.id}:{player_id}"
+            ),
+        )
+    repository.add_event(ArenaV3MatchEvent(
+        match_id=match.id,
+        event_type=event_type,
+        from_status=ArenaV3Status.FINISHED.value,
+        to_status=ArenaV3Status.FINISHED.value,
+        actor_type="ADMIN",
+        actor_id=review.assigned_admin_id,
+        idempotency_key=f"tournament-appeal-resolution:{review.id}",
+        event_metadata={
+            "action": action.value,
+            "old_result_version": old_version,
+            "new_result_version": match.result_version,
+        },
+    ))
+
+
 def resolve_appeal_settlement(
     db,
     *,
@@ -969,6 +1099,19 @@ def resolve_appeal_settlement(
             opponent_score=opponent_score,
             reason=reason,
             now=now,
+        )
+        return
+    if match.match_type == "TOURNAMENT":
+        _resolve_tournament_appeal(
+            db,
+            repository=repository,
+            match=match,
+            review=review,
+            appeal=appeal,
+            action=action,
+            owner_score=owner_score,
+            opponent_score=opponent_score,
+            reason=reason,
         )
         return
 
