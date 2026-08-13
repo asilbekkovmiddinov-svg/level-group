@@ -34,6 +34,7 @@ def order_response(order):
         "telegram_id": order.telegram_id,
         "product_id": order.product_id,
         "product_title": order.product_title,
+        "product_type": getattr(order, "product_type", "COIN"),
         "coins_amount": order.coins_amount,
         "price_uzs": float(order.price_uzs),
         "locked_price": float(order.locked_price),
@@ -81,7 +82,7 @@ def create_new_order(
     if not current_user.username:
         raise HTTPException(
             status_code=400,
-            detail="Coin Shop uchun Telegram username kerak",
+            detail="Shop uchun Telegram username kerak",
         )
     if idempotency_key:
         idempotency_key = idempotency_key.strip()

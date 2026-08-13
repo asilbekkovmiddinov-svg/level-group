@@ -7,6 +7,7 @@ from app.schemas.product import ProductCreate, ProductUpdate
 def create_product(db: Session, data: ProductCreate):
     product = Product(
         title=data.title,
+        product_type=data.product_type.value,
         category=data.category,
         platform=data.platform,
         region=data.region,
@@ -64,6 +65,9 @@ def update_product(db: Session, product_id: int, data: ProductUpdate):
         return None
 
     update_data = data.model_dump(exclude_unset=True)
+
+    if "product_type" in update_data and update_data["product_type"] is not None:
+        update_data["product_type"] = update_data["product_type"].value
 
     for key, value in update_data.items():
         setattr(product, key, value)

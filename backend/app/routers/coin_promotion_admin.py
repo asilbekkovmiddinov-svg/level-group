@@ -7,6 +7,7 @@ from app.core.telegram_auth import TelegramUser
 from app.models.product import Product
 from app.schemas.coin_promotion import CoinPromotionCreate, CoinPromotionResponse, CoinPromotionUpdate
 from app.services import coin_promotion_admin as service
+from app.services.coin_package_admin import item_type
 
 
 router = APIRouter(prefix="/admin/coin-promotions", tags=["Coin Promotions Admin"])
@@ -21,6 +22,7 @@ def response(db: Session, promotion) -> dict:
             "id": product.id,
             "title": product.title,
             "category": product.category,
+            "product_type": item_type(product).value,
             "coin_amount": product.coins_amount,
             "price": float(product.price_uzs),
         },

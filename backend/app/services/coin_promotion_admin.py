@@ -6,6 +6,8 @@ from sqlalchemy.orm import Session
 from app.models.coin_promotion import CoinPromotion
 from app.models.product import Product
 from app.schemas.coin_promotion import CoinPromotionCreate, CoinPromotionUpdate
+from app.schemas.product import ProductType
+from app.services.coin_package_admin import item_type
 
 
 def utc_now() -> datetime:
@@ -24,6 +26,8 @@ def _product(db: Session, product_id: int, require_active: bool = False) -> Prod
     product = db.get(Product, product_id)
     if product is None:
         raise HTTPException(status_code=422, detail="Coin package not found")
+    if item_type(product) != ProductType.COIN:
+        raise HTTPException(status_code=422, detail="Only coin products can be used for Coin Promotions")
     if require_active and not product.is_active:
         raise HTTPException(status_code=422, detail="Inactive coin package cannot be used for a new promotion")
     return product

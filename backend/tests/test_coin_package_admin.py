@@ -152,6 +152,73 @@ def test_validation_and_scope_duplicate_rules(monkeypatch):
         engine.dispose()
 
 
+def test_admin_creates_player_and_manager_with_name_and_price(monkeypatch):
+    client, sessions, engine = build(monkeypatch)
+    try:
+        player = client.post(
+            "/admin/coin-packages",
+            json={
+                "product_type": "PLAYER", "name": "Lionel Messi",
+                "price_uzs": 120000, "scope": "ANDROID", "is_active": True,
+            },
+            headers=headers(),
+        )
+        assert player.status_code == 201
+        assert player.json()["product_type"] == "PLAYER"
+        assert player.json()["name"] == "Lionel Messi"
+        assert player.json()["coin_amount"] is None
+        assert player.json()["scope"] == "ALL"
+
+        manager = client.post(
+            "/admin/coin-packages",
+            json={
+                "product_type": "MANAGER", "name": "Pep Guardiola",
+                "price_uzs": 90000, "is_active": True,
+            },
+            headers=headers(),
+        )
+        assert manager.status_code == 201
+        assert manager.json()["product_type"] == "MANAGER"
+
+        duplicate = client.post(
+            "/admin/coin-packages",
+            json={
+                "product_type": "PLAYER", "name": "lionel messi",
+                "price_uzs": 125000, "is_active": True,
+            },
+            headers=headers(),
+        )
+        assert duplicate.status_code == 409
+
+        db = sessions()
+        stored = db.get(Product, player.json()["id"])
+        assert stored.category == "PLAYERS"
+        assert stored.coins_amount is None
+        db.close()
+    finally:
+        engine.dispose()
+
+
+def test_named_product_cannot_be_used_for_coin_promotion(monkeypatch):
+    client, _sessions, engine = build(monkeypatch)
+    try:
+        item_id = client.post(
+            "/admin/coin-packages",
+            json={
+                "product_type": "PLAYER", "name": "Neymar Jr",
+                "price_uzs": 100000, "is_active": True,
+            },
+            headers=headers(),
+        ).json()["id"]
+        blocked = client.post(
+            "/admin/coin-promotions", json=promotion(item_id), headers=headers(),
+        )
+        assert blocked.status_code == 422
+        assert "Only coin products" in blocked.json()["detail"]
+    finally:
+        engine.dispose()
+
+
 def test_startup_seed_never_overwrites_admin_price_or_status(monkeypatch):
     _client, sessions, engine = build(monkeypatch)
     try:

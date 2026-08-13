@@ -16,6 +16,8 @@ from app.crud.transaction import create_transaction
 from app.services.referrals import award_first_shop_bonus
 from app.services.coin_promotions import confirm_locked, release_locked, reserve
 from app.core.config import COIN_PROMOTION_ORDER_TIMEOUT_SECONDS
+from app.schemas.product import ProductType
+from app.services.coin_package_admin import item_type
 
 
 logger = logging.getLogger(__name__)
@@ -93,11 +95,16 @@ def create_order(
             if promotion_error == "user_limit":
                 return "promotion_user_limit"
 
-            raw_platform = data.platform or product.platform or "ANDROID"
-            platform = str(raw_platform).strip().upper()
-            if platform not in {"ANDROID", "IOS"}:
-                platform = "ANDROID" if product.category == "ANDROID_COINS" else "IOS"
-            region = str(data.region or product.region or "GLOBAL").strip().upper()
+            product_type = item_type(product)
+            if product_type == ProductType.COIN:
+                raw_platform = data.platform or product.platform or "ANDROID"
+                platform = str(raw_platform).strip().upper()
+                if platform not in {"ANDROID", "IOS"}:
+                    platform = "ANDROID" if product.category == "ANDROID_COINS" else "IOS"
+                region = str(data.region or product.region or "GLOBAL").strip().upper()
+            else:
+                platform = "ALL"
+                region = "ALL"
             if not region or len(region) > 100:
                 return "invalid_details"
             fingerprint = _order_fingerprint(data.product_id, platform, region)
@@ -117,7 +124,8 @@ def create_order(
                 telegram_id=telegram_id,
                 product_id=product.id,
                 product_title=product.title,
-                coins_amount=product.coins_amount,
+                product_type=product_type.value,
+                coins_amount=product.coins_amount or 0,
                 price_uzs=price,
                 locked_price=price,
                 promotion_id=promotion.id if promotion else None,

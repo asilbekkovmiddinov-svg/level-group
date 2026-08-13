@@ -13,6 +13,7 @@ from app.schemas.product import ProductCreate, ProductUpdate
 from app.core.telegram_auth import TelegramUser, get_current_telegram_user
 from app.routers.internal_wallet import require_internal_api_key
 from app.services.coin_promotions import product_promotion
+from app.services.coin_package_admin import item_type
 
 router = APIRouter(
     prefix="/products",
@@ -29,6 +30,8 @@ def product_response(product, db: Session | None = None):
         "category": product.category,
         "platform": product.platform,
         "region": product.region,
+        "product_type": item_type(product).value,
+        "item_name": product.title if item_type(product).value != "COIN" else None,
         "coin_amount": product.coins_amount,
         "coins_amount": product.coins_amount,
         "price": float(product.price_uzs),
