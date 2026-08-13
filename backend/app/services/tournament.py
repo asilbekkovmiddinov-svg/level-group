@@ -452,3 +452,147 @@ class TournamentService:
         else:
             self.db.flush()
         return match
+
+
+    def _result_players(
+        self, match: TournamentMatch
+    ) -> tuple[TournamentParticipant, TournamentParticipant]:
+        rows = (
+            self.db.query(TournamentParticipant)
+            .filter(
+                TournamentParticipant.tournament_id == match.tournament_id,
+                TournamentParticipant.telegram_id.in_(
+                    [match.player_a_id, match.player_b_id]
+                ),
+            )
+            .with_for_update()
+            .all()
+        )
+        by_id = {row.telegram_id: row for row in rows}
+        player_a = by_id.get(match.player_a_id)
+        player_b = by_id.get(match.player_b_id)
+        if player_a is None or player_b is None:
+            raise TournamentServiceError(409, "Tournament standings row is missing")
+        return player_a, player_b
+
+    def finish_arena_result(
+        self,
+        arena_match_id: int,
+        *,
+        player_a_score: int | None,
+        player_b_score: int | None,
+        cancelled: bool = False,
+        commit: bool = True,
+    ) -> TournamentMatch:
+        match = (
+            self.db.query(TournamentMatch)
+            .filter_by(arena_match_id=arena_match_id)
+            .with_for_update()
+            .one_or_none()
+        )
+        if match is None:
+            raise TournamentServiceError(404, "Linked Tournament match is missing")
+        if match.status in {
+            TournamentMatchStatus.FINISHED,
+            TournamentMatchStatus.CANCELLED,
+        }:
+            return match
+        if match.status != TournamentMatchStatus.PLAYING:
+            raise TournamentServiceError(409, "Tournament match has not started")
+        if cancelled:
+            match.status = TournamentMatchStatus.CANCELLED
+        else:
+            if player_a_score is None or player_b_score is None:
+                raise TournamentServiceError(422, "Tournament score is required")
+            if player_a_score == player_b_score:
+                raise TournamentServiceError(
+                    409, "Equal scores are not allowed; penalties are required"
+                )
+            tournament = self.require(match.tournament_id)
+            player_a, player_b = self._result_players(match)
+            winner, loser = (
+                (player_a, player_b)
+                if player_a_score > player_b_score
+                else (player_b, player_a)
+            )
+            match.winner_id = winner.telegram_id
+            match.player_a_score = player_a_score
+            match.player_b_score = player_b_score
+            match.status = TournamentMatchStatus.FINISHED
+            if (
+                tournament.format == TournamentFormat.GROUP_PLAYOFF
+                and match.group_name is not None
+            ):
+                for participant in (player_a, player_b):
+                    participant.played += 1
+                winner.wins += 1
+                winner.points += 3
+                loser.losses += 1
+            else:
+                winner.advanced_round = max(
+                    winner.advanced_round, match.round_number
+                )
+                loser.status = TournamentParticipantStatus.ELIMINATED
+        if commit:
+            self.db.commit()
+            self.db.refresh(match)
+        else:
+            self.db.flush()
+        return match
+
+    def revise_arena_result(
+        self,
+        arena_match_id: int,
+        *,
+        player_a_score: int | None,
+        player_b_score: int | None,
+        cancelled: bool = False,
+        commit: bool = True,
+    ) -> TournamentMatch:
+        match = (
+            self.db.query(TournamentMatch)
+            .filter_by(arena_match_id=arena_match_id)
+            .with_for_update()
+            .one_or_none()
+        )
+        if match is None:
+            raise TournamentServiceError(404, "Linked Tournament match is missing")
+        if match.status not in {
+            TournamentMatchStatus.FINISHED,
+            TournamentMatchStatus.CANCELLED,
+        }:
+            raise TournamentServiceError(409, "Tournament result is not final")
+        tournament = self.require(match.tournament_id)
+        if match.status == TournamentMatchStatus.FINISHED:
+            player_a, player_b = self._result_players(match)
+            if (
+                tournament.format == TournamentFormat.GROUP_PLAYOFF
+                and match.group_name is not None
+            ):
+                old_winner = (
+                    player_a if match.winner_id == player_a.telegram_id else player_b
+                )
+                old_loser = player_b if old_winner is player_a else player_a
+                for participant in (player_a, player_b):
+                    participant.played -= 1
+                old_winner.wins -= 1
+                old_winner.points -= 3
+                old_loser.losses -= 1
+            else:
+                old_loser = (
+                    player_b if match.winner_id == player_a.telegram_id else player_a
+                )
+                old_loser.status = TournamentParticipantStatus.APPROVED
+                old_winner = player_a if old_loser is player_b else player_b
+                old_winner.advanced_round = max(0, match.round_number - 1)
+        match.winner_id = None
+        match.player_a_score = None
+        match.player_b_score = None
+        match.status = TournamentMatchStatus.PLAYING
+        return self.finish_arena_result(
+            arena_match_id,
+            player_a_score=player_a_score,
+            player_b_score=player_b_score,
+            cancelled=cancelled,
+            commit=commit,
+        )
