@@ -19,6 +19,7 @@ class TelegramUser:
     first_name: str
     username: str | None
     language: str
+    referral_code: str | None = None
 
 
 def _unauthorized(detail: str = "Invalid Telegram authentication data") -> None:
@@ -72,11 +73,16 @@ def verify_init_data(init_data: str) -> TelegramUser:
 
     username = user.get("username")
     language = user.get("language_code") or "uz"
+    start_param = values.get("start_param") or ""
+    referral_code = start_param[4:] if start_param.startswith("ref_") else None
+    referral_code = referral_code.strip() if referral_code else None
+
     return TelegramUser(
         telegram_id=telegram_id,
         first_name=first_name,
         username=str(username) if username else None,
         language=str(language),
+        referral_code=referral_code,
     )
 
 
