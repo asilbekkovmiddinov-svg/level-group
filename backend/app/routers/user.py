@@ -28,6 +28,7 @@ def register(
                 telegram_id=current_user.telegram_id,
                 username=current_user.username,
                 first_name=current_user.first_name,
+                referral_code=current_user.referral_code,
             ),
         )
     except InternalUserServiceError:
