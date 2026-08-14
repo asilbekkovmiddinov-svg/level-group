@@ -1,13 +1,15 @@
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import String, cast, func, or_
 from sqlalchemy.orm import Session
 
 from app.core.admin_auth import require_promotions_admin
 from app.core.database import get_db
 from app.core.telegram_auth import TelegramUser
+from app.models.transaction import Transaction
 from app.models.user import User
+from app.models.wallet import Wallet
 
 
 router = APIRouter(prefix="/admin/metrics", tags=["Admin Metrics"])
@@ -96,4 +98,68 @@ def list_users(
         "total": total,
         "pages": (total + per_page - 1) // per_page,
         "active_window_days": ACTIVE_WINDOW_DAYS,
+    }
+
+
+@router.get("/users/audit")
+def user_wallet_audit(
+    q: str = Query(min_length=1, max_length=100),
+    limit: int = Query(default=100, ge=1, le=500),
+    _admin: TelegramUser = Depends(require_promotions_admin),
+    db: Session = Depends(get_db),
+):
+    """Admin-only wallet audit by Telegram username or Telegram ID."""
+    search = q.strip().lstrip("@")
+    user = None
+    if search.isdigit():
+        user = db.get(User, int(search))
+    if user is None:
+        user = db.query(User).filter(func.lower(User.username) == search.lower()).first()
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    wallet = db.get(Wallet, user.telegram_id)
+    transactions = (
+        db.query(Transaction)
+        .filter(Transaction.telegram_id == user.telegram_id)
+        .order_by(Transaction.created_at.desc(), Transaction.id.desc())
+        .limit(limit)
+        .all()
+    )
+    referral_transactions = [
+        tx for tx in transactions if (tx.type or "").startswith("REFERRAL_")
+    ]
+
+    return {
+        "user": {
+            "telegram_id": user.telegram_id,
+            "username": user.username,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+        },
+        "wallet": None if wallet is None else {
+            "efc_balance": wallet.efc_balance,
+            "uzs_balance": wallet.uzs_balance,
+            "locked_efc": wallet.locked_efc,
+            "locked_reward_efc": wallet.locked_reward_efc,
+            "locked_uzs": wallet.locked_uzs,
+        },
+        "referral_earned_uzs": sum(
+            (tx.amount for tx in referral_transactions if tx.currency == "UZS"),
+            start=0,
+        ),
+        "transactions": [
+            {
+                "id": tx.id,
+                "currency": tx.currency,
+                "amount": tx.amount,
+                "balance_before": tx.balance_before,
+                "balance_after": tx.balance_after,
+                "type": tx.type,
+                "status": tx.status,
+                "description": tx.description,
+                "created_at": tx.created_at,
+            }
+            for tx in transactions
+        ],
     }
