@@ -348,6 +348,13 @@ async def upload_screenshot(
                 "Result: winner +3 points, loser 0 points",
                 "Penalties: required",
             ])
+        elif match.match_type == "TOURNAMENT":
+            match_lines.extend([
+                "Mode: Tournament",
+                "Entry: 10 Tournament Tickets per player",
+                "Result: tournament standings only; no EFC settlement",
+                "Penalties: required",
+            ])
         else:
             match_lines.extend([
                 f"Stake: {match.stake_efc} EFC",
