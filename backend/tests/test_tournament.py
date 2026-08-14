@@ -2,20 +2,24 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from pydantic import ValidationError
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.core.database import Base
+from app.core.tournament_migrations import run_tournament_migrations
+from app.models.arena_v3 import ArenaV3Match
 from app.models.tournament import (
     Tournament,
     TournamentFormat,
     TournamentMatch,
+    TournamentMatchStatus,
     TournamentParticipant,
     TournamentParticipantStatus,
     TournamentStatus,
 )
 from app.models.user import User
+from app.models.wall_rush import GameTicketWallet
 from app.schemas.tournament import (
     TournamentApplicationDecision,
     TournamentCreate,
@@ -34,6 +38,8 @@ def build():
         engine,
         tables=[
             User.__table__,
+            GameTicketWallet.__table__,
+            ArenaV3Match.__table__,
             Tournament.__table__,
             TournamentParticipant.__table__,
             TournamentMatch.__table__,
@@ -48,6 +54,12 @@ def build():
             User(telegram_id=102, username="beta", first_name="Beta"),
         ]
     )
+    db.add_all(
+        [
+            GameTicketWallet(telegram_id=101, tournament_tickets=20),
+            GameTicketWallet(telegram_id=102, tournament_tickets=20),
+        ]
+    )
     db.commit()
     return db, engine
 
@@ -59,7 +71,7 @@ def payload(format=TournamentFormat.SINGLE_ELIMINATION):
         name="Summer Cup",
         format=format,
         max_participants=16,
-        ticket_cost=1,
+        ticket_cost=10,
         group_count=4 if group else None,
         qualifiers_per_group=2 if group else None,
         registration_opens_at=now - timedelta(hours=1),
@@ -67,6 +79,35 @@ def payload(format=TournamentFormat.SINGLE_ELIMINATION):
         starts_at=now + timedelta(hours=2),
         ends_at=now + timedelta(days=7),
     )
+
+
+def test_migration_upgrades_existing_tournaments_to_ten_tickets():
+    engine = create_engine("sqlite://")
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "CREATE TABLE tournaments ("
+                    "id INTEGER PRIMARY KEY, ticket_cost INTEGER NOT NULL "
+                    "CHECK (ticket_cost >= 0))"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO tournaments (id, ticket_cost) "
+                    "VALUES (1, 1), (2, 5)"
+                )
+            )
+
+        run_tournament_migrations(engine)
+
+        with engine.connect() as connection:
+            costs = connection.execute(
+                text("SELECT ticket_cost FROM tournaments ORDER BY id")
+            ).scalars().all()
+        assert costs == [10, 10]
+    finally:
+        engine.dispose()
 
 
 def test_admin_can_create_both_tournament_formats():
@@ -95,10 +136,55 @@ def test_format_settings_are_immutable_and_validated_at_creation():
     with pytest.raises(ValidationError):
         TournamentCreate(**values)
 
+    values = payload().model_dump()
+    values["ticket_cost"] = 1
+    with pytest.raises(ValidationError):
+        TournamentCreate(**values)
+
     values = payload(TournamentFormat.GROUP_PLAYOFF).model_dump()
     values["qualifiers_per_group"] = None
     with pytest.raises(ValidationError):
         TournamentCreate(**values)
+
+
+def test_application_and_approval_require_ten_available_tickets():
+    db, engine = build()
+    try:
+        service = TournamentService(db)
+        tournament = service.create(payload(), 9001)
+        wallet = db.get(GameTicketWallet, 101)
+        wallet.tournament_tickets = 9
+        db.commit()
+
+        with pytest.raises(TournamentServiceError, match="kamida 10 ta"):
+            service.apply(tournament.id, 101)
+
+        wallet.tournament_tickets = 10
+        db.commit()
+        participant = service.apply(tournament.id, 101)
+
+        wallet.tournament_tickets = 9
+        db.commit()
+        with pytest.raises(TournamentServiceError, match="kamida 10 ta"):
+            service.review(
+                tournament.id,
+                participant.id,
+                TournamentApplicationDecision(decision="APPROVED", seed=1),
+                9001,
+            )
+
+        wallet.tournament_tickets = 10
+        db.commit()
+        reviewed = service.review(
+            tournament.id,
+            participant.id,
+            TournamentApplicationDecision(decision="APPROVED", seed=1),
+            9001,
+        )
+        assert reviewed.status == TournamentParticipantStatus.APPROVED
+    finally:
+        db.close()
+        engine.dispose()
 
 
 def test_admin_approves_schedules_and_starts_olympic_tournament():
@@ -236,6 +322,72 @@ def _approved_players(service, tournament):
             9001,
         )
     return players
+
+
+def test_match_locks_refunds_and_spends_ten_tickets_per_player():
+    db, engine = build()
+    try:
+        service = TournamentService(db)
+        tournament = service.create(payload(), 9001)
+        _approved_players(service, tournament)
+        match = service.schedule_match(
+            tournament.id,
+            TournamentMatchSchedule(
+                player_a_id=101,
+                player_b_id=102,
+                round_number=1,
+                round_name="Round 1",
+                scheduled_at=tournament.starts_at + timedelta(hours=1),
+            ),
+            9001,
+        )
+        service.start(tournament.id)
+        for player_id in (101, 102):
+            wallet = db.get(GameTicketWallet, player_id)
+            wallet.tournament_tickets = 10
+        db.commit()
+
+        opened = service.open_match(tournament.id, match.id)
+        assert opened.status == TournamentMatchStatus.READY
+        assert opened.player_a_ticket_state == "LOCKED"
+        assert opened.player_b_ticket_state == "LOCKED"
+        for player_id in (101, 102):
+            wallet = db.get(GameTicketWallet, player_id)
+            assert wallet.tournament_tickets == 0
+            assert wallet.locked_tournament_tickets == 10
+
+        cancelled = service.cancel_before_start(opened.arena_match_id)
+        assert cancelled.status == TournamentMatchStatus.CANCELLED
+        assert cancelled.player_a_ticket_state == "REFUNDED"
+        assert cancelled.player_b_ticket_state == "REFUNDED"
+        for player_id in (101, 102):
+            wallet = db.get(GameTicketWallet, player_id)
+            assert wallet.tournament_tickets == 10
+            assert wallet.locked_tournament_tickets == 0
+
+        next_match = service.schedule_match(
+            tournament.id,
+            TournamentMatchSchedule(
+                player_a_id=101,
+                player_b_id=102,
+                round_number=2,
+                round_name="Round 2",
+                scheduled_at=tournament.starts_at + timedelta(hours=2),
+            ),
+            9001,
+        )
+        opened = service.open_match(tournament.id, next_match.id)
+        playing = service.activate_arena_match(opened.arena_match_id)
+        assert playing.status == TournamentMatchStatus.PLAYING
+        assert playing.player_a_ticket_state == "SPENT"
+        assert playing.player_b_ticket_state == "SPENT"
+        for player_id in (101, 102):
+            wallet = db.get(GameTicketWallet, player_id)
+            assert wallet.tournament_tickets == 0
+            assert wallet.locked_tournament_tickets == 0
+    finally:
+        db.close()
+        engine.dispose()
 
 
 def test_olympic_result_eliminates_loser_and_advances_winner():

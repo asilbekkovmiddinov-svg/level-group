@@ -10,6 +10,7 @@ from app.models.arena_v3 import (
     ArenaV3Status,
 )
 from app.models.tournament import (
+    TOURNAMENT_TICKET_COST,
     Tournament,
     TournamentFormat,
     TournamentMatch,
@@ -88,7 +89,7 @@ class TournamentService:
             format=payload.format,
             status=TournamentStatus.REGISTRATION,
             max_participants=payload.max_participants,
-            ticket_cost=payload.ticket_cost,
+            ticket_cost=TOURNAMENT_TICKET_COST,
             group_count=payload.group_count,
             qualifiers_per_group=payload.qualifiers_per_group,
             registration_opens_at=registration_opens_at,
@@ -125,6 +126,7 @@ class TournamentService:
         existing = self.participant(tournament_id, telegram_id)
         if existing is not None:
             return existing
+        self._require_ticket_balance(telegram_id, tournament.ticket_cost)
         participant = TournamentParticipant(
             tournament_id=tournament_id,
             telegram_id=telegram_id,
@@ -192,6 +194,9 @@ class TournamentService:
             raise TournamentServiceError(409, "Application is already reviewed")
         decision = TournamentParticipantStatus(payload.decision)
         if decision == TournamentParticipantStatus.APPROVED:
+            self._require_ticket_balance(
+                participant.telegram_id, tournament.ticket_cost
+            )
             approved = (
                 self.db.query(TournamentParticipant)
                 .filter_by(
@@ -345,6 +350,18 @@ class TournamentService:
             self.db.flush()
         return wallet
 
+    def ticket_balance(self, telegram_id: int) -> int:
+        wallet = self.db.get(GameTicketWallet, telegram_id)
+        return wallet.tournament_tickets if wallet is not None else 0
+
+    def _require_ticket_balance(self, telegram_id: int, ticket_cost: int) -> None:
+        wallet = self._wallet(telegram_id)
+        if wallet.tournament_tickets < ticket_cost:
+            raise TournamentServiceError(
+                409,
+                f"Turnir uchun kamida {ticket_cost} ta Tournament Ticket kerak",
+            )
+
     def open_match(self, tournament_id: int, match_id: str) -> TournamentMatch:
         tournament = self.require(tournament_id)
         match = (
@@ -372,7 +389,11 @@ class TournamentService:
         for player_id in (match.player_a_id, match.player_b_id):
             wallet = self._wallet(player_id)
             if wallet.tournament_tickets < tournament.ticket_cost:
-                raise TournamentServiceError(409, "Both players need Tournament Ticket")
+                raise TournamentServiceError(
+                    409,
+                    f"Har ikki o‘yinchida kamida {tournament.ticket_cost} ta "
+                    "Tournament Ticket bo‘lishi kerak",
+                )
         for player_id in (match.player_a_id, match.player_b_id):
             wallet = self._wallet(player_id)
             wallet.tournament_tickets -= tournament.ticket_cost

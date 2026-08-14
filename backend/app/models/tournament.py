@@ -18,6 +18,9 @@ from sqlalchemy.orm import relationship
 from app.core.database import Base
 
 
+TOURNAMENT_TICKET_COST = 10
+
+
 def utc_now():
     return datetime.now(timezone.utc)
 
@@ -55,7 +58,7 @@ class Tournament(Base):
     __tablename__ = "tournaments"
     __table_args__ = (
         CheckConstraint("max_participants BETWEEN 2 AND 128", name="ck_tournament_capacity"),
-        CheckConstraint("ticket_cost >= 0", name="ck_tournament_ticket_cost"),
+        CheckConstraint("ticket_cost = 10", name="ck_tournament_ticket_cost"),
         CheckConstraint(
             "(format = 'SINGLE_ELIMINATION' AND group_count IS NULL "
             "AND qualifiers_per_group IS NULL) OR "
@@ -76,7 +79,7 @@ class Tournament(Base):
         index=True,
     )
     max_participants = Column(Integer, nullable=False)
-    ticket_cost = Column(Integer, nullable=False, default=1)
+    ticket_cost = Column(Integer, nullable=False, default=TOURNAMENT_TICKET_COST)
     group_count = Column(Integer)
     qualifiers_per_group = Column(Integer)
     registration_opens_at = Column(DateTime(timezone=True), nullable=False)

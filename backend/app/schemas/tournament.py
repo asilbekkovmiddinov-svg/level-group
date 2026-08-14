@@ -4,6 +4,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.models.tournament import (
+    TOURNAMENT_TICKET_COST,
     TournamentFormat,
     TournamentMatchStatus,
     TournamentParticipantStatus,
@@ -15,7 +16,7 @@ class TournamentCreate(BaseModel):
     name: str = Field(min_length=3, max_length=100)
     format: TournamentFormat
     max_participants: int = Field(ge=2, le=128)
-    ticket_cost: int = Field(default=1, ge=0, le=100)
+    ticket_cost: Literal[10] = TOURNAMENT_TICKET_COST
     group_count: int | None = Field(default=None, ge=2, le=32)
     qualifiers_per_group: int | None = Field(default=None, ge=1, le=16)
     registration_opens_at: datetime
@@ -113,5 +114,6 @@ class TournamentMatchResponse(BaseModel):
 class TournamentOverviewResponse(BaseModel):
     tournament: TournamentResponse | None
     participant: TournamentParticipantResponse | None
+    tournament_tickets: int = Field(ge=0)
     participants: list[TournamentParticipantResponse] = Field(default_factory=list)
     matches: list[TournamentMatchResponse] = Field(default_factory=list)
