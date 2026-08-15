@@ -37,6 +37,7 @@ from .arena_v3 import (
     ArenaV3MatchEvent,
     ArenaV3MatchScreenshot,
     ArenaV3NotificationDelivery,
+    ArenaV3RankingPrize,
     ArenaV3Stats,
     ArenaV4AdminReview,
     ArenaV4ResultRevision,
