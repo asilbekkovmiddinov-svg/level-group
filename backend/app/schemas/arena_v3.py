@@ -186,9 +186,29 @@ class ArenaV3RankingPlayerResponse(BaseModel):
 
 class ArenaV3RankingResponse(BaseModel):
     period: Literal["weekly", "monthly", "all"]
+    prize_text: str | None = None
     players: list[ArenaV3RankingPlayerResponse]
     limit: int
     offset: int
+
+
+class ArenaV3RankingPrizeUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    prize_text: str = Field(default="", max_length=500)
+
+    @field_validator("prize_text")
+    @classmethod
+    def normalize_prize_text(cls, value: str) -> str:
+        return value.strip()
+
+
+class ArenaV3RankingPrizeResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    period: Literal["weekly", "monthly"]
+    prize_text: str | None
+    updated_at: datetime | None
 
 
 class ArenaV3FoundationResponse(BaseModel):

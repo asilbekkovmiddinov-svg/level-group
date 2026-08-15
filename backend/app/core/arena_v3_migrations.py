@@ -3,7 +3,8 @@ from sqlalchemy.engine import Connection, Engine
 
 from app.models.arena_v3 import (
     ArenaV3AIReview, ArenaV3Appeal, ArenaV3Match, ArenaV3MatchEvent,
-    ArenaV3MatchScreenshot, ArenaV3NotificationDelivery, ArenaV3Stats,
+    ArenaV3MatchScreenshot, ArenaV3NotificationDelivery, ArenaV3RankingPrize,
+    ArenaV3Stats,
     ArenaV4AdminReview, ArenaV4ResultRevision, ArenaV4SettlementOperation,
 )
 
@@ -16,6 +17,7 @@ ARENA_V3_TABLES = (
     ArenaV3MatchEvent.__table__,
     ArenaV3NotificationDelivery.__table__,
     ArenaV3Stats.__table__,
+    ArenaV3RankingPrize.__table__,
 )
 
 ARENA_V4_TABLES = (

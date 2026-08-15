@@ -491,3 +491,20 @@ class ArenaV3Stats(Base):
     best_streak = Column(Integer, nullable=False, default=0)
     rating = Column(Integer, nullable=False, default=1000)
     updated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
+
+class ArenaV3RankingPrize(Base):
+    __tablename__ = "arena_ranking_prizes_v3"
+    __table_args__ = (
+        CheckConstraint(
+            "period IN ('weekly', 'monthly')",
+            name="ck_arena_v3_ranking_prize_period",
+        ),
+    )
+
+    period = Column(String(16), primary_key=True)
+    prize_text = Column(String(500))
+    updated_by = Column(BigInteger, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+    updated_at = Column(
+        DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now
+    )

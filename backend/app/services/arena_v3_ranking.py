@@ -5,7 +5,12 @@ from decimal import Decimal
 
 from sqlalchemy import case, func, literal, select, union_all
 
-from app.models.arena_v3 import ArenaV3Match, ArenaV3Stats, ArenaV3Status
+from app.models.arena_v3 import (
+    ArenaV3Match,
+    ArenaV3RankingPrize,
+    ArenaV3Stats,
+    ArenaV3Status,
+)
 from app.models.user import User
 
 
@@ -155,3 +160,37 @@ def get_ranking(
         db, period=period, limit=limit, offset=offset,
         now=now or datetime.now(timezone.utc),
     )
+
+def get_ranking_prize(db, period: str) -> str | None:
+    if period not in {"weekly", "monthly"}:
+        return None
+    prize = db.get(ArenaV3RankingPrize, period)
+    return prize.prize_text if prize is not None else None
+
+
+def list_ranking_prizes(db):
+    prizes = {
+        prize.period: prize
+        for prize in db.execute(select(ArenaV3RankingPrize)).scalars().all()
+    }
+    return [prizes.get(period) for period in ("weekly", "monthly")]
+
+
+def update_ranking_prize(
+    db,
+    *,
+    period: str,
+    prize_text: str,
+    admin_id: int,
+):
+    if period not in {"weekly", "monthly"}:
+        raise ValueError("Unsupported Arena V3 ranking prize period")
+    prize = db.get(ArenaV3RankingPrize, period)
+    if prize is None:
+        prize = ArenaV3RankingPrize(period=period, updated_by=admin_id)
+        db.add(prize)
+    prize.prize_text = prize_text.strip() or None
+    prize.updated_by = admin_id
+    db.commit()
+    db.refresh(prize)
+    return prize
