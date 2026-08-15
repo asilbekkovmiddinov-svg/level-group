@@ -78,6 +78,10 @@ def _env_bool(name: str, default: bool = False) -> bool:
     return normalized in {"1", "true", "yes", "on"}
 
 
+# Temporary launch gate. Keep disabled by default until referrals reopen.
+REFERRALS_ENABLED = _env_bool("REFERRALS_ENABLED", False)
+
+
 ARENA_V3_ENABLED = _env_bool("ARENA_V3_ENABLED", True)
 ARENA_V3_CREATE_ENABLED = _env_bool("ARENA_V3_CREATE_ENABLED", True)
 ARENA_V3_AI_ENABLED = _env_bool("ARENA_V3_AI_ENABLED", False)

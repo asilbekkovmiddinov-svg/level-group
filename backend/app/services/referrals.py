@@ -4,6 +4,7 @@ import secrets
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.core import config
 from app.crud.transaction import create_transaction
 from app.crud.wallet import get_wallet_for_update
 from app.models.order import Order
@@ -83,6 +84,8 @@ def attach_registration_referral(
     referred_telegram_id: int,
     referral_code: str | None,
 ) -> Referral | None:
+    if not config.REFERRALS_ENABLED:
+        return None
     code = (referral_code or "").strip()
     if not code:
         return None

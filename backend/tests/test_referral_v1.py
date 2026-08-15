@@ -5,12 +5,14 @@ import json
 import time
 from urllib.parse import urlencode
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.core import config
 from app.core.database import Base
 from app.core.database import get_db
 from app.core import telegram_auth
@@ -24,6 +26,12 @@ from app.schemas.user import InternalUserRegister
 from app.services.internal_users import register_internal_user
 from app.services.referrals import ensure_referral_profile, referral_summary
 from app.routers.referral import router as referral_router
+
+
+
+@pytest.fixture(autouse=True)
+def enable_referrals(monkeypatch):
+    monkeypatch.setattr(config, "REFERRALS_ENABLED", True)
 
 
 def session_factory():
@@ -222,3 +230,50 @@ def test_referral_summary_requires_verified_telegram_user(monkeypatch):
     assert data["registration_bonus_uzs"] == 1000
     assert data["first_shop_bonus_uzs"] == 5000
     assert data["referral_link"].endswith(f"ref_{data['referral_code']}")
+
+
+
+def test_disabled_referrals_do_not_attach_or_expose_links(monkeypatch):
+    sessions = session_factory()
+    db = sessions()
+    add_user(db, 104)
+    code = ensure_referral_profile(db, 104).referral_code
+    db.commit()
+
+    monkeypatch.setattr(config, "REFERRALS_ENABLED", False)
+    result = register_internal_user(
+        db,
+        InternalUserRegister(
+            telegram_id=204,
+            first_name="Disabled Referral",
+            referral_code=code,
+        ),
+    )
+    assert result.created is True
+    assert db.query(Referral).count() == 0
+    assert db.query(ReferralReward).count() == 0
+    assert Decimal(str(db.get(Wallet, 104).uzs_balance)) == Decimal("0")
+    db.commit()
+    db.close()
+
+    app = FastAPI()
+    app.include_router(referral_router)
+
+    def dependency():
+        session = sessions()
+        try:
+            yield session
+        finally:
+            session.close()
+
+    app.dependency_overrides[get_db] = dependency
+    monkeypatch.setattr(telegram_auth, "BOT_TOKEN", "test-token")
+    response = TestClient(app).get(
+        "/referrals/me",
+        headers={"X-Telegram-Init-Data": init_data(204)},
+    )
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["enabled"] is False
+    assert data["referral_code"] is None
+    assert data["referral_link"] is None
