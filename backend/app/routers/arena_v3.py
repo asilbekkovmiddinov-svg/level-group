@@ -1,6 +1,6 @@
 import hashlib
 from uuid import uuid4
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
@@ -8,6 +8,7 @@ from starlette.concurrency import run_in_threadpool
 
 from app.core import config
 from app.core.database import get_db
+from app.core.admin_auth import require_promotions_admin
 from app.core.arena_internal_auth import require_arena_internal_api_key
 from app.core.telegram_auth import TelegramUser, get_current_telegram_user
 from app.models.arena_v3 import (
@@ -25,6 +26,7 @@ from app.schemas.arena_v3 import (
     ArenaV3AIReviewResponse,
     ArenaV3MatchListResponse, ArenaV3MatchResponse, ArenaV3ActiveMatchResponse,
     ArenaV3RankingResponse, ArenaV3ResultResponse,
+    ArenaV3RankingPrizeResponse, ArenaV3RankingPrizeUpdateRequest,
     ArenaV3ReadyRequest, ArenaV3RoomCodeRequest, ArenaV3ScreenshotListResponse,
     ArenaV3ScreenshotResponse,
     ArenaV4AdminCancelRequest, ArenaV4AdminClaimRequest,
@@ -63,6 +65,7 @@ from app.services.telegram_notifications import (
 
 router = APIRouter(prefix="/arena", tags=["Arena V3"])
 internal_router = APIRouter(prefix="/internal/arena", tags=["Arena V3 Internal"])
+admin_router = APIRouter(prefix="/admin/arena", tags=["Arena V3 Admin"])
 
 
 def require_arena_v3_access(
@@ -672,15 +675,55 @@ def ranking(
     _: TelegramUser = Depends(require_arena_v3_access),
     db: Session = Depends(get_db),
 ):
-    from app.services.arena_v3_ranking import get_ranking
+    from app.services.arena_v3_ranking import get_ranking, get_ranking_prize
     return {
         "period": period,
+        "prize_text": get_ranking_prize(db, period),
         "players": get_ranking(
             db, period=period, limit=limit, offset=offset
         ),
         "limit": limit,
         "offset": offset,
     }
+
+
+@admin_router.get(
+    "/ranking-prizes", response_model=list[ArenaV3RankingPrizeResponse]
+)
+def admin_ranking_prizes(
+    _: TelegramUser = Depends(require_promotions_admin),
+    db: Session = Depends(get_db),
+):
+    from app.services.arena_v3_ranking import list_ranking_prizes
+
+    rows = list_ranking_prizes(db)
+    return [
+        {
+            "period": period,
+            "prize_text": row.prize_text if row is not None else None,
+            "updated_at": row.updated_at if row is not None else None,
+        }
+        for period, row in zip(("weekly", "monthly"), rows)
+    ]
+
+
+@admin_router.put(
+    "/ranking-prizes/{period}", response_model=ArenaV3RankingPrizeResponse
+)
+def admin_update_ranking_prize(
+    period: Literal["weekly", "monthly"],
+    payload: ArenaV3RankingPrizeUpdateRequest,
+    admin: TelegramUser = Depends(require_promotions_admin),
+    db: Session = Depends(get_db),
+):
+    from app.services.arena_v3_ranking import update_ranking_prize
+
+    return update_ranking_prize(
+        db,
+        period=period,
+        prize_text=payload.prize_text,
+        admin_id=admin.telegram_id,
+    )
 
 
 @router.get("/{match_id}/result", response_model=ArenaV3ResultResponse)
