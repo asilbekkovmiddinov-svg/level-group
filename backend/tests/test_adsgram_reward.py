@@ -105,7 +105,7 @@ def test_replayed_callback_and_expired_session_never_add_reward(db):
     assert limit.rewarded_ad_spins == 0
 
 
-def test_wall_rush_adsgram_reward_is_scoped_and_granted_exactly_once(db):
+def test_wall_rush_adsgram_reward_is_scoped_and_granted_exactly_once(db, monkeypatch):
     session, token = adsgram_reward.create_wall_rush_reward_session(db, 1001)
     assert session.purpose == adsgram_reward.WALL_RUSH_PURPOSE
 
@@ -128,6 +128,18 @@ def test_wall_rush_adsgram_reward_is_scoped_and_granted_exactly_once(db):
 
     with pytest.raises(ValueError, match="cooldown"):
         adsgram_reward.create_wall_rush_reward_session(db, 1001)
+
+    monkeypatch.setattr(
+        adsgram_reward, "utc_now", lambda: NOW + timedelta(minutes=29)
+    )
+    with pytest.raises(ValueError, match="cooldown"):
+        adsgram_reward.create_wall_rush_reward_session(db, 1001)
+
+    monkeypatch.setattr(
+        adsgram_reward, "utc_now", lambda: NOW + timedelta(minutes=30)
+    )
+    next_session, _ = adsgram_reward.create_wall_rush_reward_session(db, 1001)
+    assert next_session.purpose == adsgram_reward.WALL_RUSH_PURPOSE
 
 
 def test_failed_wall_rush_adsgram_session_can_be_cancelled_before_tads(db):

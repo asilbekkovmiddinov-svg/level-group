@@ -135,17 +135,17 @@ def test_ticket_winner_receives_one_tournament_ticket_once(db):
     assert db.query(GameTicketLedger).filter_by(operation="WIN_REWARD").count() == 1
 
 
-def test_verified_ad_event_is_hourly_and_idempotent(db):
+def test_verified_ad_event_has_30_minute_cooldown_and_is_idempotent(db):
     now = utc_now()
     wallet = grant_ad_ticket(db, 101, "provider-event-1", now)
     assert wallet.game_tickets == 1
     assert grant_ad_ticket(db, 101, "provider-event-1", now).game_tickets == 1
 
-    with pytest.raises(WallRushError, match="once per hour"):
-        grant_ad_ticket(db, 101, "provider-event-2", now + timedelta(minutes=59))
+    with pytest.raises(WallRushError, match="once per 30 minutes"):
+        grant_ad_ticket(db, 101, "provider-event-2", now + timedelta(minutes=29))
     db.rollback()
 
-    wallet = grant_ad_ticket(db, 101, "provider-event-3", now + timedelta(hours=1))
+    wallet = grant_ad_ticket(db, 101, "provider-event-3", now + timedelta(minutes=30))
     assert wallet.game_tickets == 2
 
 

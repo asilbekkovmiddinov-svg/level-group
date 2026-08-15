@@ -10,7 +10,12 @@ from app.models.user import User
 from app.models.wall_rush import GameTicketWallet
 from app.models.wheel import AdsgramRewardSession, WheelDailyLimit
 from app.services.arena_time import utc_now
-from app.services.wall_rush import WallRushError, get_wallet, grant_ad_ticket
+from app.services.wall_rush import (
+    WALL_RUSH_AD_COOLDOWN,
+    WallRushError,
+    get_wallet,
+    grant_ad_ticket,
+)
 
 
 PENDING = "PENDING"
@@ -111,7 +116,7 @@ def create_wall_rush_reward_session(
     wallet = get_wallet(db, telegram_id, lock=True)
     last = wallet.last_rewarded_ad_at
     if last is not None:
-        if _as_utc(now) < _as_utc(last) + timedelta(hours=1):
+        if _as_utc(now) < _as_utc(last) + WALL_RUSH_AD_COOLDOWN:
             raise ValueError("Rewarded reklama cooldown faol")
     return _new_session(db, telegram_id, WALL_RUSH_PURPOSE, now)
 
