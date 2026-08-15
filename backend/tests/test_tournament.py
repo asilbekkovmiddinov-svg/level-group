@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from pydantic import ValidationError
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -12,6 +12,7 @@ from app.models.arena_v3 import ArenaV3Match
 from app.models.tournament import (
     Tournament,
     TournamentFormat,
+    TournamentGroupMode,
     TournamentMatch,
     TournamentMatchStatus,
     TournamentParticipant,
@@ -21,11 +22,14 @@ from app.models.tournament import (
 from app.models.user import User
 from app.models.wall_rush import GameTicketWallet
 from app.schemas.tournament import (
-    TournamentApplicationDecision,
     TournamentCreate,
+    TournamentManualResult,
     TournamentMatchSchedule,
 )
 from app.services.tournament import TournamentService, TournamentServiceError
+
+
+PLAYER_IDS = tuple(range(101, 109))
 
 
 def build():
@@ -47,33 +51,39 @@ def build():
     )
     sessions = sessionmaker(bind=engine)
     db = sessions()
-    db.add_all(
-        [
-            User(telegram_id=9001, username="admin", first_name="Admin"),
-            User(telegram_id=101, username="alpha", first_name="Alpha"),
-            User(telegram_id=102, username="beta", first_name="Beta"),
-        ]
-    )
-    db.add_all(
-        [
-            GameTicketWallet(telegram_id=101, tournament_tickets=20),
-            GameTicketWallet(telegram_id=102, tournament_tickets=20),
-        ]
-    )
+    db.add(User(telegram_id=9001, username="admin", first_name="Admin"))
+    db.add_all([
+        User(
+            telegram_id=telegram_id,
+            username=f"player{telegram_id}",
+            first_name=f"Player {telegram_id}",
+        )
+        for telegram_id in PLAYER_IDS
+    ])
+    db.add_all([
+        GameTicketWallet(telegram_id=telegram_id, tournament_tickets=50)
+        for telegram_id in PLAYER_IDS
+    ])
     db.commit()
     return db, engine
 
 
-def payload(format=TournamentFormat.SINGLE_ELIMINATION):
+def payload(
+    *,
+    mode=TournamentGroupMode.POINTS,
+    max_participants=8,
+    group_size=4,
+    ticket_cost=7,
+):
     now = datetime.now(timezone.utc)
-    group = format == TournamentFormat.GROUP_PLAYOFF
     return TournamentCreate(
-        name="Summer Cup",
-        format=format,
-        max_participants=16,
-        ticket_cost=10,
-        group_count=4 if group else None,
-        qualifiers_per_group=2 if group else None,
+        name="Simple LEVEL Cup",
+        format=TournamentFormat.GROUP_PLAYOFF,
+        max_participants=max_participants,
+        ticket_cost=ticket_cost,
+        group_size=group_size,
+        group_mode=mode,
+        qualifiers_per_group=2,
         registration_opens_at=now - timedelta(hours=1),
         registration_closes_at=now + timedelta(hours=1),
         starts_at=now + timedelta(hours=2),
@@ -81,135 +91,161 @@ def payload(format=TournamentFormat.SINGLE_ELIMINATION):
     )
 
 
-def test_migration_upgrades_existing_tournaments_to_ten_tickets():
+def join_all(service, tournament):
+    return [
+        service.apply(tournament.id, telegram_id)
+        for telegram_id in PLAYER_IDS[: tournament.max_participants]
+    ]
+
+
+def start_simple_tournament(service, mode=TournamentGroupMode.POINTS):
+    tournament = service.create(payload(mode=mode), 9001)
+    join_all(service, tournament)
+    return service.start(tournament.id, 9001)
+
+
+def test_admin_configures_entry_ticket_group_size_mode_and_qualifiers():
+    points = payload(mode=TournamentGroupMode.POINTS)
+    elimination = payload(mode=TournamentGroupMode.ELIMINATION)
+
+    assert points.ticket_cost == 7
+    assert points.group_size == 4
+    assert points.group_count == 2
+    assert points.qualifiers_per_group == 2
+    assert elimination.group_mode == TournamentGroupMode.ELIMINATION
+
+
+def test_migration_adds_simple_group_fields_and_preserves_entry_ticket_price():
     engine = create_engine("sqlite://")
     try:
         with engine.begin() as connection:
-            connection.execute(
-                text(
-                    "CREATE TABLE tournaments ("
-                    "id INTEGER PRIMARY KEY, ticket_cost INTEGER NOT NULL "
-                    "CHECK (ticket_cost >= 0))"
-                )
-            )
-            connection.execute(
-                text(
-                    "INSERT INTO tournaments (id, ticket_cost) "
-                    "VALUES (1, 1), (2, 5)"
-                )
-            )
+            connection.execute(text(
+                "CREATE TABLE tournaments (id INTEGER PRIMARY KEY, "
+                "format VARCHAR(32), max_participants INTEGER, ticket_cost INTEGER, "
+                "group_count INTEGER, qualifiers_per_group INTEGER)"
+            ))
+            connection.execute(text(
+                "CREATE TABLE tournament_participants (id INTEGER PRIMARY KEY, "
+                "tournament_id INTEGER, telegram_id BIGINT, status VARCHAR(32), "
+                "seed INTEGER, group_name VARCHAR(16), played INTEGER DEFAULT 0, "
+                "wins INTEGER DEFAULT 0, losses INTEGER DEFAULT 0, points INTEGER DEFAULT 0, "
+                "advanced_round INTEGER DEFAULT 0, applied_at TIMESTAMP, "
+                "reviewed_at TIMESTAMP, reviewed_by BIGINT)"
+            ))
+            connection.execute(text(
+                "INSERT INTO tournaments "
+                "(id, format, max_participants, ticket_cost, group_count, qualifiers_per_group) "
+                "VALUES (1, 'GROUP_PLAYOFF', 16, 7, 4, 2)"
+            ))
 
         run_tournament_migrations(engine)
 
+        tournament_columns = {
+            column["name"] for column in inspect(engine).get_columns("tournaments")
+        }
+        participant_columns = {
+            column["name"]
+            for column in inspect(engine).get_columns("tournament_participants")
+        }
         with engine.connect() as connection:
-            costs = connection.execute(
-                text("SELECT ticket_cost FROM tournaments ORDER BY id")
-            ).scalars().all()
-        assert costs == [10, 10]
+            row = connection.execute(text(
+                "SELECT ticket_cost, group_size, group_mode FROM tournaments WHERE id = 1"
+            )).one()
+        assert tournament_columns >= {"group_size", "group_mode"}
+        assert participant_columns >= {
+            "entry_ticket_state", "goals_for", "goals_against"
+        }
+        assert tuple(row) == (7, 4, "POINTS")
     finally:
         engine.dispose()
 
 
-def test_admin_can_create_both_tournament_formats():
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("max_participants", 10),
+        ("qualifiers_per_group", 4),
+        ("group_size", None),
+        ("group_mode", None),
+    ],
+)
+def test_invalid_group_settings_are_rejected(field, value):
+    values = payload().model_dump()
+    values[field] = value
+    with pytest.raises(ValidationError):
+        TournamentCreate(**values)
+
+
+def test_join_spends_configurable_entry_ticket_once_and_auto_approves():
     db, engine = build()
     try:
-        olympic = TournamentService(db).create(
-            payload(TournamentFormat.SINGLE_ELIMINATION), 9001
-        )
-        assert olympic.format == TournamentFormat.SINGLE_ELIMINATION
-        assert olympic.group_count is None
+        service = TournamentService(db)
+        tournament = service.create(payload(ticket_cost=7), 9001)
 
-        group = TournamentService(db).create(
-            payload(TournamentFormat.GROUP_PLAYOFF), 9001
-        )
-        assert group.format == TournamentFormat.GROUP_PLAYOFF
-        assert group.group_count == 4
-        assert group.qualifiers_per_group == 2
+        participant = service.apply(tournament.id, 101)
+        repeated = service.apply(tournament.id, 101)
+
+        assert participant.id == repeated.id
+        assert participant.status == TournamentParticipantStatus.APPROVED
+        assert participant.entry_ticket_state == "SPENT"
+        assert db.get(GameTicketWallet, 101).tournament_tickets == 43
     finally:
         db.close()
         engine.dispose()
 
 
-def test_format_settings_are_immutable_and_validated_at_creation():
-    values = payload(TournamentFormat.SINGLE_ELIMINATION).model_dump()
-    values["group_count"] = 4
-    with pytest.raises(ValidationError):
-        TournamentCreate(**values)
-
-    values = payload().model_dump()
-    values["ticket_cost"] = 1
-    with pytest.raises(ValidationError):
-        TournamentCreate(**values)
-
-    values = payload(TournamentFormat.GROUP_PLAYOFF).model_dump()
-    values["qualifiers_per_group"] = None
-    with pytest.raises(ValidationError):
-        TournamentCreate(**values)
-
-
-def test_application_and_approval_require_ten_available_tickets():
+def test_join_requires_entry_ticket_and_capacity():
     db, engine = build()
     try:
         service = TournamentService(db)
-        tournament = service.create(payload(), 9001)
-        wallet = db.get(GameTicketWallet, 101)
-        wallet.tournament_tickets = 9
+        tournament = service.create(
+            payload(max_participants=4, group_size=4, ticket_cost=10),
+            9001,
+        )
+        db.get(GameTicketWallet, 101).tournament_tickets = 9
         db.commit()
-
         with pytest.raises(TournamentServiceError, match="kamida 10 ta"):
             service.apply(tournament.id, 101)
 
-        wallet.tournament_tickets = 10
+        db.get(GameTicketWallet, 101).tournament_tickets = 10
         db.commit()
-        participant = service.apply(tournament.id, 101)
-
-        wallet.tournament_tickets = 9
-        db.commit()
-        with pytest.raises(TournamentServiceError, match="kamida 10 ta"):
-            service.review(
-                tournament.id,
-                participant.id,
-                TournamentApplicationDecision(decision="APPROVED", seed=1),
-                9001,
-            )
-
-        wallet.tournament_tickets = 10
-        db.commit()
-        reviewed = service.review(
-            tournament.id,
-            participant.id,
-            TournamentApplicationDecision(decision="APPROVED", seed=1),
-            9001,
-        )
-        assert reviewed.status == TournamentParticipantStatus.APPROVED
+        for telegram_id in (101, 102, 103, 104):
+            service.apply(tournament.id, telegram_id)
+        with pytest.raises(TournamentServiceError, match="capacity"):
+            service.apply(tournament.id, 105)
     finally:
         db.close()
         engine.dispose()
 
 
-def test_admin_approves_schedules_and_starts_olympic_tournament():
+def test_start_requires_all_places_and_assigns_four_player_groups():
     db, engine = build()
     try:
         service = TournamentService(db)
         tournament = service.create(payload(), 9001)
-        players = [
+        for telegram_id in PLAYER_IDS[:7]:
             service.apply(tournament.id, telegram_id)
-            for telegram_id in (101, 102)
-        ]
-        for seed, player in enumerate(players, start=1):
-            reviewed = service.review(
-                tournament.id,
-                player.id,
-                TournamentApplicationDecision(
-                    decision="APPROVED",
-                    seed=seed,
-                ),
-                9001,
-            )
-            assert reviewed.status == TournamentParticipantStatus.APPROVED
+        with pytest.raises(TournamentServiceError, match="8 ta joy"):
+            service.start(tournament.id, 9001)
 
-        with pytest.raises(TournamentServiceError):
-            service.start(tournament.id)
+        service.apply(tournament.id, PLAYER_IDS[7])
+        started = service.start(tournament.id, 9001)
+        participants = service.public_participants(tournament.id)
+
+        assert started.status == TournamentStatus.ACTIVE
+        assert [row.group_name for row in participants] == ["A"] * 4 + ["B"] * 4
+        assert [row.seed for row in participants] == list(range(1, 9))
+    finally:
+        db.close()
+        engine.dispose()
+
+
+def test_admin_schedules_each_group_match_time_and_blocks_cross_group_pair():
+    db, engine = build()
+    try:
+        service = TournamentService(db)
+        tournament = start_simple_tournament(service)
+        scheduled_at = tournament.starts_at + timedelta(hours=1)
 
         match = service.schedule_match(
             tournament.id,
@@ -217,53 +253,39 @@ def test_admin_approves_schedules_and_starts_olympic_tournament():
                 player_a_id=101,
                 player_b_id=102,
                 round_number=1,
-                round_name="1/8 final",
-                scheduled_at=tournament.starts_at + timedelta(hours=1),
+                round_name="Guruh A",
+                group_name="A",
+                scheduled_at=scheduled_at,
             ),
             9001,
         )
-        assert match.player_a_id == 101
-        assert match.player_b_id == 102
+        assert match.status == TournamentMatchStatus.SCHEDULED
+        assert match.scheduled_at == scheduled_at
 
-        started = service.start(tournament.id)
-        assert started.status == TournamentStatus.ACTIVE
-        assert service.matches(tournament.id)[0].id == match.id
-    finally:
-        db.close()
-        engine.dispose()
-
-
-def test_group_match_requires_players_from_same_group():
-    db, engine = build()
-    try:
-        service = TournamentService(db)
-        tournament = service.create(
-            payload(TournamentFormat.GROUP_PLAYOFF), 9001
-        )
-        players = [
-            service.apply(tournament.id, telegram_id)
-            for telegram_id in (101, 102)
-        ]
-        for player, group_name in zip(players, ("A", "B")):
-            service.review(
+        with pytest.raises(TournamentServiceError, match="already have a match"):
+            service.schedule_match(
                 tournament.id,
-                player.id,
-                TournamentApplicationDecision(
-                    decision="APPROVED",
-                    group_name=group_name,
+                TournamentMatchSchedule(
+                    player_a_id=102,
+                    player_b_id=101,
+                    round_number=1,
+                    round_name="Guruh A",
+                    group_name="A",
+                    scheduled_at=scheduled_at + timedelta(hours=1),
                 ),
                 9001,
             )
-        with pytest.raises(TournamentServiceError):
+
+        with pytest.raises(TournamentServiceError, match="share group"):
             service.schedule_match(
                 tournament.id,
                 TournamentMatchSchedule(
                     player_a_id=101,
-                    player_b_id=102,
+                    player_b_id=105,
                     round_number=1,
-                    round_name="Group A",
+                    round_name="Guruh A",
                     group_name="A",
-                    scheduled_at=tournament.starts_at + timedelta(hours=1),
+                    scheduled_at=scheduled_at,
                 ),
                 9001,
             )
@@ -272,197 +294,156 @@ def test_group_match_requires_players_from_same_group():
         engine.dispose()
 
 
-def test_public_participants_excludes_pending_and_rejected_applications():
+def test_points_result_updates_table_and_edit_reverses_old_statistics():
     db, engine = build()
     try:
         service = TournamentService(db)
-        tournament = service.create(payload(), 9001)
-        approved = service.apply(tournament.id, 101)
-        rejected = service.apply(tournament.id, 102)
-        service.review(
-            tournament.id,
-            approved.id,
-            TournamentApplicationDecision(decision="APPROVED", seed=1),
-            9001,
-        )
-        service.review(
-            tournament.id,
-            rejected.id,
-            TournamentApplicationDecision(decision="REJECTED"),
-            9001,
-        )
-
-        visible = service.public_participants(tournament.id)
-
-        assert [item.telegram_id for item in visible] == [101]
-        assert visible[0].username == "alpha"
-    finally:
-        db.close()
-        engine.dispose()
-
-
-def _approved_players(service, tournament):
-    players = [
-        service.apply(tournament.id, telegram_id)
-        for telegram_id in (101, 102)
-    ]
-    for seed, player in enumerate(players, start=1):
-        service.review(
-            tournament.id,
-            player.id,
-            TournamentApplicationDecision(
-                decision="APPROVED",
-                seed=seed,
-                group_name=(
-                    "A"
-                    if tournament.format == TournamentFormat.GROUP_PLAYOFF
-                    else None
-                ),
-            ),
-            9001,
-        )
-    return players
-
-
-def test_match_locks_refunds_and_spends_ten_tickets_per_player():
-    db, engine = build()
-    try:
-        service = TournamentService(db)
-        tournament = service.create(payload(), 9001)
-        _approved_players(service, tournament)
+        tournament = start_simple_tournament(service)
         match = service.schedule_match(
             tournament.id,
             TournamentMatchSchedule(
                 player_a_id=101,
                 player_b_id=102,
                 round_number=1,
-                round_name="Round 1",
-                scheduled_at=tournament.starts_at + timedelta(hours=1),
-            ),
-            9001,
-        )
-        service.start(tournament.id)
-        for player_id in (101, 102):
-            wallet = db.get(GameTicketWallet, player_id)
-            wallet.tournament_tickets = 10
-        db.commit()
-
-        opened = service.open_match(tournament.id, match.id)
-        assert opened.status == TournamentMatchStatus.READY
-        assert opened.player_a_ticket_state == "LOCKED"
-        assert opened.player_b_ticket_state == "LOCKED"
-        for player_id in (101, 102):
-            wallet = db.get(GameTicketWallet, player_id)
-            assert wallet.tournament_tickets == 0
-            assert wallet.locked_tournament_tickets == 10
-
-        cancelled = service.cancel_before_start(opened.arena_match_id)
-        assert cancelled.status == TournamentMatchStatus.CANCELLED
-        assert cancelled.player_a_ticket_state == "REFUNDED"
-        assert cancelled.player_b_ticket_state == "REFUNDED"
-        for player_id in (101, 102):
-            wallet = db.get(GameTicketWallet, player_id)
-            assert wallet.tournament_tickets == 10
-            assert wallet.locked_tournament_tickets == 0
-
-        next_match = service.schedule_match(
-            tournament.id,
-            TournamentMatchSchedule(
-                player_a_id=101,
-                player_b_id=102,
-                round_number=2,
-                round_name="Round 2",
-                scheduled_at=tournament.starts_at + timedelta(hours=2),
-            ),
-            9001,
-        )
-        opened = service.open_match(tournament.id, next_match.id)
-        playing = service.activate_arena_match(opened.arena_match_id)
-        assert playing.status == TournamentMatchStatus.PLAYING
-        assert playing.player_a_ticket_state == "SPENT"
-        assert playing.player_b_ticket_state == "SPENT"
-        for player_id in (101, 102):
-            wallet = db.get(GameTicketWallet, player_id)
-            assert wallet.tournament_tickets == 0
-            assert wallet.locked_tournament_tickets == 0
-    finally:
-        db.close()
-        engine.dispose()
-
-
-def test_olympic_result_eliminates_loser_and_advances_winner():
-    db, engine = build()
-    try:
-        service = TournamentService(db)
-        tournament = service.create(payload(), 9001)
-        _approved_players(service, tournament)
-        match = service.schedule_match(
-            tournament.id,
-            TournamentMatchSchedule(
-                player_a_id=101,
-                player_b_id=102,
-                round_number=2,
-                round_name="Quarter-final",
-                scheduled_at=tournament.starts_at + timedelta(hours=1),
-            ),
-            9001,
-        )
-        match.status = "PLAYING"
-        match.arena_match_id = 7001
-        db.commit()
-
-        result = service.finish_arena_result(
-            7001, player_a_score=3, player_b_score=1
-        )
-        assert result.winner_id == 101
-        winner = service.participant(tournament.id, 101)
-        loser = service.participant(tournament.id, 102)
-        assert winner.advanced_round == 2
-        assert loser.status == TournamentParticipantStatus.ELIMINATED
-    finally:
-        db.close()
-        engine.dispose()
-
-
-def test_group_result_awards_three_points_and_revision_reverses_it():
-    db, engine = build()
-    try:
-        service = TournamentService(db)
-        tournament = service.create(
-            payload(TournamentFormat.GROUP_PLAYOFF), 9001
-        )
-        _approved_players(service, tournament)
-        match = service.schedule_match(
-            tournament.id,
-            TournamentMatchSchedule(
-                player_a_id=101,
-                player_b_id=102,
-                round_number=1,
-                round_name="Group A",
+                round_name="Guruh A",
                 group_name="A",
-                scheduled_at=tournament.starts_at + timedelta(hours=1),
+                scheduled_at=tournament.starts_at,
             ),
             9001,
         )
-        match.status = "PLAYING"
-        match.arena_match_id = 7002
-        db.commit()
 
-        service.finish_arena_result(
-            7002, player_a_score=2, player_b_score=1
+        service.record_result(
+            tournament.id,
+            match.id,
+            TournamentManualResult(player_a_score=3, player_b_score=1),
+            9001,
         )
         alpha = service.participant(tournament.id, 101)
         beta = service.participant(tournament.id, 102)
         assert (alpha.played, alpha.wins, alpha.points) == (1, 1, 3)
+        assert (alpha.goals_for, alpha.goals_against) == (3, 1)
         assert (beta.played, beta.losses, beta.points) == (1, 1, 0)
 
-        service.revise_arena_result(
-            7002, player_a_score=0, player_b_score=2
+        service.record_result(
+            tournament.id,
+            match.id,
+            TournamentManualResult(player_a_score=0, player_b_score=2),
+            9001,
         )
         db.refresh(alpha)
         db.refresh(beta)
-        assert (alpha.played, alpha.losses, alpha.points) == (1, 1, 0)
-        assert (beta.played, beta.wins, beta.points) == (1, 1, 3)
+        assert (alpha.played, alpha.wins, alpha.losses, alpha.points) == (1, 0, 1, 0)
+        assert (alpha.goals_for, alpha.goals_against) == (0, 2)
+        assert (beta.played, beta.wins, beta.losses, beta.points) == (1, 1, 0, 3)
+    finally:
+        db.close()
+        engine.dispose()
+
+
+def test_elimination_result_marks_loser_out_without_extra_ticket_charge():
+    db, engine = build()
+    try:
+        service = TournamentService(db)
+        tournament = start_simple_tournament(
+            service, mode=TournamentGroupMode.ELIMINATION
+        )
+        before = db.get(GameTicketWallet, 101).tournament_tickets
+        match = service.schedule_match(
+            tournament.id,
+            TournamentMatchSchedule(
+                player_a_id=101,
+                player_b_id=102,
+                round_number=1,
+                round_name="Guruh A · 1-bosqich",
+                group_name="A",
+                scheduled_at=tournament.starts_at,
+            ),
+            9001,
+        )
+
+        result = service.record_result(
+            tournament.id,
+            match.id,
+            TournamentManualResult(player_a_score=2, player_b_score=1),
+            9001,
+        )
+
+        assert result.winner_id == 101
+        assert service.participant(tournament.id, 101).status == "APPROVED"
+        assert service.participant(tournament.id, 102).status == "ELIMINATED"
+        assert db.get(GameTicketWallet, 101).tournament_tickets == before
+    finally:
+        db.close()
+        engine.dispose()
+
+
+def test_manual_result_requires_a_winner():
+    with pytest.raises(ValidationError):
+        TournamentManualResult(player_a_score=2, player_b_score=2)
+
+
+def test_finalize_points_groups_keeps_configured_top_players():
+    db, engine = build()
+    try:
+        service = TournamentService(db)
+        tournament = start_simple_tournament(service)
+        for group_name in ("A", "B"):
+            rows = service.public_participants(
+                tournament.id, group_name=group_name
+            )
+            for index, row in enumerate(rows):
+                row.played = 3
+                row.wins = 3 - index
+                row.losses = index
+                row.points = (3 - index) * 3
+                row.goals_for = 9 - index
+                row.goals_against = index
+        db.commit()
+
+        result = service.finalize_groups(tournament.id)
+
+        assert result == {
+            "groups_finalized": 2,
+            "qualified_players": 4,
+            "eliminated_players": 4,
+        }
+        approved = service.applications(
+            tournament.id, TournamentParticipantStatus.APPROVED
+        )
+        assert {row.telegram_id for row in approved} == {101, 102, 105, 106}
+    finally:
+        db.close()
+        engine.dispose()
+
+
+def test_finalize_groups_requires_all_results_and_complete_round_robin():
+    db, engine = build()
+    try:
+        service = TournamentService(db)
+        tournament = start_simple_tournament(service)
+        match = service.schedule_match(
+            tournament.id,
+            TournamentMatchSchedule(
+                player_a_id=101,
+                player_b_id=102,
+                round_number=1,
+                round_name="Guruh A",
+                group_name="A",
+                scheduled_at=tournament.starts_at,
+            ),
+            9001,
+        )
+        with pytest.raises(TournamentServiceError, match="results must be entered"):
+            service.finalize_groups(tournament.id)
+
+        service.record_result(
+            tournament.id,
+            match.id,
+            TournamentManualResult(player_a_score=1, player_b_score=0),
+            9001,
+        )
+        with pytest.raises(TournamentServiceError, match="round-robin matches"):
+            service.finalize_groups(tournament.id)
     finally:
         db.close()
         engine.dispose()
