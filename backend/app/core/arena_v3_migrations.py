@@ -75,6 +75,9 @@ def run_arena_v3_migrations(bind: Engine | Connection) -> None:
                     ))
 
             match_additions = {
+                "ticket_cost": "INTEGER NOT NULL DEFAULT 0",
+                "owner_ticket_state": "VARCHAR(16)",
+                "opponent_ticket_state": "VARCHAR(16)",
                 "reward_hold_status": "VARCHAR(32) NOT NULL DEFAULT 'NONE'",
                 "reward_release_at": "TIMESTAMP",
                 "appeal_deadline_at": "TIMESTAMP",
@@ -143,6 +146,26 @@ def run_arena_v3_migrations(bind: Engine | Connection) -> None:
             ))
 
             if connection.dialect.name == "postgresql":
+                connection.execute(text(
+                    "ALTER TABLE arena_matches DROP CONSTRAINT IF EXISTS "
+                    "ck_arena_matches_stake_by_mode"
+                ))
+                connection.execute(text(
+                    "ALTER TABLE arena_matches ADD CONSTRAINT "
+                    "ck_arena_matches_stake_by_mode CHECK ("
+                    "(match_type IN ('DIVISION', 'TOURNAMENT') AND stake_efc = 0) OR "
+                    "(match_type = 'STANDARD' AND stake_efc >= 0) OR "
+                    "(match_type NOT IN ('DIVISION', 'TOURNAMENT', 'STANDARD') "
+                    "AND stake_efc > 0))"
+                ))
+                connection.execute(text(
+                    "ALTER TABLE arena_matches DROP CONSTRAINT IF EXISTS "
+                    "ck_arena_matches_ticket_cost"
+                ))
+                connection.execute(text(
+                    "ALTER TABLE arena_matches ADD CONSTRAINT "
+                    "ck_arena_matches_ticket_cost CHECK (ticket_cost >= 0)"
+                ))
                 for name in ("submitted_by", "video_storage_key", "file_hash"):
                     column = appeal_columns.get(name)
                     if column is not None and not column["nullable"]:

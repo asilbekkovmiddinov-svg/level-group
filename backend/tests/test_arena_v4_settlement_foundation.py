@@ -261,3 +261,55 @@ def test_settlement_failure_rolls_back_decision_wallet_and_ledger(
     assert db.query(Transaction).count() == 0
     assert db.query(ArenaV4SettlementOperation).count() == 0
     assert db.query(ArenaV4ResultRevision).count() == 0
+
+
+def test_ticket_arena_result_updates_stats_without_efc_settlement(session_factory):
+    db = session_factory()
+    match = ArenaV3Match(
+        public_id="ARV4TICKETARENA001",
+        owner_id=3001,
+        opponent_id=3002,
+        owner_efootball_username="Ticket A",
+        opponent_efootball_username="Ticket B",
+        stake_efc=Decimal("0.00"),
+        total_pool_efc=Decimal("0.00"),
+        commission_efc=Decimal("0.00"),
+        winner_reward_efc=Decimal("0.00"),
+        ticket_cost=2,
+        owner_ticket_state="SPENT",
+        opponent_ticket_state="SPENT",
+        match_type="STANDARD",
+        match_time_minutes=10,
+        extra_time_enabled=False,
+        penalties_enabled=True,
+        status=ArenaV3Status.WAITING_ADMIN,
+        settlement_status=ArenaV3SettlementStatus.NOT_STARTED,
+        result_version=0,
+        version=6,
+    )
+    db.add(match)
+    db.flush()
+    review = ArenaV4AdminReview(
+        match_id=match.id,
+        review_type=ArenaV4ReviewType.INITIAL,
+        status=ArenaV4AdminReviewStatus.CLAIMED,
+        result_version=0,
+        assigned_admin_id=9999,
+        expected_match_version=6,
+        claimed_at=datetime.now(timezone.utc),
+    )
+    db.add(review)
+    db.commit()
+
+    _decide(db, review, ArenaV4ResultType.PLAYER_A_WIN)
+    db.refresh(match)
+
+    assert match.status == ArenaV3Status.FINISHED
+    assert match.winner_id == 3001
+    assert match.reward_hold_status == ArenaV4RewardHoldStatus.NONE
+    assert match.settlement_status == ArenaV3SettlementStatus.COMPLETED
+    assert db.query(ArenaV4SettlementOperation).count() == 0
+    assert db.query(Transaction).count() == 0
+    assert db.get(ArenaV3Stats, 3001).wins == 1
+    assert db.get(ArenaV3Stats, 3002).losses == 1
+    assert db.query(ArenaV4ResultRevision).count() == 1

@@ -666,6 +666,87 @@ def _apply_tournament_admin_result(
     ))
 
 
+def _apply_ticket_arena_admin_result(
+    *, repository, match, review, payload, now, decision
+):
+    result_version = match.result_version + 1
+    owner_score = getattr(payload, "owner_score", None)
+    opponent_score = getattr(payload, "opponent_score", None)
+    match.owner_score = owner_score
+    match.opponent_score = opponent_score
+    match.current_result_type = decision
+    match.result_version = result_version
+    match.current_decision_id = review.id
+    if match.initial_decision_id is None:
+        match.initial_decision_id = review.id
+    match.result_source = "ADMIN"
+    match.appeal_deadline_at = now + timedelta(minutes=REWARD_HOLD_MINUTES)
+    match.has_appeal = False
+    match.stake_efc = Decimal("0.00")
+    match.total_pool_efc = Decimal("0.00")
+    match.commission_efc = Decimal("0.00")
+    match.winner_reward_efc = Decimal("0.00")
+    if decision in {
+        ArenaV4ResultType.PLAYER_A_WIN,
+        ArenaV4ResultType.PLAYER_B_WIN,
+    }:
+        match.winner_id = (
+            match.owner_id
+            if decision == ArenaV4ResultType.PLAYER_A_WIN
+            else match.opponent_id
+        )
+        match.loser_id = (
+            match.opponent_id
+            if match.winner_id == match.owner_id
+            else match.owner_id
+        )
+    else:
+        match.winner_id = None
+        match.loser_id = None
+    match.reward_hold_status = ArenaV4RewardHoldStatus.NONE
+    match.reward_release_at = None
+    match.settlement_status = ArenaV3SettlementStatus.COMPLETED
+    match.cancel_reason = (
+        "ADMIN_CANCEL" if decision == ArenaV4ResultType.CANCEL else None
+    )
+    if decision != ArenaV4ResultType.CANCEL:
+        _update_competitive_stats(repository, match, decision)
+
+    repository.add_result_revision(ArenaV4ResultRevision(
+        match_id=match.id,
+        version=result_version,
+        review_id=review.id,
+        previous_result_type=None,
+        new_result_type=decision.value,
+        previous_winner_id=None,
+        new_winner_id=match.winner_id,
+        new_owner_score=owner_score,
+        new_opponent_score=opponent_score,
+        new_reward_efc=Decimal("0.00"),
+        new_fee_efc=Decimal("0.00"),
+        admin_id=review.assigned_admin_id,
+        reason=payload.reason or "INITIAL_TICKET_ARENA_DECISION",
+    ))
+    _queue_initial_result_notifications(repository, match, decision)
+    transition_arena_v3(match, ArenaV3Status.FINISHED)
+    match.settled_at = now
+    match.finished_at = now
+    repository.add_event(ArenaV3MatchEvent(
+        match_id=match.id,
+        event_type="TICKET_ARENA_ADMIN_RESULT_COMPLETED",
+        from_status=ArenaV3Status.WAITING_ADMIN.value,
+        to_status=ArenaV3Status.FINISHED.value,
+        actor_type="ADMIN",
+        actor_id=review.assigned_admin_id,
+        idempotency_key=f"ticket-arena-admin-result:{review.id}",
+        event_metadata={
+            "decision": decision.value,
+            "result_version": result_version,
+            "ticket_cost_per_player": match.ticket_cost,
+        },
+    ))
+
+
 def apply_admin_settlement(
     db, *, repository, match, review, payload, now=None, decision=None
 ):
@@ -692,6 +773,16 @@ def apply_admin_settlement(
     if match.match_type == "TOURNAMENT":
         _apply_tournament_admin_result(
             db,
+            repository=repository,
+            match=match,
+            review=review,
+            payload=payload,
+            now=now,
+            decision=decision,
+        )
+        return
+    if match.match_type == "STANDARD" and match.ticket_cost > 0:
+        _apply_ticket_arena_admin_result(
             repository=repository,
             match=match,
             review=review,
@@ -1113,6 +1204,108 @@ def resolve_appeal_settlement(
             opponent_score=opponent_score,
             reason=reason,
         )
+        return
+    if match.match_type == "STANDARD" and match.ticket_cost > 0:
+        if action.value == "KEEP_RESULT":
+            event_type = "TICKET_ARENA_APPEAL_RESULT_KEPT"
+        else:
+            if action.value == "UPDATE_SCORE":
+                if (
+                    owner_score == old_owner_score
+                    and opponent_score == old_opponent_score
+                ):
+                    raise ArenaV3Conflict(
+                        "Updated score must differ from current score"
+                    )
+                new_result = result_from_score(owner_score, opponent_score)
+            else:
+                owner_score = None
+                opponent_score = None
+                new_result = ArenaV4ResultType.CANCEL
+            new_version = old_version + 1
+            match.owner_score = owner_score
+            match.opponent_score = opponent_score
+            match.current_result_type = new_result
+            match.result_version = new_version
+            match.current_decision_id = review.id
+            match.result_source = "ADMIN_APPEAL"
+            if new_result in {
+                ArenaV4ResultType.PLAYER_A_WIN,
+                ArenaV4ResultType.PLAYER_B_WIN,
+            }:
+                match.winner_id = (
+                    match.owner_id
+                    if new_result == ArenaV4ResultType.PLAYER_A_WIN
+                    else match.opponent_id
+                )
+                match.loser_id = (
+                    match.opponent_id
+                    if match.winner_id == match.owner_id
+                    else match.owner_id
+                )
+            else:
+                match.winner_id = None
+                match.loser_id = None
+            match.cancel_reason = (
+                "APPEAL_ADMIN_CANCEL"
+                if new_result == ArenaV4ResultType.CANCEL
+                else None
+            )
+            match.reward_hold_status = ArenaV4RewardHoldStatus.NONE
+            match.reward_release_at = None
+            match.settlement_status = ArenaV3SettlementStatus.COMPLETED
+            repository.add_result_revision(ArenaV4ResultRevision(
+                match_id=match.id,
+                version=new_version,
+                review_id=review.id,
+                appeal_id=appeal.id,
+                previous_result_type=old_result.value if old_result else None,
+                new_result_type=new_result.value,
+                previous_winner_id=old_winner_id,
+                new_winner_id=match.winner_id,
+                previous_owner_score=old_owner_score,
+                previous_opponent_score=old_opponent_score,
+                new_owner_score=owner_score,
+                new_opponent_score=opponent_score,
+                previous_reward_efc=Decimal("0.00"),
+                new_reward_efc=Decimal("0.00"),
+                previous_fee_efc=Decimal("0.00"),
+                new_fee_efc=Decimal("0.00"),
+                admin_id=review.assigned_admin_id,
+                reason=reason,
+            ))
+            _recalculate_player_stats(repository, match.owner_id)
+            _recalculate_player_stats(repository, match.opponent_id)
+            event_type = (
+                "TICKET_ARENA_APPEAL_SCORE_UPDATED"
+                if action.value == "UPDATE_SCORE"
+                else "TICKET_ARENA_APPEAL_MATCH_CANCELLED"
+            )
+        for player_id in (match.owner_id, match.opponent_id):
+            queue_v4_notification(
+                repository,
+                match_id=match.id,
+                recipient_id=player_id,
+                event_type="APPEAL_RESOLVED",
+                dedup_key=(
+                    f"ticket-arena:{match.id}:appeal-resolved:"
+                    f"{review.id}:{player_id}"
+                ),
+            )
+        repository.add_event(ArenaV3MatchEvent(
+            match_id=match.id,
+            event_type=event_type,
+            from_status=ArenaV3Status.FINISHED.value,
+            to_status=ArenaV3Status.FINISHED.value,
+            actor_type="ADMIN",
+            actor_id=review.assigned_admin_id,
+            idempotency_key=f"ticket-arena-appeal-resolution:{review.id}",
+            event_metadata={
+                "action": action.value,
+                "old_result_version": old_version,
+                "new_result_version": match.result_version,
+            },
+        ))
         return
 
     if action.value == "KEEP_RESULT":

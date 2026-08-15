@@ -103,9 +103,11 @@ class ArenaV3Match(Base):
         UniqueConstraint("owner_id", "idempotency_key", name="uq_arena_matches_owner_idempotency"),
         CheckConstraint(
             "(match_type IN ('DIVISION', 'TOURNAMENT') AND stake_efc = 0) OR "
-            "(match_type NOT IN ('DIVISION', 'TOURNAMENT') AND stake_efc > 0)",
+            "(match_type = 'STANDARD' AND stake_efc >= 0) OR "
+            "(match_type NOT IN ('DIVISION', 'TOURNAMENT', 'STANDARD') AND stake_efc > 0)",
             name="ck_arena_matches_stake_by_mode",
         ),
+        CheckConstraint("ticket_cost >= 0", name="ck_arena_matches_ticket_cost"),
         CheckConstraint("match_time_minutes BETWEEN 6 AND 15", name="ck_arena_matches_time"),
         CheckConstraint("penalties_enabled = true", name="ck_arena_matches_penalties_required"),
         CheckConstraint("owner_id <> opponent_id", name="ck_arena_matches_distinct_players"),
@@ -128,6 +130,9 @@ class ArenaV3Match(Base):
     total_pool_efc = Column(Numeric(18, 2), nullable=False)
     commission_efc = Column(Numeric(18, 2), nullable=False)
     winner_reward_efc = Column(Numeric(18, 2), nullable=False)
+    ticket_cost = Column(Integer, nullable=False, default=0)
+    owner_ticket_state = Column(String(16))
+    opponent_ticket_state = Column(String(16))
     match_type = Column(String(32), nullable=False, index=True)
     match_time_minutes = Column(Integer, nullable=False)
     extra_time_enabled = Column(Boolean, nullable=False, default=False)
