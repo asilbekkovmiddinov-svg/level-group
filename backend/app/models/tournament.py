@@ -19,6 +19,7 @@ from app.core.database import Base
 
 
 TOURNAMENT_TICKET_COST = 10
+MAX_TOURNAMENT_PARTICIPANTS = 8192
 
 
 def utc_now():
@@ -28,6 +29,11 @@ def utc_now():
 class TournamentFormat(str, Enum):
     SINGLE_ELIMINATION = "SINGLE_ELIMINATION"
     GROUP_PLAYOFF = "GROUP_PLAYOFF"
+
+
+class TournamentGroupMode(str, Enum):
+    POINTS = "POINTS"
+    ELIMINATION = "ELIMINATION"
 
 
 class TournamentStatus(str, Enum):
@@ -57,13 +63,21 @@ class TournamentMatchStatus(str, Enum):
 class Tournament(Base):
     __tablename__ = "tournaments"
     __table_args__ = (
-        CheckConstraint("max_participants BETWEEN 2 AND 128", name="ck_tournament_capacity"),
-        CheckConstraint("ticket_cost = 10", name="ck_tournament_ticket_cost"),
+        CheckConstraint(
+            f"max_participants BETWEEN 2 AND {MAX_TOURNAMENT_PARTICIPANTS}",
+            name="ck_tournament_capacity",
+        ),
+        CheckConstraint(
+            "ticket_cost BETWEEN 0 AND 1000000",
+            name="ck_tournament_ticket_cost",
+        ),
         CheckConstraint(
             "(format = 'SINGLE_ELIMINATION' AND group_count IS NULL "
-            "AND qualifiers_per_group IS NULL) OR "
-            "(format = 'GROUP_PLAYOFF' AND group_count >= 2 "
-            "AND qualifiers_per_group >= 1)",
+            "AND qualifiers_per_group IS NULL AND group_size IS NULL "
+            "AND group_mode IS NULL) OR "
+            "(format = 'GROUP_PLAYOFF' AND group_count >= 1 "
+            "AND qualifiers_per_group >= 1 AND group_size IN (4, 8) "
+            "AND group_mode IN ('POINTS', 'ELIMINATION'))",
             name="ck_tournament_format_settings",
         ),
         Index("ix_tournament_status_dates", "status", "starts_at", "ends_at"),
@@ -81,6 +95,8 @@ class Tournament(Base):
     max_participants = Column(Integer, nullable=False)
     ticket_cost = Column(Integer, nullable=False, default=TOURNAMENT_TICKET_COST)
     group_count = Column(Integer)
+    group_size = Column(Integer)
+    group_mode = Column(SQLEnum(TournamentGroupMode, native_enum=False))
     qualifiers_per_group = Column(Integer)
     registration_opens_at = Column(DateTime(timezone=True), nullable=False)
     registration_closes_at = Column(DateTime(timezone=True), nullable=False)
@@ -124,10 +140,13 @@ class TournamentParticipant(Base):
     )
     seed = Column(Integer)
     group_name = Column(String(16))
+    entry_ticket_state = Column(String(16))
     played = Column(Integer, nullable=False, default=0)
     wins = Column(Integer, nullable=False, default=0)
     losses = Column(Integer, nullable=False, default=0)
     points = Column(Integer, nullable=False, default=0)
+    goals_for = Column(Integer, nullable=False, default=0)
+    goals_against = Column(Integer, nullable=False, default=0)
     advanced_round = Column(Integer, nullable=False, default=0)
     applied_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
     reviewed_at = Column(DateTime(timezone=True))

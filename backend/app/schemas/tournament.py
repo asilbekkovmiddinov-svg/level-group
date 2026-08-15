@@ -4,8 +4,9 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.models.tournament import (
-    TOURNAMENT_TICKET_COST,
+    MAX_TOURNAMENT_PARTICIPANTS,
     TournamentFormat,
+    TournamentGroupMode,
     TournamentMatchStatus,
     TournamentParticipantStatus,
     TournamentStatus,
@@ -14,11 +15,13 @@ from app.models.tournament import (
 
 class TournamentCreate(BaseModel):
     name: str = Field(min_length=3, max_length=100)
-    format: TournamentFormat
-    max_participants: int = Field(ge=2, le=128)
-    ticket_cost: Literal[10] = TOURNAMENT_TICKET_COST
-    group_count: int | None = Field(default=None, ge=2, le=32)
-    qualifiers_per_group: int | None = Field(default=None, ge=1, le=16)
+    format: TournamentFormat = TournamentFormat.GROUP_PLAYOFF
+    max_participants: int = Field(ge=4, le=MAX_TOURNAMENT_PARTICIPANTS)
+    ticket_cost: int = Field(ge=0, le=1_000_000)
+    group_count: int | None = Field(default=None, ge=1, le=2048)
+    group_size: Literal[4, 8] | None = None
+    group_mode: TournamentGroupMode | None = None
+    qualifiers_per_group: int | None = Field(default=None, ge=1, le=4)
     registration_opens_at: datetime
     registration_closes_at: datetime
     starts_at: datetime
@@ -27,10 +30,26 @@ class TournamentCreate(BaseModel):
     @model_validator(mode="after")
     def validate_format_settings(self):
         if self.format == TournamentFormat.SINGLE_ELIMINATION:
-            if self.group_count is not None or self.qualifiers_per_group is not None:
+            if any(value is not None for value in (
+                self.group_count,
+                self.group_size,
+                self.group_mode,
+                self.qualifiers_per_group,
+            )):
                 raise ValueError("Olympic format cannot have group settings")
-        elif self.group_count is None or self.qualifiers_per_group is None:
-            raise ValueError("Group format requires group count and qualifiers")
+        else:
+            if self.group_size is None or self.group_mode is None:
+                raise ValueError("Group size and group mode are required")
+            if self.max_participants % self.group_size:
+                raise ValueError("Participant count must be divisible by group size")
+            if self.qualifiers_per_group is None:
+                raise ValueError("Group qualifier count is required")
+            if self.qualifiers_per_group >= self.group_size:
+                raise ValueError("Group qualifiers must be fewer than group players")
+            expected_groups = self.max_participants // self.group_size
+            if self.group_count is not None and self.group_count != expected_groups:
+                raise ValueError("Group count must match participant count and group size")
+            self.group_count = expected_groups
         return self
 
 
@@ -44,6 +63,8 @@ class TournamentResponse(BaseModel):
     max_participants: int
     ticket_cost: int
     group_count: int | None
+    group_size: int | None
+    group_mode: TournamentGroupMode | None
     qualifiers_per_group: int | None
     registration_opens_at: datetime
     registration_closes_at: datetime
@@ -60,10 +81,13 @@ class TournamentParticipantResponse(BaseModel):
     status: TournamentParticipantStatus
     seed: int | None
     group_name: str | None
+    entry_ticket_state: str | None
     played: int
     wins: int
     losses: int
     points: int
+    goals_for: int
+    goals_against: int
     advanced_round: int
     applied_at: datetime
     reviewed_at: datetime | None
@@ -91,6 +115,23 @@ class TournamentMatchReschedule(BaseModel):
     scheduled_at: datetime
 
 
+class TournamentManualResult(BaseModel):
+    player_a_score: int = Field(ge=0, le=99)
+    player_b_score: int = Field(ge=0, le=99)
+
+    @model_validator(mode="after")
+    def reject_draw(self):
+        if self.player_a_score == self.player_b_score:
+            raise ValueError("Draw is not allowed; penalties are required")
+        return self
+
+
+class TournamentGroupFinalizeResponse(BaseModel):
+    groups_finalized: int
+    qualified_players: int
+    eliminated_players: int
+
+
 class TournamentMatchResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -115,5 +156,10 @@ class TournamentOverviewResponse(BaseModel):
     tournament: TournamentResponse | None
     participant: TournamentParticipantResponse | None
     tournament_tickets: int = Field(ge=0)
+    participant_count: int = Field(default=0, ge=0)
+    match_count: int = Field(default=0, ge=0)
+    current_round: int = Field(default=0, ge=0)
+    total_rounds: int = Field(default=0, ge=0)
+    is_truncated: bool = False
     participants: list[TournamentParticipantResponse] = Field(default_factory=list)
     matches: list[TournamentMatchResponse] = Field(default_factory=list)
