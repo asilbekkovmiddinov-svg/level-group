@@ -2,6 +2,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
+from sqlalchemy import inspect
 
 from app.core import config
 from app.core.database import get_db
@@ -51,8 +52,11 @@ def get_arena_profile(
     db: Session = Depends(get_db),
 ):
     if (
-        config.ARENA_V3_ENABLED
-        or current_user.telegram_id in config.ARENA_V3_ALLOWED_TELEGRAM_IDS
+        (
+            config.ARENA_V3_ENABLED
+            or current_user.telegram_id in config.ARENA_V3_ALLOWED_TELEGRAM_IDS
+        )
+        and inspect(db.get_bind()).has_table("arena_stats_v3")
     ):
         stats = ArenaV3Service(db).profile(player_id=current_user.telegram_id)
         wallet = db.query(Wallet).filter(

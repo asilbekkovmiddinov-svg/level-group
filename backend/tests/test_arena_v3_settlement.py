@@ -19,6 +19,7 @@ from app.models.arena_v3 import (
 )
 from app.models.transaction import Transaction
 from app.models.wallet import Wallet
+from app.models.wall_rush import GameTicketWallet
 from app.routers.arena_v3 import router
 from app.routers.arena_v4 import router as arena_profile_router
 from app.schemas.arena_v3 import ArenaV3CreateRequest, ArenaV3JoinRequest
@@ -219,17 +220,27 @@ def test_history_profile_and_result_api_use_settled_data(session_factory):
     assert result["ai_review"]["score"] == "2-1"
 
 
-def test_create_and_join_lock_stakes_with_existing_wallet_helpers(session_factory):
+def test_create_and_join_lock_two_tournament_tickets(session_factory):
     db = session_factory()
     _wallet(db, 1001, balance=250, locked=0)
     _wallet(db, 2002, balance=250, locked=0)
+    db.add_all([
+        GameTicketWallet(
+            telegram_id=1001, tournament_tickets=10,
+            locked_tournament_tickets=0,
+        ),
+        GameTicketWallet(
+            telegram_id=2002, tournament_tickets=10,
+            locked_tournament_tickets=0,
+        ),
+    ])
     db.commit()
     match = ArenaV3Service(db).create_match(
         owner_id=1001,
         idempotency_key="wallet-create",
         payload=ArenaV3CreateRequest(
             owner_efootball_username="Owner",
-            stake_efc=Decimal("100"),
+            stake_efc=Decimal("0"),
             match_type="STANDARD",
             match_time_minutes=10,
             extra_time_enabled=False,
@@ -237,8 +248,10 @@ def test_create_and_join_lock_stakes_with_existing_wallet_helpers(session_factor
             rules_accepted=True,
         ),
     )
-    assert db.get(Wallet, 1001).efc_balance == Decimal("150")
-    assert db.get(Wallet, 1001).locked_efc == Decimal("100")
+    assert db.get(Wallet, 1001).efc_balance == Decimal("250")
+    assert db.get(Wallet, 1001).locked_efc == Decimal("0")
+    assert db.get(GameTicketWallet, 1001).tournament_tickets == 8
+    assert db.get(GameTicketWallet, 1001).locked_tournament_tickets == 2
     ArenaV3Service(db).join_match(
         match_id=match.id,
         opponent_id=2002,
@@ -248,9 +261,11 @@ def test_create_and_join_lock_stakes_with_existing_wallet_helpers(session_factor
             rules_accepted=True,
         ),
     )
-    assert db.get(Wallet, 2002).efc_balance == Decimal("150")
-    assert db.get(Wallet, 2002).locked_efc == Decimal("100")
-    assert db.query(Transaction).filter_by(type="ARENA_V3_LOCK").count() == 2
+    assert db.get(Wallet, 2002).efc_balance == Decimal("250")
+    assert db.get(Wallet, 2002).locked_efc == Decimal("0")
+    assert db.get(GameTicketWallet, 2002).tournament_tickets == 8
+    assert db.get(GameTicketWallet, 2002).locked_tournament_tickets == 2
+    assert db.query(Transaction).filter_by(type="ARENA_V3_LOCK").count() == 0
 
 
 def test_configured_terminal_ai_failure_refunds_but_keeps_review_state(

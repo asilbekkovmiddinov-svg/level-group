@@ -254,6 +254,7 @@ def arena_v3_config(_: TelegramUser = Depends(require_arena_v3_access)):
         "penalties_required": True,
         "room_code_max_length": 8,
         "screenshot_deadline_seconds": SCREENSHOT_UPLOAD_WINDOW_SECONDS,
+        "ticket_cost": 2,
     }
 
 
@@ -353,6 +354,13 @@ async def upload_screenshot(
                 "Mode: Tournament",
                 "Entry: 10 Tournament Tickets per player",
                 "Result: tournament standings only; no EFC settlement",
+                "Penalties: required",
+            ])
+        elif match.match_type == "STANDARD" and match.ticket_cost > 0:
+            match_lines.extend([
+                "Mode: Arena 1v1",
+                f"Entry: {match.ticket_cost} Tournament Tickets per player",
+                "Result: rating and statistics only; no EFC settlement",
                 "Penalties: required",
             ])
         else:

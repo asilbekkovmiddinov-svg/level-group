@@ -21,7 +21,7 @@ class ArenaV3CreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     owner_efootball_username: str = Field(min_length=1, max_length=64)
-    stake_efc: Decimal = Field(gt=0, max_digits=18, decimal_places=2)
+    stake_efc: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=2)
     match_type: str = Field(min_length=1, max_length=32, pattern=r"^[A-Z0-9_]+$")
     match_time_minutes: Literal[6, 8, 10, 12, 15]
     extra_time_enabled: bool = False
@@ -209,6 +209,9 @@ class ArenaV3MatchResponse(BaseModel):
     total_pool_efc: Decimal
     commission_efc: Decimal
     winner_reward_efc: Decimal
+    ticket_cost: int
+    owner_ticket_state: str | None
+    opponent_ticket_state: str | None
     match_type: str
     match_time_minutes: int
     extra_time_enabled: bool
@@ -319,6 +322,7 @@ class ArenaV3ConfigResponse(BaseModel):
     penalties_required: bool
     room_code_max_length: int
     screenshot_deadline_seconds: int
+    ticket_cost: int
 
 
 class ArenaV4AdminClaimRequest(BaseModel):

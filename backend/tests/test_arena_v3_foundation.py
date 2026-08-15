@@ -17,6 +17,7 @@ from app.core.telegram_auth import get_current_telegram_user
 from app.models.arena_v3 import (
     ArenaV3Match, ArenaV3Status, ArenaV3SettlementStatus,
 )
+from app.models.wall_rush import GameTicketWallet
 from app.repositories.arena_v3 import ArenaV3Repository
 from app.routers.arena_v3 import router
 from app.schemas.arena_v3 import ArenaV3CreateRequest, ArenaV3RoomCodeRequest
@@ -54,6 +55,7 @@ def make_match(**overrides):
         "total_pool_efc": Decimal("200"),
         "commission_efc": Decimal("10"),
         "winner_reward_efc": Decimal("190"),
+        "ticket_cost": 2,
         "match_type": "STANDARD",
         "match_time_minutes": 10,
         "extra_time_enabled": False,
@@ -154,6 +156,14 @@ def test_repository_flush_get_lock_and_open_listing(db):
 @pytest.fixture
 def client(engine, monkeypatch):
     session_factory = sessionmaker(bind=engine)
+    seed = session_factory()
+    seed.add(GameTicketWallet(
+        telegram_id=1001,
+        tournament_tickets=20,
+        locked_tournament_tickets=0,
+    ))
+    seed.commit()
+    seed.close()
     application = FastAPI()
     application.include_router(router)
     application.dependency_overrides[get_current_telegram_user] = lambda: SimpleNamespace(
@@ -191,7 +201,7 @@ def test_api_safe_flags_validation_and_foundation_boundary(client, monkeypatch):
 
     payload = {
         "owner_efootball_username": "Player",
-        "stake_efc": 100,
+        "stake_efc": 0,
         "match_type": "STANDARD",
         "match_time_minutes": 10,
         "extra_time_enabled": False,

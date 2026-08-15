@@ -13,6 +13,7 @@ from app.core import config
 from app.core.database import Base, get_db
 from app.core.telegram_auth import get_current_telegram_user
 from app.models.arena_v3 import ArenaV3Match, ArenaV3MatchEvent, ArenaV3Status
+from app.models.wall_rush import GameTicketWallet
 from app.routers.arena_v3 import router as arena_v3_router
 from app.schemas.arena_v3 import (
     ArenaV3CancelRequest,
@@ -38,13 +39,23 @@ def session_factory(monkeypatch):
         poolclass=StaticPool,
     )
     Base.metadata.create_all(engine)
-    return sessionmaker(bind=engine, expire_on_commit=False)
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    db = factory()
+    for player_id in (1001, 2002, 3003, 9999):
+        db.add(GameTicketWallet(
+            telegram_id=player_id,
+            tournament_tickets=20,
+            locked_tournament_tickets=0,
+        ))
+    db.commit()
+    db.close()
+    return factory
 
 
 def create_payload(**overrides):
     values = {
         "owner_efootball_username": "Owner",
-        "stake_efc": "100.00",
+        "stake_efc": "0.00",
         "match_type": "STANDARD",
         "match_time_minutes": 10,
         "extra_time_enabled": False,
@@ -74,9 +85,13 @@ def test_service_runs_complete_core_flow_and_records_events(session_factory):
     db = session_factory()
     match = create_match(db)
     assert match.status == ArenaV3Status.OPEN
-    assert match.total_pool_efc == Decimal("200.00")
-    assert match.commission_efc == Decimal("20.0000")
-    assert match.winner_reward_efc == Decimal("180.0000")
+    assert match.stake_efc == Decimal("0.00")
+    assert match.total_pool_efc == Decimal("0.00")
+    assert match.ticket_cost == 2
+    assert match.owner_ticket_state == "LOCKED"
+    owner_wallet = db.get(GameTicketWallet, 1001)
+    assert owner_wallet.tournament_tickets == 18
+    assert owner_wallet.locked_tournament_tickets == 2
 
     match = ArenaV3Service(db).join_match(
         match_id=match.id,
@@ -88,6 +103,7 @@ def test_service_runs_complete_core_flow_and_records_events(session_factory):
     assert match.opponent_id == 2002
     assert match.owner_efootball_username == "Owner"
     assert match.opponent_efootball_username == "Opponent"
+    assert match.opponent_ticket_state == "LOCKED"
 
     match = ArenaV3Service(db).ready(
         match_id=match.id,
@@ -110,6 +126,10 @@ def test_service_runs_complete_core_flow_and_records_events(session_factory):
         payload=ArenaV3RoomCodeRequest(room_code=" 123456 "),
     )
     assert match.status == ArenaV3Status.PLAYING
+    assert match.owner_ticket_state == "SPENT"
+    assert match.opponent_ticket_state == "SPENT"
+    assert db.get(GameTicketWallet, 1001).locked_tournament_tickets == 0
+    assert db.get(GameTicketWallet, 2002).locked_tournament_tickets == 0
     assert match.room_code == "123456"
     assert match.playing_started_at is not None
     assert match.screenshot_started_at is not None
@@ -174,7 +194,7 @@ def test_create_and_join_are_idempotent_and_protect_active_players(session_facto
 
     with pytest.raises(ArenaV3Conflict, match="payload mismatch"):
         service.create_match(
-            payload=create_payload(stake_efc="200"),
+            payload=create_payload(owner_efootball_username="Changed"),
             owner_id=1001,
             idempotency_key="same",
         )
@@ -189,6 +209,30 @@ def test_create_and_join_are_idempotent_and_protect_active_players(session_facto
             opponent_id=1001,
             idempotency_key="self",
         )
+
+
+def test_two_tickets_are_required_for_create_and_join(session_factory):
+    db = session_factory()
+    db.get(GameTicketWallet, 3003).tournament_tickets = 1
+    db.commit()
+    with pytest.raises(ArenaV3Conflict, match="kamida 2"):
+        ArenaV3Service(db).create_match(
+            payload=create_payload(), owner_id=3003, idempotency_key="poor-owner"
+        )
+
+    match = create_match(db)
+    db.get(GameTicketWallet, 2002).tournament_tickets = 1
+    db.commit()
+    with pytest.raises(ArenaV3Conflict, match="kamida 2"):
+        ArenaV3Service(db).join_match(
+            match_id=match.id,
+            payload=join_payload(),
+            opponent_id=2002,
+            idempotency_key="poor-opponent",
+        )
+    db.refresh(match)
+    assert match.status == ArenaV3Status.OPEN
+    assert match.opponent_id is None
 
 
 def test_permissions_invalid_states_and_match_type_validation(session_factory):
@@ -252,6 +296,11 @@ def test_cancel_is_allowed_only_before_playing(session_factory, stage):
         idempotency_key=f"cancel-{stage}",
     )
     assert cancelled.status == ArenaV3Status.CANCELLED
+    assert cancelled.owner_ticket_state == "REFUNDED"
+    assert db.get(GameTicketWallet, 1001).tournament_tickets == 20
+    if stage != "OPEN":
+        assert cancelled.opponent_ticket_state == "REFUNDED"
+        assert db.get(GameTicketWallet, 2002).tournament_tickets == 20
 
 
 def test_playing_match_cannot_be_cancelled(session_factory):

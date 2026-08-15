@@ -69,7 +69,11 @@ class ArenaV3Repository:
     def list_open(self, *, limit: int = 20, offset: int = 0) -> Sequence[ArenaV3Match]:
         return self.db.execute(
             select(ArenaV3Match)
-            .where(ArenaV3Match.status == ArenaV3Status.OPEN)
+            .where(
+                ArenaV3Match.status == ArenaV3Status.OPEN,
+                ArenaV3Match.match_type == "STANDARD",
+                ArenaV3Match.ticket_cost > 0,
+            )
             .order_by(ArenaV3Match.created_at.asc(), ArenaV3Match.id.asc())
             .offset(offset).limit(limit)
         ).scalars().all()

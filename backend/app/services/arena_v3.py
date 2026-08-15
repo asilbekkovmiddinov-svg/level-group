@@ -20,6 +20,7 @@ from app.models.arena_v3 import (
     ArenaV4ReviewType,
 )
 from app.repositories.arena_v3 import ArenaV3Repository
+from app.models.wall_rush import GameTicketWallet
 from app.services.arena_v3_state_machine import (
     ArenaV3InvalidTransition,
     transition_arena_v3,
@@ -31,6 +32,10 @@ SCREENSHOT_UPLOAD_WINDOW_SECONDS = 600
 
 MATCH_COMMISSION_PERCENT = Decimal("10.00")
 SUPPORTED_MATCH_TYPES = frozenset({"STANDARD"})
+ARENA_TICKET_COST = 2
+TICKET_LOCKED = "LOCKED"
+TICKET_SPENT = "SPENT"
+TICKET_REFUNDED = "REFUNDED"
 
 
 class ArenaV3FoundationOnly(NotImplementedError):
@@ -107,6 +112,53 @@ class ArenaV3Service:
             self.db.rollback()
             raise ArenaV3Conflict("Arena V3 request conflicts with current state") from exc
 
+    def _ticket_wallet(self, player_id: int) -> GameTicketWallet:
+        wallet = (
+            self.db.query(GameTicketWallet)
+            .filter(GameTicketWallet.telegram_id == player_id)
+            .with_for_update()
+            .one_or_none()
+        )
+        if wallet is None:
+            wallet = GameTicketWallet(telegram_id=player_id)
+            self.db.add(wallet)
+            self.db.flush()
+        return wallet
+
+    def _lock_ticket(self, match: ArenaV3Match, player_id: int, state_attr: str) -> None:
+        if getattr(match, state_attr) == TICKET_LOCKED:
+            return
+        wallet = self._ticket_wallet(player_id)
+        if wallet.tournament_tickets < match.ticket_cost:
+            raise ArenaV3Conflict(
+                f"Arena uchun kamida {match.ticket_cost} ta Tournament Ticket kerak"
+            )
+        wallet.tournament_tickets -= match.ticket_cost
+        wallet.locked_tournament_tickets += match.ticket_cost
+        setattr(match, state_attr, TICKET_LOCKED)
+
+    def _spend_ticket(self, match: ArenaV3Match, player_id: int, state_attr: str) -> None:
+        state = getattr(match, state_attr)
+        if state == TICKET_SPENT:
+            return
+        if state != TICKET_LOCKED:
+            raise ArenaV3Conflict("Arena ticket is not locked")
+        wallet = self._ticket_wallet(player_id)
+        if wallet.locked_tournament_tickets < match.ticket_cost:
+            raise ArenaV3Conflict("Locked Arena ticket balance is unavailable")
+        wallet.locked_tournament_tickets -= match.ticket_cost
+        setattr(match, state_attr, TICKET_SPENT)
+
+    def _refund_ticket(self, match: ArenaV3Match, player_id: int, state_attr: str) -> None:
+        if getattr(match, state_attr) != TICKET_LOCKED:
+            return
+        wallet = self._ticket_wallet(player_id)
+        if wallet.locked_tournament_tickets < match.ticket_cost:
+            raise ArenaV3Conflict("Locked Arena ticket balance is unavailable")
+        wallet.locked_tournament_tickets -= match.ticket_cost
+        wallet.tournament_tickets += match.ticket_cost
+        setattr(match, state_attr, TICKET_REFUNDED)
+
     def create_match(self, *, payload, owner_id: int, idempotency_key: str):
         if not config.ARENA_V3_CREATE_ENABLED:
             raise ArenaV3Unavailable("Arena V3 create is disabled")
@@ -122,17 +174,17 @@ class ArenaV3Service:
             raise ArenaV3ServiceError("Unsupported Arena V3 match type")
 
         stake = Decimal(payload.stake_efc)
-        if stake <= 0 or stake.as_tuple().exponent < -2:
-            raise ArenaV3ServiceError("Stake must be positive with at most two decimals")
-        total, commission, reward = self._money(stake)
-        match = self.repository.add_match(ArenaV3Match(
+        if stake != 0:
+            raise ArenaV3ServiceError("Yangi Arena matchlari EFC stavkasini qabul qilmaydi")
+        match = ArenaV3Match(
             public_id=f"ARV3{uuid4().hex[:20].upper()}",
             owner_id=owner_id,
             owner_efootball_username=payload.owner_efootball_username,
-            stake_efc=stake,
-            total_pool_efc=total,
-            commission_efc=commission,
-            winner_reward_efc=reward,
+            stake_efc=Decimal("0"),
+            total_pool_efc=Decimal("0"),
+            commission_efc=Decimal("0"),
+            winner_reward_efc=Decimal("0"),
+            ticket_cost=ARENA_TICKET_COST,
             match_type=payload.match_type,
             match_time_minutes=payload.match_time_minutes,
             extra_time_enabled=payload.extra_time_enabled,
@@ -141,10 +193,9 @@ class ArenaV3Service:
             settlement_status=ArenaV3SettlementStatus.NOT_STARTED,
             idempotency_key=idempotency_key,
             request_fingerprint=fingerprint,
-        ))
-        if config.ARENA_V3_SETTLEMENT_ENABLED:
-            from app.services.arena_v3_settlement import lock_match_stake
-            lock_match_stake(self.db, owner_id, stake, match.id)
+        )
+        self._lock_ticket(match, owner_id, "owner_ticket_state")
+        self.repository.add_match(match)
         self._event(
             match, event_type="CREATE", actor_id=owner_id,
             idempotency_key=f"create:{idempotency_key}", from_status=None,
@@ -162,11 +213,15 @@ class ArenaV3Service:
             return match
         if match.owner_id == opponent_id:
             raise ArenaV3Conflict("Match creator cannot join own match")
+        if match.match_type == "STANDARD" and match.ticket_cost <= 0:
+            raise ArenaV3Conflict("Eski EFC Arena matchiga qo‘shilish yopilgan")
         if match.status != ArenaV3Status.OPEN or match.opponent_id is not None:
             raise ArenaV3Conflict("Arena V3 match is not open")
         if self.repository.get_active_for_player(opponent_id):
             raise ArenaV3Conflict("Player already has an active Arena V3 match")
-        if config.ARENA_V3_SETTLEMENT_ENABLED:
+        if match.ticket_cost > 0:
+            self._lock_ticket(match, opponent_id, "opponent_ticket_state")
+        elif config.ARENA_V3_SETTLEMENT_ENABLED:
             from app.services.arena_v3_settlement import lock_match_stake
             lock_match_stake(
                 self.db, opponent_id, match.stake_efc, match.id
@@ -258,6 +313,9 @@ class ArenaV3Service:
                 )
             except TournamentServiceError as exc:
                 raise ArenaV3Conflict(str(exc)) from exc
+        elif match.match_type == "STANDARD" and match.ticket_cost > 0:
+            self._spend_ticket(match, match.owner_id, "owner_ticket_state")
+            self._spend_ticket(match, match.opponent_id, "opponent_ticket_state")
         from_status = ArenaV3Status(match.status)
         now = datetime.now(timezone.utc)
         match.room_code = payload.room_code
@@ -447,6 +505,12 @@ class ArenaV3Service:
                 )
             except TournamentServiceError as exc:
                 raise ArenaV3Conflict(str(exc)) from exc
+        elif match.match_type == "STANDARD" and match.ticket_cost > 0:
+            self._refund_ticket(match, match.owner_id, "owner_ticket_state")
+            if match.opponent_id is not None:
+                self._refund_ticket(
+                    match, match.opponent_id, "opponent_ticket_state"
+                )
         elif config.ARENA_V3_SETTLEMENT_ENABLED:
             from app.services.arena_v3_settlement import refund_match
             return refund_match(
