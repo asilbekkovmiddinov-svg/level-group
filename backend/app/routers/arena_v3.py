@@ -1,18 +1,23 @@
 import hashlib
+import logging
 from uuid import uuid4
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, UploadFile, status
+from fastapi import (
+    APIRouter, BackgroundTasks, Depends, File, Header, HTTPException, Query,
+    UploadFile, status,
+)
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
 from app.core import config
-from app.core.database import get_db
+from app.core.database import SessionLocal, get_db
 from app.core.admin_auth import require_promotions_admin
 from app.core.arena_internal_auth import require_arena_internal_api_key
 from app.core.telegram_auth import TelegramUser, get_current_telegram_user
 from app.models.arena_v3 import (
     ArenaV3Match,
+    ArenaV3MatchScreenshot,
     ArenaV3Status,
     ArenaV4AdminReviewStatus,
     ArenaV4ReviewType,
@@ -57,7 +62,13 @@ from app.services.object_storage import (
 )
 from app.services.arena_v4_admin_review import ArenaV4AdminReviewService
 from app.services.telegram_notifications import (
-    TelegramNotificationConfigError, TelegramNotificationTemporaryError,
+    TelegramNotificationConfigError,
+    TelegramNotificationNetworkError,
+    TelegramNotificationPermanentError,
+    TelegramNotificationRateLimitError,
+    TelegramNotificationResponseError,
+    TelegramNotificationTemporaryError,
+    TelegramNotificationTimeoutError,
     send_admin_message, send_deposit_receipt_photo,
     send_arena_appeal_video,
 )
@@ -66,6 +77,17 @@ from app.services.telegram_notifications import (
 router = APIRouter(prefix="/arena", tags=["Arena V3"])
 internal_router = APIRouter(prefix="/internal/arena", tags=["Arena V3 Internal"])
 admin_router = APIRouter(prefix="/admin/arena", tags=["Arena V3 Admin"])
+logger = logging.getLogger(__name__)
+
+TELEGRAM_DELIVERY_ERRORS = (
+    TelegramNotificationConfigError,
+    TelegramNotificationNetworkError,
+    TelegramNotificationPermanentError,
+    TelegramNotificationRateLimitError,
+    TelegramNotificationResponseError,
+    TelegramNotificationTemporaryError,
+    TelegramNotificationTimeoutError,
+)
 
 
 def require_arena_v3_access(
@@ -97,6 +119,114 @@ def core_match_call(callback):
         return callback()
     except ArenaV3ServiceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc))
+
+
+def _arena_admin_post_text(db: Session, match: ArenaV3Match) -> str:
+    owner = db.get(User, match.owner_id)
+    opponent = db.get(User, match.opponent_id)
+
+    def player_line(label, user, efootball):
+        display = " ".join(filter(None, [
+            getattr(user, "first_name", None),
+            getattr(user, "last_name", None),
+        ])) or "O‘yinchi"
+        username = f"@{user.username}" if user and user.username else "—"
+        return f"{label}: {display} | {username} | eFootball: {efootball or '—'}"
+
+    match_lines = [
+        f"🎮 Arena Match #{match.public_id}",
+        player_line("Player A", owner, match.owner_efootball_username),
+        player_line("Player B", opponent, match.opponent_efootball_username),
+    ]
+    if match.match_type == "DIVISION":
+        match_lines.extend([
+            "Mode: Global Division",
+            "Entry: 1 Tournament Ticket per player",
+            "Result: winner +3 points, loser 0 points",
+            "Penalties: required",
+        ])
+    elif match.match_type == "TOURNAMENT":
+        match_lines.extend([
+            "Mode: Tournament",
+            "Entry: 10 Tournament Tickets per player",
+            "Result: tournament standings only; no EFC settlement",
+            "Penalties: required",
+        ])
+    elif match.match_type == "STANDARD" and match.ticket_cost > 0:
+        match_lines.extend([
+            "Mode: Arena 1v1",
+            f"Entry: {match.ticket_cost} Tournament Tickets per player",
+            "Result: rating and statistics only; no EFC settlement",
+            "Penalties: required",
+        ])
+    else:
+        match_lines.extend([
+            f"Stake: {match.stake_efc} EFC",
+            f"Pot: {match.total_pool_efc} EFC",
+            f"Platform fee: {match.commission_efc} EFC",
+            f"Winner reward: {match.winner_reward_efc} EFC",
+        ])
+    return "\n".join(match_lines)
+
+
+async def _deliver_arena_screenshot_to_channel(
+    screenshot_id: int,
+    content: bytes,
+    mime_type: str,
+    filename: str,
+    label: str,
+) -> None:
+    """Deliver evidence after its authoritative database record is committed."""
+    db = SessionLocal()
+    try:
+        screenshot = db.get(ArenaV3MatchScreenshot, screenshot_id)
+        if screenshot is None:
+            return
+        match = ArenaV3Repository(db).get_match_for_update(screenshot.match_id)
+        if match is None:
+            return
+
+        if match.admin_channel_message_id is None:
+            markup = {"inline_keyboard": [[
+                {"text": "⚽ Natijani yozish", "callback_data": f"arv4:m:start:{match.id}"},
+                {"text": "❌ Bekor qilish", "callback_data": f"arv4:m:cancel:{match.id}"},
+            ]]}
+            post = await run_in_threadpool(
+                send_admin_message,
+                _arena_admin_post_text(db, match),
+                markup,
+                config.ARENA_ADMIN_CHANNEL_ID,
+            )
+            match.admin_channel_message_id = post.message_id
+        reply_to_message_id = match.admin_channel_message_id
+        db.commit()
+
+        telegram = await run_in_threadpool(
+            send_deposit_receipt_photo,
+            content,
+            mime_type,
+            filename,
+            label,
+            config.ARENA_ADMIN_CHANNEL_ID,
+            None,
+            reply_to_message_id,
+        )
+        screenshot = db.get(ArenaV3MatchScreenshot, screenshot_id)
+        if screenshot is None:
+            return
+        screenshot.storage_key = f"telegram:{telegram.file_id or telegram.message_id}"
+        screenshot.telegram_file_id = telegram.file_id or str(telegram.message_id)
+        screenshot.telegram_message_id = telegram.message_id
+        db.commit()
+    except TELEGRAM_DELIVERY_ERRORS:
+        db.rollback()
+        logger.warning(
+            "arena_screenshot_channel_delivery_failed screenshot_id=%s",
+            screenshot_id,
+            exc_info=True,
+        )
+    finally:
+        db.close()
 
 
 @internal_router.get(
@@ -330,6 +460,7 @@ def submit_room_code(
 @router.post("/{match_id}/upload-screenshot", response_model=ArenaV3ScreenshotResponse)
 async def upload_screenshot(
     match_id: int,
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     current_user: TelegramUser = Depends(require_arena_v3_access),
     idempotency_key: str = Depends(require_idempotency_key),
@@ -349,81 +480,27 @@ async def upload_screenshot(
         raise HTTPException(404, "Arena match not found")
     if not config.ARENA_ADMIN_CHANNEL_ID:
         raise HTTPException(503, "Arena admin channel is not configured")
-    if match.admin_channel_message_id is None:
-        owner = db.get(User, match.owner_id)
-        opponent = db.get(User, match.opponent_id)
-        def player_line(label, user, efootball):
-            display = " ".join(filter(None, [getattr(user, "first_name", None), getattr(user, "last_name", None)])) or "O‘yinchi"
-            username = f"@{user.username}" if user and user.username else "—"
-            return f"{label}: {display} | {username} | eFootball: {efootball or '—'}"
-        match_lines = [
-            f"🎮 Arena Match #{match.public_id}",
-            player_line("Player A", owner, match.owner_efootball_username),
-            player_line("Player B", opponent, match.opponent_efootball_username),
-        ]
-        if match.match_type == "DIVISION":
-            match_lines.extend([
-                "Mode: Global Division",
-                "Entry: 1 Tournament Ticket per player",
-                "Result: winner +3 points, loser 0 points",
-                "Penalties: required",
-            ])
-        elif match.match_type == "TOURNAMENT":
-            match_lines.extend([
-                "Mode: Tournament",
-                "Entry: 10 Tournament Tickets per player",
-                "Result: tournament standings only; no EFC settlement",
-                "Penalties: required",
-            ])
-        elif match.match_type == "STANDARD" and match.ticket_cost > 0:
-            match_lines.extend([
-                "Mode: Arena 1v1",
-                f"Entry: {match.ticket_cost} Tournament Tickets per player",
-                "Result: rating and statistics only; no EFC settlement",
-                "Penalties: required",
-            ])
-        else:
-            match_lines.extend([
-                f"Stake: {match.stake_efc} EFC",
-                f"Pot: {match.total_pool_efc} EFC",
-                f"Platform fee: {match.commission_efc} EFC",
-                f"Winner reward: {match.winner_reward_efc} EFC",
-            ])
-        text = "\n".join(match_lines)
-        try:
-            markup = {"inline_keyboard": [[
-                {"text": "⚽ Natijani yozish", "callback_data": f"arv4:m:start:{match.id}"},
-                {"text": "❌ Bekor qilish", "callback_data": f"arv4:m:cancel:{match.id}"},
-            ]]}
-            post = await run_in_threadpool(
-                send_admin_message, text, markup, config.ARENA_ADMIN_CHANNEL_ID
-            )
-        except (TelegramNotificationConfigError, TelegramNotificationTemporaryError) as exc:
-            raise HTTPException(502, "Arena admin channel post failed") from exc
-        match.admin_channel_message_id = post.message_id
-        db.commit()
     label = "Screenshot A" if current_user.telegram_id == match.owner_id else "Screenshot B"
-    try:
-        telegram = await run_in_threadpool(
-            send_deposit_receipt_photo, content, metadata.mime_type,
-            file.filename or f"screenshot.{metadata.extension}", label,
-            config.ARENA_ADMIN_CHANNEL_ID, None, match.admin_channel_message_id,
-        )
-    except (TelegramNotificationConfigError, TelegramNotificationTemporaryError) as exc:
-        raise HTTPException(502, "Screenshot delivery to admin channel failed") from exc
-    return core_match_call(lambda: service.upload_screenshot(
-            match_id=match_id,
-            player_id=current_user.telegram_id,
-            idempotency_key=idempotency_key,
-            storage_key=f"telegram:{telegram.file_id or telegram.message_id}",
-            telegram_file_id=telegram.file_id or str(telegram.message_id),
-            telegram_message_id=telegram.message_id,
-            file_hash=file_hash,
-            mime_type=metadata.mime_type,
-            file_size=metadata.file_size,
-            width=metadata.width,
-            height=metadata.height,
-        ))
+    screenshot = core_match_call(lambda: service.upload_screenshot(
+        match_id=match_id,
+        player_id=current_user.telegram_id,
+        idempotency_key=idempotency_key,
+        storage_key=f"telegram:pending:{uuid4().hex}",
+        file_hash=file_hash,
+        mime_type=metadata.mime_type,
+        file_size=metadata.file_size,
+        width=metadata.width,
+        height=metadata.height,
+    ))
+    background_tasks.add_task(
+        _deliver_arena_screenshot_to_channel,
+        screenshot.id,
+        content,
+        metadata.mime_type,
+        file.filename or f"screenshot.{metadata.extension}",
+        label,
+    )
+    return screenshot
 
 
 @router.get(
