@@ -22,6 +22,7 @@ from app.models.arena_v3 import (
     ArenaV4SettlementOperation,
     ArenaV4SettlementOperationStatus,
 )
+from app.models.wall_rush import GameTicketWallet
 from app.repositories.arena_v3 import ArenaV3Repository
 from app.services.arena_v3 import ArenaV3Conflict
 from app.services.arena_v3_state_machine import transition_arena_v3
@@ -666,8 +667,26 @@ def _apply_tournament_admin_result(
     ))
 
 
+def _refund_ticket_arena_entry(db, match, player_id: int, state_attr: str) -> None:
+    state = getattr(match, state_attr)
+    if state == "REFUNDED":
+        return
+    if state != "SPENT":
+        raise ArenaV3Conflict("Spent Arena ticket state is unavailable")
+    wallet = (
+        db.query(GameTicketWallet)
+        .filter(GameTicketWallet.telegram_id == player_id)
+        .with_for_update()
+        .one_or_none()
+    )
+    if wallet is None:
+        raise ArenaV3Conflict("Arena ticket wallet is unavailable")
+    wallet.tournament_tickets += match.ticket_cost
+    setattr(match, state_attr, "REFUNDED")
+
+
 def _apply_ticket_arena_admin_result(
-    *, repository, match, review, payload, now, decision
+    *, db, repository, match, review, payload, now, decision
 ):
     result_version = match.result_version + 1
     owner_score = getattr(payload, "owner_score", None)
@@ -709,7 +728,14 @@ def _apply_ticket_arena_admin_result(
     match.cancel_reason = (
         "ADMIN_CANCEL" if decision == ArenaV4ResultType.CANCEL else None
     )
-    if decision != ArenaV4ResultType.CANCEL:
+    if decision == ArenaV4ResultType.CANCEL:
+        _refund_ticket_arena_entry(
+            db, match, match.owner_id, "owner_ticket_state"
+        )
+        _refund_ticket_arena_entry(
+            db, match, match.opponent_id, "opponent_ticket_state"
+        )
+    else:
         _update_competitive_stats(repository, match, decision)
 
     repository.add_result_revision(ArenaV4ResultRevision(
@@ -783,6 +809,7 @@ def apply_admin_settlement(
         return
     if match.match_type == "STANDARD" and match.ticket_cost > 0:
         _apply_ticket_arena_admin_result(
+            db=db,
             repository=repository,
             match=match,
             review=review,

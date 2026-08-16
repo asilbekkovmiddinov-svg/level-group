@@ -24,6 +24,7 @@ from app.models.arena_v3 import (
 )
 from app.models.transaction import Transaction
 from app.models.wallet import Wallet
+from app.models.wall_rush import GameTicketWallet
 from app.schemas.arena_v3 import (
     ArenaV4AdminCancelRequest,
     ArenaV4AdminDecisionRequest,
@@ -365,3 +366,66 @@ def test_ticket_arena_result_updates_stats_without_efc_settlement(session_factor
     assert db.get(ArenaV3Stats, 3001).wins == 1
     assert db.get(ArenaV3Stats, 3002).losses == 1
     assert db.query(ArenaV4ResultRevision).count() == 1
+
+
+def test_ticket_arena_admin_cancel_refunds_both_entries_once(session_factory):
+    db = session_factory()
+    match = ArenaV3Match(
+        public_id="ARV4TICKETCANCEL01",
+        owner_id=3001,
+        opponent_id=3002,
+        owner_efootball_username="Ticket A",
+        opponent_efootball_username="Ticket B",
+        stake_efc=Decimal("0.00"),
+        total_pool_efc=Decimal("0.00"),
+        commission_efc=Decimal("0.00"),
+        winner_reward_efc=Decimal("0.00"),
+        ticket_cost=2,
+        owner_ticket_state="SPENT",
+        opponent_ticket_state="SPENT",
+        match_type="STANDARD",
+        match_time_minutes=10,
+        extra_time_enabled=False,
+        penalties_enabled=True,
+        status=ArenaV3Status.WAITING_ADMIN,
+        settlement_status=ArenaV3SettlementStatus.NOT_STARTED,
+        result_version=0,
+        version=6,
+    )
+    db.add(match)
+    db.flush()
+    review = ArenaV4AdminReview(
+        match_id=match.id,
+        review_type=ArenaV4ReviewType.INITIAL,
+        status=ArenaV4AdminReviewStatus.CLAIMED,
+        result_version=0,
+        assigned_admin_id=9999,
+        expected_match_version=6,
+        claimed_at=datetime.now(timezone.utc),
+    )
+    db.add_all([
+        review,
+        GameTicketWallet(
+            telegram_id=3001, tournament_tickets=0,
+            locked_tournament_tickets=0,
+        ),
+        GameTicketWallet(
+            telegram_id=3002, tournament_tickets=0,
+            locked_tournament_tickets=0,
+        ),
+    ])
+    db.commit()
+
+    _decide(db, review, ArenaV4ResultType.CANCEL, key="ticket-cancel")
+    replay = _decide(
+        db, review, ArenaV4ResultType.CANCEL, key="ticket-cancel"
+    )
+    db.refresh(match)
+
+    assert replay.id == review.id
+    assert match.status == ArenaV3Status.FINISHED
+    assert match.owner_ticket_state == "REFUNDED"
+    assert match.opponent_ticket_state == "REFUNDED"
+    assert db.get(GameTicketWallet, 3001).tournament_tickets == 2
+    assert db.get(GameTicketWallet, 3002).tournament_tickets == 2
+    assert db.query(ArenaV3Stats).count() == 0
