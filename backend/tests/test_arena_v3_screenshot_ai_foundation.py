@@ -277,6 +277,7 @@ def api(session_factory, monkeypatch):
     monkeypatch.setattr(config, "ARENA_V3_ENABLED", True)
     monkeypatch.setattr(config, "ARENA_V3_AI_ENABLED", True)
     monkeypatch.setattr(config, "ARENA_ADMIN_CHANNEL_ID", "-100123")
+    monkeypatch.setattr(arena_router, "SessionLocal", session_factory)
     monkeypatch.setattr(
         arena_router, "send_admin_message",
         lambda *args, **kwargs: SimpleNamespace(message_id=501),
@@ -333,6 +334,35 @@ def test_screenshot_and_internal_ai_api(api):
     started = client.post(f"/internal/arena/{match_id}/start-ai")
     assert started.status_code == 200
     assert started.json()["status"] == "RUNNING"
+
+
+def test_screenshot_is_persisted_when_telegram_response_is_lost(api, monkeypatch):
+    client, _, match_id, session_factory = api
+
+    def lose_telegram_response(*args, **kwargs):
+        raise arena_router.TelegramNotificationResponseError(
+            "Telegram response is invalid"
+        )
+
+    monkeypatch.setattr(
+        arena_router, "send_deposit_receipt_photo", lose_telegram_response
+    )
+    response = client.post(
+        f"/arena/{match_id}/upload-screenshot",
+        files={"file": ("result.png", PNG, "image/png")},
+        headers={"Idempotency-Key": "lost-telegram-response"},
+    )
+
+    assert response.status_code == 200
+    db = session_factory()
+    screenshot = ArenaV3Service(db).repository.get_player_screenshot(
+        match_id, 1001
+    )
+    assert screenshot is not None
+    assert screenshot.storage_key.startswith("telegram:pending:")
+    assert screenshot.telegram_file_id is None
+    assert screenshot.telegram_message_id is None
+    db.close()
 
 
 def test_v2_routes_are_absent_from_sprint5_routers():
