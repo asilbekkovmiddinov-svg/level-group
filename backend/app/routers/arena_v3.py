@@ -124,6 +124,22 @@ def internal_admin_review_list(
 
 
 @internal_router.post(
+    "/matches/{match_id}/claim", response_model=ArenaV4AdminReviewResponse
+)
+def internal_channel_claim(
+    match_id: int,
+    payload: ArenaV4AdminClaimRequest,
+    _: None = Depends(require_arena_internal_api_key),
+    db: Session = Depends(get_db),
+):
+    return core_match_call(
+        lambda: ArenaV4AdminReviewService(db).claim_channel_review(
+            match_id=match_id, admin_id=payload.admin_id
+        )
+    )
+
+
+@internal_router.post(
     "/matches/{match_id}/score", response_model=ArenaV4AdminReviewResponse
 )
 def internal_channel_score(
@@ -376,8 +392,8 @@ async def upload_screenshot(
         text = "\n".join(match_lines)
         try:
             markup = {"inline_keyboard": [[
-                {"text": "📝 Hisobni kiritish", "callback_data": f"arv4:match:score:{match.id}"},
-                {"text": "❌ Bekor qilish", "callback_data": f"arv4:match:cancel:{match.id}"},
+                {"text": "⚽ Natijani yozish", "callback_data": f"arv4:m:start:{match.id}"},
+                {"text": "❌ Bekor qilish", "callback_data": f"arv4:m:cancel:{match.id}"},
             ]]}
             post = await run_in_threadpool(
                 send_admin_message, text, markup, config.ARENA_ADMIN_CHANNEL_ID

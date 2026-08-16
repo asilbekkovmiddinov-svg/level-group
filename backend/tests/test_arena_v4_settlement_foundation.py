@@ -239,6 +239,58 @@ def test_decision_replay_is_idempotent_and_second_decision_is_blocked(
     assert match.result_version == 1
 
 
+def test_channel_review_is_claimed_by_only_one_admin(session_factory):
+    db = session_factory()
+    _, review = _foundation(db)
+    review.status = ArenaV4AdminReviewStatus.PENDING
+    review.assigned_admin_id = None
+    review.claimed_at = None
+    db.commit()
+
+    service = ArenaV4AdminReviewService(db)
+    claimed = service.claim_channel_review(match_id=review.match_id, admin_id=1111)
+    replay = service.claim_channel_review(match_id=review.match_id, admin_id=1111)
+
+    assert claimed.assigned_admin_id == 1111
+    assert replay.id == claimed.id
+    with pytest.raises(ArenaV3Conflict, match="already claimed"):
+        service.claim_channel_review(match_id=review.match_id, admin_id=2222)
+
+
+def test_channel_decision_cannot_steal_another_admin_claim(session_factory):
+    db = session_factory()
+    _, review = _foundation(db)
+    payload = ArenaV4AdminDecisionRequest(
+        admin_id=8888,
+        owner_score=3,
+        opponent_score=2,
+        reason="TELEGRAM_CHANNEL",
+    )
+
+    with pytest.raises(ArenaV3Conflict, match="already claimed"):
+        ArenaV4AdminReviewService(db).submit_channel_decision(
+            match_id=review.match_id,
+            admin_id=8888,
+            payload=payload,
+            idempotency_key="channel-score-other-admin",
+        )
+
+
+def test_channel_claim_requires_waiting_admin_status(session_factory):
+    db = session_factory()
+    match, review = _foundation(db)
+    match.status = ArenaV3Status.WAITING_SCREENSHOT
+    review.status = ArenaV4AdminReviewStatus.PENDING
+    review.assigned_admin_id = None
+    review.claimed_at = None
+    db.commit()
+
+    with pytest.raises(ArenaV3Conflict, match="not waiting for admin"):
+        ArenaV4AdminReviewService(db).claim_channel_review(
+            match_id=match.id, admin_id=1111
+        )
+
+
 def test_settlement_failure_rolls_back_decision_wallet_and_ledger(
     session_factory, monkeypatch
 ):

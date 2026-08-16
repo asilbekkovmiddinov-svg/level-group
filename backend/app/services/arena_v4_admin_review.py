@@ -41,17 +41,21 @@ class ArenaV4AdminReviewService:
             status=status, review_type=review_type, limit=limit, offset=offset
         )
 
-    def submit_channel_decision(
-        self, *, match_id: int, admin_id: int, payload, idempotency_key: str
+    def _claim_channel_review(
+        self, *, match_id: int, admin_id: int, allow_decided: bool = False
     ):
-        """Apply the channel score without exposing a review queue.
-
-        The review row remains an immutable audit/decision record only.
-        """
         match = self.repository.get_match_for_update(match_id)
         if match is None:
             raise ArenaV3NotFound("Arena V3 match not found")
-        review = self.repository.get_initial_admin_review(match.id, match.result_version)
+        review = self.repository.get_initial_admin_review(
+            match.id, match.result_version
+        )
+        if review is not None and review.status == ArenaV4AdminReviewStatus.DECIDED:
+            if allow_decided:
+                return review
+            raise ArenaV3Conflict("Arena admin decision is already final")
+        if match.status != ArenaV3Status.WAITING_ADMIN:
+            raise ArenaV3Conflict("Arena match is not waiting for admin")
         if review is None:
             review = self.repository.add_admin_review(ArenaV4AdminReview(
                 match_id=match.id,
@@ -62,11 +66,33 @@ class ArenaV4AdminReviewService:
                 assigned_admin_id=admin_id,
                 claimed_at=datetime.now(timezone.utc),
             ))
-        elif review.status != ArenaV4AdminReviewStatus.DECIDED:
+        elif review.status == ArenaV4AdminReviewStatus.PENDING:
             review.status = ArenaV4AdminReviewStatus.CLAIMED
             review.assigned_admin_id = admin_id
-            review.claimed_at = review.claimed_at or datetime.now(timezone.utc)
+            review.claimed_at = datetime.now(timezone.utc)
+        elif review.assigned_admin_id != admin_id:
+            raise ArenaV3Conflict("Arena admin review is already claimed")
         self.db.flush()
+        return review
+
+    def claim_channel_review(self, *, match_id: int, admin_id: int):
+        review = self._claim_channel_review(
+            match_id=match_id, admin_id=admin_id
+        )
+        self.db.commit()
+        self.db.refresh(review)
+        return review
+
+    def submit_channel_decision(
+        self, *, match_id: int, admin_id: int, payload, idempotency_key: str
+    ):
+        """Apply the channel score without exposing a review queue.
+
+        The review row remains an immutable audit/decision record only.
+        """
+        review = self._claim_channel_review(
+            match_id=match_id, admin_id=admin_id, allow_decided=True
+        )
         return self.submit_decision(
             review_id=review.id, admin_id=admin_id, payload=payload,
             idempotency_key=idempotency_key,
@@ -75,22 +101,9 @@ class ArenaV4AdminReviewService:
     def submit_channel_cancel(
         self, *, match_id: int, admin_id: int, payload, idempotency_key: str
     ):
-        match = self.repository.get_match_for_update(match_id)
-        if match is None:
-            raise ArenaV3NotFound("Arena V3 match not found")
-        review = self.repository.get_initial_admin_review(match.id, match.result_version)
-        if review is None:
-            review = self.repository.add_admin_review(ArenaV4AdminReview(
-                match_id=match.id, review_type=ArenaV4ReviewType.INITIAL,
-                status=ArenaV4AdminReviewStatus.CLAIMED,
-                result_version=match.result_version,
-                expected_match_version=match.version,
-                assigned_admin_id=admin_id, claimed_at=datetime.now(timezone.utc),
-            ))
-        elif review.status != ArenaV4AdminReviewStatus.DECIDED:
-            review.status = ArenaV4AdminReviewStatus.CLAIMED
-            review.assigned_admin_id = admin_id
-        self.db.flush()
+        review = self._claim_channel_review(
+            match_id=match_id, admin_id=admin_id, allow_decided=True
+        )
         return self.submit_cancel(
             review_id=review.id, admin_id=admin_id, payload=payload,
             idempotency_key=idempotency_key,
@@ -333,4 +346,17 @@ class ArenaV4AdminReviewService:
             self.db.rollback()
             raise
         self.db.refresh(review)
+        if match.admin_channel_message_id:
+            try:
+                edit_arena_admin_post(
+                    match.admin_channel_message_id,
+                    "\n".join([
+                        "❌ Match bekor qilindi",
+                        f"Sabab: {payload.reason}",
+                        f"Admin: {admin_id}",
+                        f"Tekshirilgan vaqt: {review.decided_at.isoformat()}",
+                    ]),
+                )
+            except Exception:
+                pass
         return review
