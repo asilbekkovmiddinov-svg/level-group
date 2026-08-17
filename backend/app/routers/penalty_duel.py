@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.core.database import SessionLocal, get_db
 from app.core.telegram_auth import TelegramUser, get_current_telegram_user, verify_init_data
 from app.schemas.penalty_duel import PenaltyDuelChoiceRequest, PenaltyDuelJoinRequest
-from app.models.penalty_duel import PenaltyDuelMatch, PenaltyDuelMode
+from app.models.penalty_duel import PenaltyDuelMatch, PenaltyDuelMode, PenaltyDuelStatus
 from app.services.penalty_duel import (
     PenaltyDuelError,
     cancel_waiting_match,
@@ -15,6 +15,7 @@ from app.services.penalty_duel import (
     leaderboard_rows,
     match_response,
 )
+from app.services.penalty_duel_ai import activate_ai_opponent, waiting_for_ai
 from app.services.penalty_duel_single_choice import (
     player_role,
     process_single_choice_timeout,
@@ -29,6 +30,25 @@ def _conflict(error: PenaltyDuelError):
     message = str(error)
     status = 404 if "not found" in message.lower() else 409
     raise HTTPException(status_code=status, detail=message)
+
+
+def _activate_ai_if_due(db: Session, match: PenaltyDuelMatch | None) -> PenaltyDuelMatch | None:
+    if match is None or not waiting_for_ai(match):
+        return match
+    locked = db.query(PenaltyDuelMatch).filter_by(id=match.id).with_for_update().first()
+    if locked is None or locked.status != PenaltyDuelStatus.WAITING:
+        db.rollback()
+        return locked
+    try:
+        if activate_ai_opponent(db, locked):
+            db.commit()
+            db.refresh(locked)
+        else:
+            db.rollback()
+        return locked
+    except Exception:
+        db.rollback()
+        raise
 
 
 def _response(db: Session, match: PenaltyDuelMatch, telegram_id: int) -> dict:
@@ -61,6 +81,7 @@ def matchmaking_join(
 ):
     try:
         match = join_match(db, user.telegram_id, payload.mode)
+        match = _activate_ai_if_due(db, match)
         return _response(db, match, user.telegram_id)
     except PenaltyDuelError as error:
         db.rollback()
@@ -73,6 +94,7 @@ def current_match(
     db: Session = Depends(get_db),
 ):
     match = get_active_match(db, user.telegram_id)
+    match = _activate_ai_if_due(db, match)
     return _response(db, match, user.telegram_id) if match else None
 
 
@@ -84,13 +106,7 @@ def round_choices(
     db: Session = Depends(get_db),
 ):
     try:
-        match = submit_single_choice(
-            db,
-            match_id,
-            user.telegram_id,
-            payload.direction.value,
-            payload.idempotency_key,
-        )
+        match = submit_single_choice(db, match_id, user.telegram_id, payload.direction.value, payload.idempotency_key)
         return _response(db, match, user.telegram_id)
     except PenaltyDuelError as error:
         db.rollback()
@@ -145,22 +161,18 @@ async def realtime_state(websocket: WebSocket):
         while True:
             db.expire_all()
             match = get_active_match(db, user.telegram_id)
+            match = _activate_ai_if_due(db, match)
             if match:
                 tracked_match_id = match.id
             elif tracked_match_id:
                 match = db.query(PenaltyDuelMatch).filter_by(id=tracked_match_id).first()
             payload = _response(db, match, user.telegram_id) if match else None
-            signature = (
-                payload["id"], payload["version"], payload["status"]
-            ) if payload else None
+            signature = (payload["id"], payload["version"], payload["status"]) if payload else None
             if signature != last_signature:
                 await websocket.send_json({"type": "PENALTY_MATCH_STATE", "match": payload})
                 last_signature = signature
             try:
-                message = await asyncio.wait_for(
-                    websocket.receive_text(),
-                    timeout=PENALTY_WEBSOCKET_REFRESH_SECONDS,
-                )
+                message = await asyncio.wait_for(websocket.receive_text(), timeout=PENALTY_WEBSOCKET_REFRESH_SECONDS)
                 if message == "PING":
                     await websocket.send_json({"type": "PONG"})
             except asyncio.TimeoutError:
