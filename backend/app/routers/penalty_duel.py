@@ -14,8 +14,11 @@ from app.services.penalty_duel import (
     join_match,
     leaderboard_rows,
     match_response,
-    process_timeout,
-    submit_choices,
+)
+from app.services.penalty_duel_single_choice import (
+    player_role,
+    process_single_choice_timeout,
+    submit_single_choice,
 )
 
 router = APIRouter(prefix="/penalty-duel", tags=["Penalty Duel"])
@@ -26,6 +29,18 @@ def _conflict(error: PenaltyDuelError):
     message = str(error)
     status = 404 if "not found" in message.lower() else 409
     raise HTTPException(status_code=status, detail=message)
+
+
+def _response(db: Session, match: PenaltyDuelMatch, telegram_id: int) -> dict:
+    payload = match_response(db, match, telegram_id)
+    if match.status.value == "ACTIVE":
+        payload["your_role"] = player_role(match, telegram_id)
+        payload["shot_number"] = match.round_number
+        payload["regulation_shots"] = 10
+        payload["sudden_death"] = match.round_number > 10
+    else:
+        payload["your_role"] = None
+    return payload
 
 
 @router.get("/leaderboard")
@@ -46,7 +61,7 @@ def matchmaking_join(
 ):
     try:
         match = join_match(db, user.telegram_id, payload.mode)
-        return match_response(db, match, user.telegram_id)
+        return _response(db, match, user.telegram_id)
     except PenaltyDuelError as error:
         db.rollback()
         _conflict(error)
@@ -58,7 +73,7 @@ def current_match(
     db: Session = Depends(get_db),
 ):
     match = get_active_match(db, user.telegram_id)
-    return match_response(db, match, user.telegram_id) if match else None
+    return _response(db, match, user.telegram_id) if match else None
 
 
 @router.post("/matches/{match_id}/choices")
@@ -69,16 +84,14 @@ def round_choices(
     db: Session = Depends(get_db),
 ):
     try:
-        match = submit_choices(
+        match = submit_single_choice(
             db,
             match_id,
             user.telegram_id,
-            payload.kick_direction.value,
-            payload.keeper_direction.value,
-            payload.expected_version,
+            payload.direction.value,
             payload.idempotency_key,
         )
-        return match_response(db, match, user.telegram_id)
+        return _response(db, match, user.telegram_id)
     except PenaltyDuelError as error:
         db.rollback()
         _conflict(error)
@@ -92,7 +105,7 @@ def cancel_waiting(
 ):
     try:
         match = cancel_waiting_match(db, match_id, user.telegram_id)
-        return match_response(db, match, user.telegram_id)
+        return _response(db, match, user.telegram_id)
     except PenaltyDuelError as error:
         db.rollback()
         _conflict(error)
@@ -105,8 +118,8 @@ def timeout_round(
     db: Session = Depends(get_db),
 ):
     try:
-        match = process_timeout(db, match_id, user.telegram_id)
-        return match_response(db, match, user.telegram_id)
+        match = process_single_choice_timeout(db, match_id, user.telegram_id)
+        return _response(db, match, user.telegram_id)
     except PenaltyDuelError as error:
         db.rollback()
         _conflict(error)
@@ -136,7 +149,7 @@ async def realtime_state(websocket: WebSocket):
                 tracked_match_id = match.id
             elif tracked_match_id:
                 match = db.query(PenaltyDuelMatch).filter_by(id=tracked_match_id).first()
-            payload = match_response(db, match, user.telegram_id) if match else None
+            payload = _response(db, match, user.telegram_id) if match else None
             signature = (
                 payload["id"], payload["version"], payload["status"]
             ) if payload else None
