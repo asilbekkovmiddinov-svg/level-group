@@ -66,7 +66,7 @@ def test_tads_webhook_rejects_another_widget(monkeypatch):
         engine.dispose()
 
 
-def test_verified_tads_view_grants_only_one_hourly_ticket(monkeypatch):
+def test_verified_tads_view_grants_only_one_ticket_per_30_minutes(monkeypatch):
     client, sessions, engine = build(monkeypatch)
     try:
         url = "/wall-rush/rewards/tads/webhook?secret=test-tads-secret"

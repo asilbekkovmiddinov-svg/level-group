@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
-from sqlalchemy import or_
+from sqlalchemy import case, func, or_
 from sqlalchemy.orm import Session
 
 from app.models.penalty_duel import (
@@ -11,6 +11,7 @@ from app.models.penalty_duel import (
     PenaltyDuelStatus,
     PenaltyDuelSubmission,
 )
+from app.models.user import User
 from app.models.wall_rush import GameTicketLedger, TicketKind
 from app.services.wall_rush import get_wallet
 
@@ -128,6 +129,75 @@ def match_response(db: Session, match: PenaltyDuelMatch, telegram_id: int) -> di
         "history": _round_history(db, match, player_one),
         "version": match.version,
     }
+
+
+def leaderboard_rows(
+    db: Session,
+    mode: PenaltyDuelMode,
+    limit: int = 20,
+) -> list[dict]:
+    """Return a mode-specific rating calculated only from finished duels."""
+    player_one_results = (
+        db.query(
+            PenaltyDuelMatch.player_one_id.label("telegram_id"),
+            case(
+                (PenaltyDuelMatch.winner_id == PenaltyDuelMatch.player_one_id, 1),
+                else_=0,
+            ).label("won"),
+        )
+        .filter(
+            PenaltyDuelMatch.mode == mode,
+            PenaltyDuelMatch.status == PenaltyDuelStatus.FINISHED,
+            PenaltyDuelMatch.player_two_id.isnot(None),
+            PenaltyDuelMatch.winner_id.isnot(None),
+        )
+    )
+    player_two_results = (
+        db.query(
+            PenaltyDuelMatch.player_two_id.label("telegram_id"),
+            case(
+                (PenaltyDuelMatch.winner_id == PenaltyDuelMatch.player_two_id, 1),
+                else_=0,
+            ).label("won"),
+        )
+        .filter(
+            PenaltyDuelMatch.mode == mode,
+            PenaltyDuelMatch.status == PenaltyDuelStatus.FINISHED,
+            PenaltyDuelMatch.player_two_id.isnot(None),
+            PenaltyDuelMatch.winner_id.isnot(None),
+        )
+    )
+    results = player_one_results.union_all(player_two_results).subquery()
+    played = func.count(results.c.telegram_id)
+    wins = func.sum(results.c.won)
+    rating = 1000 + wins * 25
+    rows = (
+        db.query(
+            User,
+            played.label("played"),
+            wins.label("wins"),
+            rating.label("rating"),
+        )
+        .join(results, results.c.telegram_id == User.telegram_id)
+        .group_by(User.telegram_id)
+        .order_by(rating.desc(), wins.desc(), played.asc(), User.telegram_id.asc())
+        .limit(limit)
+        .all()
+    )
+    return [
+        {
+            "rank": rank,
+            "telegram_id": user.telegram_id,
+            "display_name": _display_name(user),
+            "username": user.username,
+            "played": int(games_played or 0),
+            "wins": int(games_won or 0),
+            "losses": int(games_played or 0) - int(games_won or 0),
+            "rating": int(player_rating or 0),
+        }
+        for rank, (user, games_played, games_won, player_rating)
+        in enumerate(rows, start=1)
+    ]
 
 
 def _ledger(
