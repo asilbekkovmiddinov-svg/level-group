@@ -85,7 +85,7 @@ def tads_reward_webhook(
         return {"status": "ok", "rewarded": True, "wallet": wallet_response(wallet)}
     except WallRushError as error:
         db.rollback()
-        if "once per hour" in str(error):
+        if "once per 30 minutes" in str(error):
             return {"status": "ok", "rewarded": False, "reason": "cooldown"}
         _conflict(error)
 

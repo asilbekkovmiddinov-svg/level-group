@@ -19,6 +19,7 @@ from app.services.penalty_duel import (
     PenaltyDuelError,
     get_current_match,
     join_match,
+    leaderboard_rows,
     match_response,
     process_timeout,
     submit_choices,
@@ -164,6 +165,27 @@ def test_five_rounds_finish_and_reward_tournament_ticket_exactly_once(db):
     )
     assert duplicate.id == match.id
     assert db.get(GameTicketWallet, 101).tournament_tickets == 1
+
+
+def test_leaderboards_are_mode_specific_and_losses_do_not_reduce_rating(db):
+    free_match = _start(db, PenaltyDuelMode.FREE)
+    for _ in range(5):
+        free_match = _submit_round(db, free_match)
+
+    free_rows = leaderboard_rows(db, PenaltyDuelMode.FREE)
+    assert [row["telegram_id"] for row in free_rows] == [101, 202]
+    assert free_rows[0] == {
+        "rank": 1,
+        "telegram_id": 101,
+        "display_name": "Asil",
+        "username": "asil",
+        "played": 1,
+        "wins": 1,
+        "losses": 0,
+        "rating": 1025,
+    }
+    assert free_rows[1]["rating"] == 1000
+    assert leaderboard_rows(db, PenaltyDuelMode.TICKET) == []
 
 
 def test_tied_regulation_enters_sudden_death_until_score_differs(db):

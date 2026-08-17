@@ -1,17 +1,18 @@
 import asyncio
 
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal, get_db
 from app.core.telegram_auth import TelegramUser, get_current_telegram_user, verify_init_data
 from app.schemas.penalty_duel import PenaltyDuelChoiceRequest, PenaltyDuelJoinRequest
-from app.models.penalty_duel import PenaltyDuelMatch
+from app.models.penalty_duel import PenaltyDuelMatch, PenaltyDuelMode
 from app.services.penalty_duel import (
     PenaltyDuelError,
     cancel_waiting_match,
     get_active_match,
     join_match,
+    leaderboard_rows,
     match_response,
     process_timeout,
     submit_choices,
@@ -25,6 +26,16 @@ def _conflict(error: PenaltyDuelError):
     message = str(error)
     status = 404 if "not found" in message.lower() else 409
     raise HTTPException(status_code=status, detail=message)
+
+
+@router.get("/leaderboard")
+def leaderboard(
+    mode: PenaltyDuelMode,
+    limit: int = Query(default=20, ge=1, le=50),
+    _: TelegramUser = Depends(get_current_telegram_user),
+    db: Session = Depends(get_db),
+):
+    return {"mode": mode.value, "rows": leaderboard_rows(db, mode, limit)}
 
 
 @router.post("/matchmaking/join")

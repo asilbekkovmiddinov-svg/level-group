@@ -93,6 +93,13 @@ def test_public_penalty_endpoints_require_verified_telegram_identity(monkeypatch
         assert joined.status_code == 200
         assert joined.json()["you"]["telegram_id"] == 101
         assert joined.json()["status"] == "WAITING"
+        assert client.get("/penalty-duel/leaderboard?mode=FREE").status_code == 401
+        rating = client.get(
+            "/penalty-duel/leaderboard?mode=FREE&limit=20",
+            headers=headers(101),
+        )
+        assert rating.status_code == 200
+        assert rating.json() == {"mode": "FREE", "rows": []}
     finally:
         engine.dispose()
 
