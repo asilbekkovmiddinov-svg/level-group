@@ -53,6 +53,7 @@ from app.routers.support import router as support_router
 from app.routers.monetag_ads import router as monetag_ads_router
 from app.routers.admin_metrics import router as admin_metrics_router
 from app.routers.wall_rush import router as wall_rush_router
+from app.routers.penalty_duel import router as penalty_duel_router
 from app.routers.subscription import router as subscription_router
 from app.routers.division import (
     admin_router as division_admin_router,
@@ -71,6 +72,7 @@ from app.core.config import (
 from app.services.campaign_worker import CampaignWorker
 from app.services.coin_promotion_timeouts import CoinPromotionTimeoutWorker
 from app.services.arena_timeouts import ArenaTimeoutWorker
+from app.services.penalty_duel_timeouts import PenaltyDuelTimeoutWorker
 from app.services.arena_v3_workers import ArenaV3AIWorker, ArenaV3ScreenshotTimeoutWorker
 from app.services.arena_v3_notifications import ArenaV3NotificationWorker
 from app.services.arena_v4_reward_release import ArenaV4RewardReleaseWorker
@@ -80,6 +82,7 @@ configure_logging()
 campaign_worker = CampaignWorker(SessionLocal)
 coin_promotion_timeout_worker = CoinPromotionTimeoutWorker(SessionLocal)
 arena_timeout_worker = ArenaTimeoutWorker(SessionLocal)
+penalty_duel_timeout_worker = PenaltyDuelTimeoutWorker(SessionLocal)
 arena_v3_timeout_worker = ArenaV3ScreenshotTimeoutWorker(SessionLocal)
 arena_v3_ai_worker = ArenaV3AIWorker(SessionLocal)
 arena_v3_notification_worker = ArenaV3NotificationWorker(SessionLocal)
@@ -96,6 +99,7 @@ def start_campaign_worker():
         campaign_worker.start()
     coin_promotion_timeout_worker.start()
     arena_timeout_worker.start()
+    penalty_duel_timeout_worker.start()
     arena_v3_timeout_worker.start()
     if ARENA_V3_AI_ENABLED:
         arena_v3_ai_worker.start()
@@ -109,6 +113,7 @@ def stop_campaign_worker():
     campaign_worker.stop()
     coin_promotion_timeout_worker.stop()
     arena_timeout_worker.stop()
+    penalty_duel_timeout_worker.stop()
     arena_v3_timeout_worker.stop()
     arena_v3_ai_worker.stop()
     arena_v3_notification_worker.stop()
@@ -178,6 +183,7 @@ app.include_router(support_router)
 app.include_router(monetag_ads_router)
 app.include_router(admin_metrics_router)
 app.include_router(wall_rush_router)
+app.include_router(penalty_duel_router)
 app.include_router(subscription_router)
 app.include_router(division_router)
 app.include_router(division_admin_router)
