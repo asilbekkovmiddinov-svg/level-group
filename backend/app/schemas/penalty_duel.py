@@ -22,7 +22,5 @@ class PenaltyDuelJoinRequest(BaseModel):
 class PenaltyDuelChoiceRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    kick_direction: PenaltyDirection
-    keeper_direction: PenaltyDirection
-    expected_version: int = Field(ge=1)
+    direction: PenaltyDirection
     idempotency_key: str = Field(min_length=8, max_length=128)
