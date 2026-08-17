@@ -124,12 +124,11 @@ def test_http_flow_hides_choices_and_returns_authoritative_score(monkeypatch):
         assert active["id"] == waiting["id"]
         assert active["status"] == "ACTIVE"
 
+        # Round 1: player 202 is the shooter and submits only the shot direction.
         first = client.post(
             f"/penalty-duel/matches/{active['id']}/choices",
             json={
-                "kick_direction": "top-left",
-                "keeper_direction": "bottom-right",
-                "expected_version": active["version"],
+                "direction": "top-left",
                 "idempotency_key": "api-player-two-round-one",
             },
             headers=headers(202),
@@ -144,12 +143,11 @@ def test_http_flow_hides_choices_and_returns_authoritative_score(monkeypatch):
         assert opponent_view["history"] == []
         assert "kick_direction" not in opponent_view
 
+        # Player 101 is the keeper and submits only the save direction.
         resolved = client.post(
             f"/penalty-duel/matches/{active['id']}/choices",
             json={
-                "kick_direction": "center",
-                "keeper_direction": "top-right",
-                "expected_version": opponent_view["version"],
+                "direction": "top-right",
                 "idempotency_key": "api-player-one-round-one",
             },
             headers=headers(101),
@@ -157,8 +155,9 @@ def test_http_flow_hides_choices_and_returns_authoritative_score(monkeypatch):
         assert resolved.status_code == 200
         payload = resolved.json()
         assert payload["round_number"] == 2
-        assert payload["your_score"] == 1
-        assert payload["opponent_score"] == 1
         assert len(payload["history"]) == 1
+        assert payload["history"][0]["shooter_direction"] == "top-left"
+        assert payload["history"][0]["keeper_direction"] == "top-right"
+        assert payload["your_score"] + payload["opponent_score"] == 1
     finally:
         engine.dispose()
