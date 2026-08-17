@@ -53,8 +53,6 @@ def _resolve_shot(db: Session, match: PenaltyDuelMatch) -> bool:
     defender = player_two if player_one_attacks else player_one
     goal = attacker.kick_direction != defender.keeper_direction
 
-    # Existing round columns are retained to avoid a production migration.
-    # Only the current attacker can score on this shot; the other goal flag is false.
     db.add(PenaltyDuelRound(
         id=str(uuid4()),
         match_id=match.id,
@@ -79,16 +77,18 @@ def _resolve_shot(db: Session, match: PenaltyDuelMatch) -> bool:
     score_decided = match.player_one_score != match.player_two_score
 
     if regulation_done and completed_pair and score_decided:
-        winner_id = (
-            match.player_one_id
-            if match.player_one_score > match.player_two_score
-            else match.player_two_id
-        )
+        winner_id = match.player_one_id if match.player_one_score > match.player_two_score else match.player_two_id
         _finish(db, match, winner_id)
     else:
         match.round_number += 1
         match.round_deadline_at = utc_now() + timedelta(seconds=ROUND_SECONDS)
     return True
+
+
+def _prime_ai_for_current_shot(db: Session, match: PenaltyDuelMatch) -> None:
+    from app.services.penalty_duel_ai import add_ai_submission, is_ai_player
+    if is_ai_player(match.player_two_id) and match.status == PenaltyDuelStatus.ACTIVE:
+        add_ai_submission(db, match)
 
 
 def submit_single_choice(
@@ -101,18 +101,12 @@ def submit_single_choice(
     if direction not in VALID_DIRECTIONS:
         raise PenaltyDuelError("Invalid penalty direction")
 
-    # The match row serializes simultaneous requests. We intentionally do not
-    # reject a valid second player's action because its client version is stale.
     match = db.query(PenaltyDuelMatch).filter_by(id=match_id).with_for_update().first()
     if match is None:
         raise PenaltyDuelError("Match not found")
     _is_player_one(match, telegram_id)
 
-    duplicate = (
-        db.query(PenaltyDuelSubmission)
-        .filter(PenaltyDuelSubmission.idempotency_key == idempotency_key)
-        .first()
-    )
+    duplicate = db.query(PenaltyDuelSubmission).filter(PenaltyDuelSubmission.idempotency_key == idempotency_key).first()
     if duplicate:
         if duplicate.match_id != match.id or duplicate.player_id != telegram_id:
             raise PenaltyDuelError("Idempotency key is already used")
@@ -127,21 +121,14 @@ def submit_single_choice(
     if deadline and utc_now() > deadline:
         raise PenaltyDuelError("Round deadline has passed")
 
-    existing = (
-        db.query(PenaltyDuelSubmission)
-        .filter_by(
-            match_id=match.id,
-            round_number=match.round_number,
-            player_id=telegram_id,
-        )
-        .first()
-    )
+    existing = db.query(PenaltyDuelSubmission).filter_by(
+        match_id=match.id,
+        round_number=match.round_number,
+        player_id=telegram_id,
+    ).first()
     if existing:
         return match
 
-    role = player_role(match, telegram_id)
-    # Keep both legacy non-null columns populated. Resolution reads only the
-    # column matching this player's server-authoritative role.
     db.add(PenaltyDuelSubmission(
         id=str(uuid4()),
         match_id=match.id,
@@ -152,7 +139,10 @@ def submit_single_choice(
         idempotency_key=idempotency_key,
     ))
     db.flush()
-    _resolve_shot(db, match)
+    _prime_ai_for_current_shot(db, match)
+    resolved = _resolve_shot(db, match)
+    if resolved:
+        _prime_ai_for_current_shot(db, match)
     match.version += 1
     db.commit()
     db.refresh(match)
@@ -180,11 +170,10 @@ def process_single_choice_timeout(
     if deadline is None or current_time <= deadline:
         raise PenaltyDuelError("Round is still active")
 
-    submissions = (
-        db.query(PenaltyDuelSubmission)
-        .filter_by(match_id=match.id, round_number=match.round_number)
-        .all()
-    )
+    submissions = db.query(PenaltyDuelSubmission).filter_by(
+        match_id=match.id,
+        round_number=match.round_number,
+    ).all()
     if not submissions:
         _refund_entry_tickets(db, match)
         match.status = PenaltyDuelStatus.CANCELLED

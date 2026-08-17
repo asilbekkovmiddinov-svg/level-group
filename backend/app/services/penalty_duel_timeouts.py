@@ -7,8 +7,8 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import PENALTY_DUEL_TIMEOUT_INTERVAL_SECONDS
 from app.models.penalty_duel import PenaltyDuelMatch, PenaltyDuelStatus
-from app.services.penalty_duel import process_timeout, utc_now
-
+from app.services.penalty_duel import utc_now
+from app.services.penalty_duel_single_choice import process_single_choice_timeout
 
 logger = logging.getLogger(__name__)
 
@@ -36,11 +36,7 @@ def due_match_ids(db, now: datetime, limit: int = 100) -> list[str]:
     ]
 
 
-def run_penalty_duel_timeout_worker(
-    db,
-    limit: int = 100,
-    now: datetime | None = None,
-) -> PenaltyDuelTimeoutResult:
+def run_penalty_duel_timeout_worker(db, limit: int = 100, now: datetime | None = None) -> PenaltyDuelTimeoutResult:
     now = now or utc_now()
     match_ids = due_match_ids(db, now, limit)
     processed = skipped = failed = 0
@@ -52,7 +48,7 @@ def run_penalty_duel_timeout_worker(
                 skipped += 1
                 continue
             previous_status = match.status
-            result = process_timeout(db, match.id, match.player_one_id, now=now)
+            result = process_single_choice_timeout(db, match.id, match.player_one_id, now=now)
             if previous_status == PenaltyDuelStatus.ACTIVE and result.status != previous_status:
                 processed += 1
             else:
@@ -67,20 +63,13 @@ def run_penalty_duel_timeout_worker(
             logger.exception("penalty_duel_timeout_unexpected match_id=%s", match_id)
     logger.info(
         "penalty_duel_timeout_worker_completed scanned=%s processed=%s skipped=%s failed=%s",
-        len(match_ids),
-        processed,
-        skipped,
-        failed,
+        len(match_ids), processed, skipped, failed,
     )
     return PenaltyDuelTimeoutResult(len(match_ids), processed, skipped, failed)
 
 
 class PenaltyDuelTimeoutWorker:
-    def __init__(
-        self,
-        session_factory,
-        interval_seconds: float = PENALTY_DUEL_TIMEOUT_INTERVAL_SECONDS,
-    ):
+    def __init__(self, session_factory, interval_seconds: float = PENALTY_DUEL_TIMEOUT_INTERVAL_SECONDS):
         self.session_factory = session_factory
         self.interval_seconds = interval_seconds
         self._stop = threading.Event()
@@ -90,11 +79,7 @@ class PenaltyDuelTimeoutWorker:
         if self._thread and self._thread.is_alive():
             return
         self._stop.clear()
-        self._thread = threading.Thread(
-            target=self._run,
-            name="penalty-duel-timeouts",
-            daemon=True,
-        )
+        self._thread = threading.Thread(target=self._run, name="penalty-duel-timeouts", daemon=True)
         self._thread.start()
 
     def stop(self) -> None:
