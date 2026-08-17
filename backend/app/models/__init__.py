@@ -22,6 +22,11 @@ from .wall_rush import (
     WallRushAction,
     WallRushMatch,
 )
+from .penalty_duel import (
+    PenaltyDuelMatch,
+    PenaltyDuelRound,
+    PenaltyDuelSubmission,
+)
 from .division import (
     DivisionMatch,
     DivisionParticipant,
