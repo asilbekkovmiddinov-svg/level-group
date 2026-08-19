@@ -11,8 +11,9 @@ from app.core.telegram_auth import TelegramUser, get_current_telegram_user
 router = APIRouter(prefix="/subscription", tags=["Subscription"])
 
 REQUIRED_CHANNELS = (
-    {"chat_id": "@KingPessser", "title": "KingPesser 🇺🇿", "url": "https://t.me/KingPessser"},
+    {"chat_id": "@Bek_PesserUz", "title": "Bek_PesserUz 🇺🇿", "url": "https://t.me/Bek_PesserUz"},
     {"chat_id": "@levelgroup_buyurtmalar", "title": "LEVEL | Completed Orders", "url": "https://t.me/levelgroup_buyurtmalar"},
+    {"chat_id": "@ronin_Efootbol", "title": "RONIN eFootball", "url": "https://t.me/ronin_Efootbol"},
 )
 ALLOWED_STATUSES = {"creator", "administrator", "member", "restricted"}
 
