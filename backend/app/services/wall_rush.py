@@ -16,7 +16,7 @@ from app.models.wall_rush import (
 
 TURN_SECONDS = 30
 MAX_MISSED_TURNS = 3
-WALL_RUSH_AD_COOLDOWN = timedelta(minutes=30)
+WALL_RUSH_AD_COOLDOWN = timedelta(minutes=15)
 
 
 class WallRushError(ValueError):
@@ -61,7 +61,6 @@ def match_response(match: WallRushMatch) -> dict:
         "winner_id": match.winner_id,
         "version": match.version,
     }
-
 
 
 def leaderboard_rows(
@@ -176,7 +175,7 @@ def grant_ad_ticket(
         if last.tzinfo is None:
             last = last.replace(tzinfo=timezone.utc)
         if now < last + WALL_RUSH_AD_COOLDOWN:
-            raise WallRushError("Rewarded ad is available once per 30 minutes")
+            raise WallRushError("Rewarded ad is available once per 15 minutes")
     wallet.game_tickets += 1
     wallet.last_rewarded_ad_at = now
     _ledger(db, telegram_id, TicketKind.GAME, "AD_GRANT", 1, key)
