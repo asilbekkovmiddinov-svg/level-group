@@ -16,6 +16,11 @@ def run_migrations():
             ADD COLUMN IF NOT EXISTS purpose VARCHAR(30) NOT NULL DEFAULT 'WHEEL';
         """))
         connection.execute(text("""
+            ALTER TABLE game_ticket_wallets
+            ADD COLUMN IF NOT EXISTS last_penalty_duel_rewarded_ad_at TIMESTAMP WITH TIME ZONE,
+            ADD COLUMN IF NOT EXISTS penalty_duel_rewarded_ad_provider_index INTEGER NOT NULL DEFAULT 0;
+        """))
+        connection.execute(text("""
             ALTER TABLE orders
             ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(128),
             ADD COLUMN IF NOT EXISTS request_fingerprint VARCHAR(64);

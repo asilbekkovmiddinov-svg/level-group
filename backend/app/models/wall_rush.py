@@ -10,6 +10,9 @@ from sqlalchemy.orm import relationship
 from app.core.database import Base
 
 
+PENALTY_DUEL_AD_PROVIDERS = ("ADSGRAM", "TADS", "TELEGA", "ONCLICKA")
+
+
 def utc_now():
     return datetime.now(timezone.utc)
 
@@ -115,6 +118,8 @@ class GameTicketWallet(Base):
     tournament_tickets = Column(Integer, nullable=False, default=0)
     locked_tournament_tickets = Column(Integer, nullable=False, default=0)
     last_rewarded_ad_at = Column(DateTime(timezone=True))
+    last_penalty_duel_rewarded_ad_at = Column(DateTime(timezone=True))
+    penalty_duel_rewarded_ad_provider_index = Column(Integer, nullable=False, default=0)
     updated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
 
 

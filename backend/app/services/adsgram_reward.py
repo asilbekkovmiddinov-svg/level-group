@@ -16,6 +16,11 @@ from app.services.wall_rush import (
     get_wallet,
     grant_ad_ticket,
 )
+from app.services.penalty_duel_ads import (
+    PENALTY_DUEL_AD_COOLDOWN,
+    PenaltyDuelAdError,
+    grant_penalty_duel_ad_ticket,
+)
 
 
 PENDING = "PENDING"
@@ -24,6 +29,7 @@ CLAIMED = "CLAIMED"
 EXPIRED = "EXPIRED"
 WHEEL_PURPOSE = "WHEEL"
 WALL_RUSH_PURPOSE = "WALL_RUSH"
+PENALTY_DUEL_PURPOSE = "PENALTY_DUEL"
 
 
 def _token_hash(token: str) -> str:
@@ -119,6 +125,19 @@ def create_wall_rush_reward_session(
         if _as_utc(now) < _as_utc(last) + WALL_RUSH_AD_COOLDOWN:
             raise ValueError("Rewarded reklama cooldown faol")
     return _new_session(db, telegram_id, WALL_RUSH_PURPOSE, now)
+
+
+def create_penalty_duel_reward_session(
+    db: Session, telegram_id: int,
+) -> tuple[AdsgramRewardSession, str]:
+    now = utc_now()
+    db.query(User).filter(User.telegram_id == telegram_id).with_for_update().one()
+    wallet = get_wallet(db, telegram_id, lock=True)
+    last = wallet.last_penalty_duel_rewarded_ad_at
+    if last is not None:
+        if _as_utc(now) < _as_utc(last) + PENALTY_DUEL_AD_COOLDOWN:
+            raise ValueError("Penalty Duel reklama cooldown faol")
+    return _new_session(db, telegram_id, PENALTY_DUEL_PURPOSE, now)
 
 
 def verify_adsgram_callback(db: Session, telegram_id: int) -> AdsgramRewardSession | None:
@@ -256,6 +275,27 @@ def claim_wall_rush_reward(
     return session, wallet
 
 
+def claim_penalty_duel_reward(
+    db: Session, telegram_id: int, token: str,
+) -> tuple[AdsgramRewardSession, GameTicketWallet]:
+    session, now = _claimable_session(db, telegram_id, token, PENALTY_DUEL_PURPOSE)
+    try:
+        wallet = grant_penalty_duel_ad_ticket(
+            db,
+            telegram_id,
+            "ADSGRAM",
+            f"session:{session.id}",
+            now=now,
+        )
+    except PenaltyDuelAdError as error:
+        raise ValueError(str(error)) from error
+    session.status = CLAIMED
+    session.claimed_at = now
+    db.commit()
+    db.refresh(session)
+    return session, wallet
+
+
 def cancel_wall_rush_reward_session(
     db: Session, telegram_id: int, token: str,
 ) -> AdsgramRewardSession:
@@ -265,6 +305,28 @@ def cancel_wall_rush_reward_session(
             AdsgramRewardSession.telegram_id == telegram_id,
             AdsgramRewardSession.token_hash == _token_hash(token),
             AdsgramRewardSession.purpose == WALL_RUSH_PURPOSE,
+        )
+        .with_for_update()
+        .first()
+    )
+    if not session:
+        raise ValueError("Reward sessiyasi topilmadi")
+    if session.status == PENDING:
+        session.status = EXPIRED
+        db.commit()
+        db.refresh(session)
+    return session
+
+
+def cancel_penalty_duel_reward_session(
+    db: Session, telegram_id: int, token: str,
+) -> AdsgramRewardSession:
+    session = (
+        db.query(AdsgramRewardSession)
+        .filter(
+            AdsgramRewardSession.telegram_id == telegram_id,
+            AdsgramRewardSession.token_hash == _token_hash(token),
+            AdsgramRewardSession.purpose == PENALTY_DUEL_PURPOSE,
         )
         .with_for_update()
         .first()
