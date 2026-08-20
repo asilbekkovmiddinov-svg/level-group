@@ -10,6 +10,16 @@ from sqlalchemy.orm import relationship
 from app.core.database import Base
 
 
+PENALTY_DUEL_PRODUCTION_AD_PROVIDERS = ("ADSGRAM", "TADS", "TELEGA")
+PENALTY_DUEL_AD_PROVIDERS = PENALTY_DUEL_PRODUCTION_AD_PROVIDERS + ("ONCLICKA",)
+
+
+def active_penalty_duel_ad_providers(onclicka_enabled: bool) -> tuple[str, ...]:
+    if onclicka_enabled:
+        return PENALTY_DUEL_AD_PROVIDERS
+    return PENALTY_DUEL_PRODUCTION_AD_PROVIDERS
+
+
 def utc_now():
     return datetime.now(timezone.utc)
 
@@ -115,6 +125,8 @@ class GameTicketWallet(Base):
     tournament_tickets = Column(Integer, nullable=False, default=0)
     locked_tournament_tickets = Column(Integer, nullable=False, default=0)
     last_rewarded_ad_at = Column(DateTime(timezone=True))
+    last_penalty_duel_rewarded_ad_at = Column(DateTime(timezone=True))
+    penalty_duel_rewarded_ad_provider_index = Column(Integer, nullable=False, default=0)
     updated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
 
 
