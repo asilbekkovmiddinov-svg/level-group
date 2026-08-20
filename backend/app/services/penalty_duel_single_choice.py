@@ -22,6 +22,25 @@ from app.services.penalty_duel import (
 REGULATION_SHOTS = 10
 
 
+def _decided_winner(match: PenaltyDuelMatch, completed_shot: int) -> int | None:
+    if completed_shot <= REGULATION_SHOTS:
+        player_one_shots = (completed_shot + 1) // 2
+        player_two_shots = completed_shot // 2
+        player_one_remaining = 5 - player_one_shots
+        player_two_remaining = 5 - player_two_shots
+        if match.player_one_score > match.player_two_score + player_two_remaining:
+            return match.player_one_id
+        if match.player_two_score > match.player_one_score + player_one_remaining:
+            return match.player_two_id
+        if completed_shot == REGULATION_SHOTS and match.player_one_score != match.player_two_score:
+            return match.player_one_id if match.player_one_score > match.player_two_score else match.player_two_id
+        return None
+
+    if completed_shot % 2 == 0 and match.player_one_score != match.player_two_score:
+        return match.player_one_id if match.player_one_score > match.player_two_score else match.player_two_id
+    return None
+
+
 def player_role(match: PenaltyDuelMatch, telegram_id: int) -> str:
     """Return the only action this player may submit for the current shot."""
     is_one = _is_player_one(match, telegram_id)
@@ -72,12 +91,8 @@ def _resolve_shot(db: Session, match: PenaltyDuelMatch) -> bool:
             match.player_two_score += 1
 
     completed_shot = match.round_number
-    completed_pair = completed_shot % 2 == 0
-    regulation_done = completed_shot >= REGULATION_SHOTS
-    score_decided = match.player_one_score != match.player_two_score
-
-    if regulation_done and completed_pair and score_decided:
-        winner_id = match.player_one_id if match.player_one_score > match.player_two_score else match.player_two_id
+    winner_id = _decided_winner(match, completed_shot)
+    if winner_id is not None:
         _finish(db, match, winner_id)
     else:
         match.round_number += 1
