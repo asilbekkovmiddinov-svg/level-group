@@ -56,6 +56,10 @@ def build(monkeypatch):
 def test_telega_callback_requires_secret_and_rotates_after_verified_view(monkeypatch):
     client, sessions, engine = build(monkeypatch)
     try:
+        with sessions() as db:
+            pending, _ = adsgram_reward.create_telega_penalty_duel_reward_session(
+                db, 707,
+            )
         path = "/penalty-duel/rewards/telega/callback"
         rejected = client.get(path, params={
             "USERID": 707,
@@ -66,7 +70,6 @@ def test_telega_callback_requires_secret_and_rotates_after_verified_view(monkeyp
         rewarded = client.get(path, params={
             "secret": "telega-secret",
             "USERID": 707,
-            "event_id": "telega-view-0001",
             "ad_block_uuid": "626b9d82-89c5-4e08-b6d4-9fc8bdc2f486",
         })
         assert rewarded.status_code == 200
@@ -79,13 +82,38 @@ def test_telega_callback_requires_secret_and_rotates_after_verified_view(monkeyp
         duplicate = client.get(path, params={
             "secret": "telega-secret",
             "USERID": 707,
-            "event_id": "telega-view-0001",
             "ad_block_uuid": "626b9d82-89c5-4e08-b6d4-9fc8bdc2f486",
         })
         assert duplicate.status_code == 200
+        assert duplicate.json()["reason"] == "duplicate"
         with sessions() as db:
+            assert db.get(AdsgramRewardSession, pending.id).status == adsgram_reward.CLAIMED
             assert db.get(GameTicketWallet, 707).game_tickets == 1
-            assert db.query(GameTicketLedger).filter_by(operation="PENALTY_AD_GRANT").count() == 1
+            assert db.query(GameTicketLedger).filter_by(
+                idempotency_key=f"penalty-duel:ad:telega:session:{pending.id}",
+            ).count() == 1
+    finally:
+        engine.dispose()
+
+
+def test_telega_callback_without_pending_session_never_rewards(monkeypatch):
+    client, sessions, engine = build(monkeypatch)
+    try:
+        response = client.get(
+            "/penalty-duel/rewards/telega/callback",
+            params={
+                "secret": "telega-secret",
+                "USERID": 707,
+                "ad_block_uuid": "626b9d82-89c5-4e08-b6d4-9fc8bdc2f486",
+            },
+        )
+        assert response.status_code == 200
+        assert response.json() == {
+            "status": "ok", "rewarded": False, "reason": "no_pending_session",
+        }
+        with sessions() as db:
+            assert db.get(GameTicketWallet, 707) is None
+            assert db.query(GameTicketLedger).count() == 0
     finally:
         engine.dispose()
 

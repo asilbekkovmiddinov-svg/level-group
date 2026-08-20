@@ -197,6 +197,14 @@ def test_adsgram_callback_never_verifies_a_tads_session(db):
     assert session.status == adsgram_reward.PENDING
 
 
+def test_adsgram_callback_never_verifies_a_telega_session(db):
+    session, _ = adsgram_reward.create_telega_penalty_duel_reward_session(db, 1001)
+
+    assert adsgram_reward.verify_adsgram_callback(db, 1001) is None
+    db.refresh(session)
+    assert session.status == adsgram_reward.PENDING
+
+
 def test_reward_routes_require_authentication_and_server_callback(db, monkeypatch):
     monkeypatch.setattr(telegram_auth, "BOT_TOKEN", "test-token")
     monkeypatch.setattr(wheel_router, "ADSGRAM_REWARD_SECRET", "callback-secret")
@@ -379,6 +387,30 @@ def test_penalty_duel_tads_session_routes_are_authenticated_and_cancellable(db, 
 
     cancelled = client.post(
         "/penalty-duel/rewards/tads/cancel",
+        json={"token": token},
+        headers=auth_headers(1001),
+    )
+    assert cancelled.status_code == 200
+    assert cancelled.json()["status"] == adsgram_reward.EXPIRED
+
+
+def test_penalty_duel_telega_session_routes_are_authenticated_and_cancellable(db, monkeypatch):
+    monkeypatch.setattr(telegram_auth, "BOT_TOKEN", "test-token")
+
+    app = FastAPI()
+    app.include_router(penalty_duel_ads_router.router)
+    app.dependency_overrides[get_db] = lambda: db
+    client = TestClient(app)
+
+    assert client.post("/penalty-duel/rewards/telega/session").status_code == 401
+    issued = client.post(
+        "/penalty-duel/rewards/telega/session", headers=auth_headers(1001),
+    )
+    assert issued.status_code == 200
+    token = issued.json()["token"]
+
+    cancelled = client.post(
+        "/penalty-duel/rewards/telega/cancel",
         json={"token": token},
         headers=auth_headers(1001),
     )
