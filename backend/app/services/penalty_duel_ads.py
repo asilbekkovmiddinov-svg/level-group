@@ -11,7 +11,7 @@ from app.models.wall_rush import (
 from app.services.wall_rush import get_wallet
 
 
-PENALTY_DUEL_AD_COOLDOWN = timedelta(minutes=5)
+PENALTY_DUEL_AD_COOLDOWN = timedelta(minutes=30)
 
 
 class PenaltyDuelAdError(ValueError):
@@ -58,7 +58,7 @@ def grant_penalty_duel_ad_ticket(
     wallet = get_wallet(db, telegram_id, lock=True)
     last = wallet.last_penalty_duel_rewarded_ad_at
     if last is not None and _as_utc(now) < _as_utc(last) + PENALTY_DUEL_AD_COOLDOWN:
-        raise PenaltyDuelAdError("Penalty Duel ad is available once per 5 minutes")
+        raise PenaltyDuelAdError("Penalty Duel ad is available once per 30 minutes")
 
     wallet.game_tickets += 1
     wallet.last_penalty_duel_rewarded_ad_at = now
