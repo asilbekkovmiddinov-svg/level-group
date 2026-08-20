@@ -37,6 +37,7 @@ def build(monkeypatch):
         "626b9d82-89c5-4e08-b6d4-9fc8bdc2f486",
     )
     monkeypatch.setattr(config, "ONCLICKA_REWARD_SECRET", ONCLICKA_TOKEN)
+    monkeypatch.setattr(config, "ONCLICKA_REWARDED_AD_ENABLED", False)
     monkeypatch.setattr(config, "TADS_WEBHOOK_SECRET", "tads-secret")
     monkeypatch.setattr(config, "TADS_WALL_RUSH_WIDGET_ID", "11416")
 
@@ -71,7 +72,7 @@ def test_telega_callback_requires_secret_and_rotates_after_verified_view(monkeyp
         assert rewarded.json()["rewarded"] is True
         assert (
             rewarded.json()["wallet"]["next_penalty_duel_rewarded_ad_provider"]
-            == "ONCLICKA"
+            == "ADSGRAM"
         )
 
         duplicate = client.get(path, params={
@@ -90,6 +91,7 @@ def test_telega_callback_requires_secret_and_rotates_after_verified_view(monkeyp
 
 def test_onclicka_callback_shares_cooldown_and_returns_rotation_to_adsgram(monkeypatch):
     client, sessions, engine = build(monkeypatch)
+    monkeypatch.setattr(config, "ONCLICKA_REWARDED_AD_ENABLED", True)
     try:
         with sessions() as db:
             wallet = GameTicketWallet(
@@ -139,6 +141,7 @@ def test_onclicka_callback_shares_cooldown_and_returns_rotation_to_adsgram(monke
 
 def test_onclicka_callback_without_pending_session_never_rewards(monkeypatch):
     client, sessions, engine = build(monkeypatch)
+    monkeypatch.setattr(config, "ONCLICKA_REWARDED_AD_ENABLED", True)
     try:
         response = client.get(
             f"/penalty-duel/rewards/onclicka/callback/{ONCLICKA_TOKEN}",
@@ -146,6 +149,21 @@ def test_onclicka_callback_without_pending_session_never_rewards(monkeypatch):
         )
         assert response.status_code == 200
         assert response.json()["rewarded"] is False
+        with sessions() as db:
+            assert db.get(GameTicketWallet, 707) is None
+            assert db.query(GameTicketLedger).count() == 0
+    finally:
+        engine.dispose()
+
+
+def test_disabled_onclicka_callback_cannot_reward(monkeypatch):
+    client, sessions, engine = build(monkeypatch)
+    try:
+        response = client.get(
+            f"/penalty-duel/rewards/onclicka/callback/{ONCLICKA_TOKEN}",
+            params={"USERID": 707},
+        )
+        assert response.status_code == 503
         with sessions() as db:
             assert db.get(GameTicketWallet, 707) is None
             assert db.query(GameTicketLedger).count() == 0

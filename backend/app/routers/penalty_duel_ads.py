@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.core import config
 from app.core.database import get_db
 from app.core.telegram_auth import TelegramUser, get_current_telegram_user
+from app.models.wall_rush import active_penalty_duel_ad_providers
 from app.schemas.wall_rush import TadsWebhookPayload, WallRushAdsgramRewardToken
 from app.services import adsgram_reward
 from app.services.penalty_duel_ads import (
@@ -22,11 +23,14 @@ router = APIRouter(prefix="/penalty-duel/rewards", tags=["Penalty Duel Ads"])
 def rewarded_ad_config(
     _: TelegramUser = Depends(get_current_telegram_user),
 ):
+    onclicka_enabled = config.onclicka_rewarded_ad_ready()
     return {
+        "providers": list(active_penalty_duel_ad_providers(onclicka_enabled)),
         "tads_widget_id": config.TADS_WALL_RUSH_WIDGET_ID,
         "telega_token": config.TELEGA_MINIAPP_TOKEN or "",
         "telega_ad_block_uuid": config.TELEGA_REWARDED_AD_BLOCK_UUID,
-        "onclicka_spot_id": config.ONCLICKA_SPOT_ID,
+        "onclicka_enabled": onclicka_enabled,
+        "onclicka_spot_id": config.ONCLICKA_SPOT_ID if onclicka_enabled else "",
     }
 
 
@@ -119,6 +123,8 @@ def create_onclicka_session(
     user: TelegramUser = Depends(get_current_telegram_user),
     db: Session = Depends(get_db),
 ):
+    if not config.onclicka_rewarded_ad_ready():
+        raise HTTPException(status_code=503, detail="OnClickA rewarded ads are disabled")
     try:
         session, token = adsgram_reward.create_onclicka_penalty_duel_reward_session(
             db, user.telegram_id,
@@ -194,6 +200,8 @@ def onclicka_reward_callback(
     USERID: int = Query(gt=0),
     db: Session = Depends(get_db),
 ):
+    if not config.onclicka_rewarded_ad_ready():
+        raise HTTPException(status_code=503, detail="OnClickA rewarded ads are disabled")
     configured_token = (config.ONCLICKA_REWARD_SECRET or "").strip()
     if len(configured_token) < 32:
         raise HTTPException(status_code=503, detail="OnClickA reward callback is not configured")

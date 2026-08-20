@@ -3,8 +3,10 @@ from uuid import uuid4
 
 from sqlalchemy.orm import Session
 
+from app.core import config
 from app.models.wall_rush import (
     PENALTY_DUEL_AD_PROVIDERS, GameTicketLedger, GameTicketWallet, TicketKind,
+    active_penalty_duel_ad_providers,
 )
 from app.services.wall_rush import get_wallet
 
@@ -39,6 +41,11 @@ def grant_penalty_duel_ad_ticket(
     normalized_provider = str(provider).strip().upper()
     if normalized_provider not in PENALTY_DUEL_AD_PROVIDERS:
         raise PenaltyDuelAdError("Unknown Penalty Duel ad provider")
+    providers = active_penalty_duel_ad_providers(
+        config.onclicka_rewarded_ad_ready(),
+    )
+    if normalized_provider not in providers:
+        raise PenaltyDuelAdError("Penalty Duel ad provider is disabled")
 
     now = now or utc_now()
     key = f"penalty-duel:ad:{normalized_provider.lower()}:{provider_event_id}"
@@ -54,8 +61,8 @@ def grant_penalty_duel_ad_ticket(
     wallet.game_tickets += 1
     wallet.last_penalty_duel_rewarded_ad_at = now
     wallet.penalty_duel_rewarded_ad_provider_index = (
-        PENALTY_DUEL_AD_PROVIDERS.index(normalized_provider) + 1
-    ) % len(PENALTY_DUEL_AD_PROVIDERS)
+        providers.index(normalized_provider) + 1
+    ) % len(providers)
     db.add(GameTicketLedger(
         id=str(uuid4()),
         telegram_id=telegram_id,

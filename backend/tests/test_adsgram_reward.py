@@ -281,6 +281,9 @@ def test_wall_rush_adsgram_routes_use_auth_callback_and_server_wallet(db, monkey
 
 def test_penalty_duel_adsgram_routes_are_scoped_and_exactly_once(db, monkeypatch):
     monkeypatch.setattr(telegram_auth, "BOT_TOKEN", "test-token")
+    monkeypatch.setattr(
+        penalty_duel_ads_router.config, "ONCLICKA_REWARDED_AD_ENABLED", False,
+    )
     monkeypatch.setattr(wheel_router, "ADSGRAM_REWARD_SECRET", "callback-secret")
     monkeypatch.setattr(
         penalty_duel_ads_router.config, "TELEGA_MINIAPP_TOKEN", "test-client-token",
@@ -298,6 +301,14 @@ def test_penalty_duel_adsgram_routes_are_scoped_and_exactly_once(db, monkeypatch
     )
     assert ad_config.status_code == 200
     assert ad_config.json()["telega_token"] == "test-client-token"
+    assert ad_config.json()["providers"] == ["ADSGRAM", "TADS", "TELEGA"]
+    assert ad_config.json()["onclicka_enabled"] is False
+    assert ad_config.json()["onclicka_spot_id"] == ""
+    disabled_onclicka = client.post(
+        "/penalty-duel/rewards/onclicka/session",
+        headers=auth_headers(1001),
+    )
+    assert disabled_onclicka.status_code == 503
 
     issued = client.post(
         "/penalty-duel/rewards/adsgram/session",
@@ -340,6 +351,9 @@ def test_onclicka_session_routes_are_authenticated_and_cancellable(db, monkeypat
     monkeypatch.setattr(
         penalty_duel_ads_router.config, "ONCLICKA_REWARD_SECRET", opaque_token,
     )
+    monkeypatch.setattr(
+        penalty_duel_ads_router.config, "ONCLICKA_REWARDED_AD_ENABLED", True,
+    )
 
     app = FastAPI()
     app.include_router(penalty_duel_ads_router.router)
@@ -347,6 +361,13 @@ def test_onclicka_session_routes_are_authenticated_and_cancellable(db, monkeypat
     client = TestClient(app)
 
     assert client.post("/penalty-duel/rewards/onclicka/session").status_code == 401
+    enabled_config = client.get(
+        "/penalty-duel/rewards/config", headers=auth_headers(1001),
+    )
+    assert enabled_config.json()["providers"] == [
+        "ADSGRAM", "TADS", "TELEGA", "ONCLICKA",
+    ]
+    assert enabled_config.json()["onclicka_enabled"] is True
     issued = client.post(
         "/penalty-duel/rewards/onclicka/session",
         headers=auth_headers(1001),
@@ -369,3 +390,29 @@ def test_onclicka_session_routes_are_authenticated_and_cancellable(db, monkeypat
     assert callback.status_code == 200
     assert callback.json()["rewarded"] is False
     assert db.get(GameTicketWallet, 1001).game_tickets == 0
+
+
+def test_incomplete_onclicka_env_never_enters_production_rotation(db, monkeypatch):
+    monkeypatch.setattr(telegram_auth, "BOT_TOKEN", "test-token")
+    monkeypatch.setattr(
+        penalty_duel_ads_router.config, "ONCLICKA_REWARDED_AD_ENABLED", True,
+    )
+    monkeypatch.setattr(
+        penalty_duel_ads_router.config, "ONCLICKA_REWARD_SECRET", "",
+    )
+
+    app = FastAPI()
+    app.include_router(penalty_duel_ads_router.router)
+    app.dependency_overrides[get_db] = lambda: db
+    client = TestClient(app)
+
+    ad_config = client.get(
+        "/penalty-duel/rewards/config", headers=auth_headers(1001),
+    )
+    assert ad_config.status_code == 200
+    assert ad_config.json()["providers"] == ["ADSGRAM", "TADS", "TELEGA"]
+    assert ad_config.json()["onclicka_enabled"] is False
+    assert client.post(
+        "/penalty-duel/rewards/onclicka/session",
+        headers=auth_headers(1001),
+    ).status_code == 503

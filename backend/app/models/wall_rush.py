@@ -10,7 +10,14 @@ from sqlalchemy.orm import relationship
 from app.core.database import Base
 
 
-PENALTY_DUEL_AD_PROVIDERS = ("ADSGRAM", "TADS", "TELEGA", "ONCLICKA")
+PENALTY_DUEL_PRODUCTION_AD_PROVIDERS = ("ADSGRAM", "TADS", "TELEGA")
+PENALTY_DUEL_AD_PROVIDERS = PENALTY_DUEL_PRODUCTION_AD_PROVIDERS + ("ONCLICKA",)
+
+
+def active_penalty_duel_ad_providers(onclicka_enabled: bool) -> tuple[str, ...]:
+    if onclicka_enabled:
+        return PENALTY_DUEL_AD_PROVIDERS
+    return PENALTY_DUEL_PRODUCTION_AD_PROVIDERS
 
 
 def utc_now():

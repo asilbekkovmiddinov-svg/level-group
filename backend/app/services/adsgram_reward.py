@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
+from app.core import config
 from app.core.config import ADSGRAM_REWARD_SESSION_TTL_SECONDS
 from app.crud import wheel
 from app.models.user import User
@@ -145,6 +146,8 @@ def create_onclicka_penalty_duel_reward_session(
     db: Session, telegram_id: int,
 ) -> tuple[AdsgramRewardSession, str]:
     """Open a short-lived server-authoritative OnClickA view session."""
+    if not config.onclicka_rewarded_ad_ready():
+        raise ValueError("OnClickA rewarded ads are disabled")
     now = utc_now()
     db.query(User).filter(User.telegram_id == telegram_id).with_for_update().one()
     wallet = get_wallet(db, telegram_id, lock=True)

@@ -4,14 +4,16 @@ from uuid import uuid4
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
+from app.core import config
 from app.domain.wall_rush import (
     GameState, InvalidAction, MoveAction, Orientation, Player, Wall, WallAction,
     apply_action,
 )
 from app.models.user import User
 from app.models.wall_rush import (
-    PENALTY_DUEL_AD_PROVIDERS, GameTicketLedger, GameTicketWallet, TicketKind, WallRushAction,
+    GameTicketLedger, GameTicketWallet, TicketKind, WallRushAction,
     WallRushActionType, WallRushMatch, WallRushMode, WallRushStatus,
+    active_penalty_duel_ad_providers,
 )
 
 TURN_SECONDS = 30
@@ -142,6 +144,9 @@ def get_wallet(db: Session, telegram_id: int, lock: bool = False) -> GameTicketW
 
 def wallet_response(wallet: GameTicketWallet) -> dict:
     provider_index = int(wallet.penalty_duel_rewarded_ad_provider_index or 0)
+    providers = active_penalty_duel_ad_providers(
+        config.onclicka_rewarded_ad_ready(),
+    )
     return {
         "game_tickets": wallet.game_tickets,
         "locked_game_tickets": wallet.locked_game_tickets,
@@ -149,8 +154,8 @@ def wallet_response(wallet: GameTicketWallet) -> dict:
         "locked_tournament_tickets": wallet.locked_tournament_tickets,
         "last_rewarded_ad_at": wallet.last_rewarded_ad_at,
         "last_penalty_duel_rewarded_ad_at": wallet.last_penalty_duel_rewarded_ad_at,
-        "next_penalty_duel_rewarded_ad_provider": PENALTY_DUEL_AD_PROVIDERS[
-            provider_index % len(PENALTY_DUEL_AD_PROVIDERS)
+        "next_penalty_duel_rewarded_ad_provider": providers[
+            provider_index % len(providers)
         ],
     }
 
