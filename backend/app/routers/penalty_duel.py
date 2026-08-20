@@ -50,12 +50,16 @@ def _response(db: Session, match: PenaltyDuelMatch, telegram_id: int) -> dict:
 @router.get("/leaderboard")
 def leaderboard(mode: PenaltyDuelMode, limit: int = Query(default=20, ge=1, le=50), _: TelegramUser = Depends(get_current_telegram_user), db: Session = Depends(get_db)):
     now = datetime.now(timezone.utc)
+    weekly_rows = leaderboard_rows(db, mode, limit, now=now, period="WEEKLY")
+    overall_rows = leaderboard_rows(db, mode, limit, now=now, period="OVERALL")
     return {
         "mode": mode.value,
         "period": "WEEKLY",
         "week_start_at": weekly_period_start(now).isoformat(),
         "week_end_at": weekly_period_end(now).isoformat(),
-        "rows": leaderboard_rows(db, mode, limit, now=now),
+        "rows": weekly_rows,
+        "weekly_rows": weekly_rows,
+        "overall_rows": overall_rows,
     }
 
 
