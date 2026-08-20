@@ -114,6 +114,37 @@ def cancel_adsgram(
     return {"success": True, "session_id": session.id, "status": session.status}
 
 
+@router.post("/onclicka/session")
+def create_onclicka_session(
+    user: TelegramUser = Depends(get_current_telegram_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        session, token = adsgram_reward.create_onclicka_penalty_duel_reward_session(
+            db, user.telegram_id,
+        )
+    except ValueError as error:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    return {"session_id": session.id, "token": token, "expires_at": session.expires_at}
+
+
+@router.post("/onclicka/cancel")
+def cancel_onclicka_session(
+    payload: WallRushAdsgramRewardToken,
+    user: TelegramUser = Depends(get_current_telegram_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        session = adsgram_reward.cancel_onclicka_penalty_duel_reward_session(
+            db, user.telegram_id, payload.token,
+        )
+    except ValueError as error:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    return {"success": True, "session_id": session.id, "status": session.status}
+
+
 @router.post("/tads/webhook")
 def tads_reward_webhook(
     payload: TadsWebhookPayload,
@@ -157,25 +188,24 @@ def telega_reward_callback(
     )
 
 
-@router.get("/onclicka/callback")
+@router.get("/onclicka/callback/{opaque_token}")
 def onclicka_reward_callback(
-    secret: str = "",
-    USERID: int | None = Query(default=None),
-    user_id: int | None = Query(default=None),
-    telegram_id: int | None = Query(default=None),
-    event_id: str | None = Query(default=None, min_length=8, max_length=128),
-    ad_id: str = "",
+    opaque_token: str,
+    USERID: int = Query(gt=0),
     db: Session = Depends(get_db),
 ):
-    if not config.ONCLICKA_REWARD_SECRET:
+    configured_token = (config.ONCLICKA_REWARD_SECRET or "").strip()
+    if len(configured_token) < 32:
         raise HTTPException(status_code=503, detail="OnClickA reward callback is not configured")
-    if not hmac.compare_digest(secret, config.ONCLICKA_REWARD_SECRET):
+    if not hmac.compare_digest(opaque_token, configured_token):
         raise HTTPException(status_code=401, detail="Invalid OnClickA reward secret")
-    if not hmac.compare_digest(ad_id, config.ONCLICKA_AD_ID):
-        raise HTTPException(status_code=403, detail="Unknown OnClickA ad")
-    return _reward_callback(
-        db,
-        provider="ONCLICKA",
-        telegram_id=_callback_user_id(USERID, user_id, telegram_id),
-        event_id=event_id,
-    )
+    try:
+        completed = adsgram_reward.complete_onclicka_penalty_duel_reward(db, USERID)
+    except PenaltyDuelAdError as error:
+        db.rollback()
+        if "once per 5 minutes" in str(error):
+            return {"status": "ok", "rewarded": False, "reason": "cooldown"}
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    if completed is None:
+        return {"status": "ok", "rewarded": False, "reason": "no_pending_session"}
+    return {"status": "ok", "rewarded": True}

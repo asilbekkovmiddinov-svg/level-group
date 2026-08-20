@@ -332,3 +332,40 @@ def test_penalty_duel_adsgram_routes_are_scoped_and_exactly_once(db, monkeypatch
     )
     assert duplicate.status_code == 409
     assert db.get(GameTicketWallet, 1001).game_tickets == 1
+
+
+def test_onclicka_session_routes_are_authenticated_and_cancellable(db, monkeypatch):
+    monkeypatch.setattr(telegram_auth, "BOT_TOKEN", "test-token")
+    opaque_token = "opaque-token-0123456789abcdef0123456789abcdef"
+    monkeypatch.setattr(
+        penalty_duel_ads_router.config, "ONCLICKA_REWARD_SECRET", opaque_token,
+    )
+
+    app = FastAPI()
+    app.include_router(penalty_duel_ads_router.router)
+    app.dependency_overrides[get_db] = lambda: db
+    client = TestClient(app)
+
+    assert client.post("/penalty-duel/rewards/onclicka/session").status_code == 401
+    issued = client.post(
+        "/penalty-duel/rewards/onclicka/session",
+        headers=auth_headers(1001),
+    )
+    assert issued.status_code == 200
+    token = issued.json()["token"]
+
+    cancelled = client.post(
+        "/penalty-duel/rewards/onclicka/cancel",
+        json={"token": token},
+        headers=auth_headers(1001),
+    )
+    assert cancelled.status_code == 200
+    assert cancelled.json()["status"] == adsgram_reward.EXPIRED
+
+    callback = client.get(
+        f"/penalty-duel/rewards/onclicka/callback/{opaque_token}",
+        params={"USERID": 1001},
+    )
+    assert callback.status_code == 200
+    assert callback.json()["rewarded"] is False
+    assert db.get(GameTicketWallet, 1001).game_tickets == 0

@@ -10,7 +10,12 @@ from app.core import config
 from app.core.database import Base, get_db
 from app.models.user import User
 from app.models.wall_rush import GameTicketLedger, GameTicketWallet, WallRushMatch
+from app.models.wheel import AdsgramRewardSession
 from app.routers.penalty_duel_ads import router
+from app.services import adsgram_reward
+
+
+ONCLICKA_TOKEN = "onclicka-opaque-token-0123456789abcdef"
 
 
 def build(monkeypatch):
@@ -19,7 +24,7 @@ def build(monkeypatch):
     )
     Base.metadata.create_all(engine, tables=[
         User.__table__, WallRushMatch.__table__, GameTicketWallet.__table__,
-        GameTicketLedger.__table__,
+        GameTicketLedger.__table__, AdsgramRewardSession.__table__,
     ])
     sessions = sessionmaker(bind=engine)
     with sessions() as db:
@@ -31,8 +36,7 @@ def build(monkeypatch):
         config, "TELEGA_REWARDED_AD_BLOCK_UUID",
         "626b9d82-89c5-4e08-b6d4-9fc8bdc2f486",
     )
-    monkeypatch.setattr(config, "ONCLICKA_REWARD_SECRET", "onclicka-secret")
-    monkeypatch.setattr(config, "ONCLICKA_AD_ID", "455924")
+    monkeypatch.setattr(config, "ONCLICKA_REWARD_SECRET", ONCLICKA_TOKEN)
     monkeypatch.setattr(config, "TADS_WEBHOOK_SECRET", "tads-secret")
     monkeypatch.setattr(config, "TADS_WALL_RUSH_WIDGET_ID", "11416")
 
@@ -98,19 +102,53 @@ def test_onclicka_callback_shares_cooldown_and_returns_rotation_to_adsgram(monke
             )
             db.add(wallet)
             db.commit()
+            pending, _ = adsgram_reward.create_onclicka_penalty_duel_reward_session(
+                db, 707,
+            )
 
-        rewarded = client.get("/penalty-duel/rewards/onclicka/callback", params={
-            "secret": "onclicka-secret",
-            "USERID": 707,
-            "event_id": "onclicka-view-0001",
-            "ad_id": "455924",
-        })
-        assert rewarded.status_code == 200
-        assert rewarded.json()["wallet"]["game_tickets"] == 2
-        assert (
-            rewarded.json()["wallet"]["next_penalty_duel_rewarded_ad_provider"]
-            == "ADSGRAM"
+        rejected = client.get(
+            "/penalty-duel/rewards/onclicka/callback/wrong-token",
+            params={"USERID": 707},
         )
+        assert rejected.status_code == 401
+
+        path = f"/penalty-duel/rewards/onclicka/callback/{ONCLICKA_TOKEN}"
+        rewarded = client.get(path, params={"USERID": 707})
+        assert rewarded.status_code == 200
+        assert rewarded.json() == {"status": "ok", "rewarded": True}
+
+        duplicate = client.get(path, params={"USERID": 707})
+        assert duplicate.status_code == 200
+        assert duplicate.json() == {
+            "status": "ok",
+            "rewarded": False,
+            "reason": "no_pending_session",
+        }
+        with sessions() as db:
+            settled = db.get(AdsgramRewardSession, pending.id)
+            assert settled.status == adsgram_reward.CLAIMED
+            wallet = db.get(GameTicketWallet, 707)
+            assert wallet.game_tickets == 2
+            assert wallet.penalty_duel_rewarded_ad_provider_index == 0
+            assert db.query(GameTicketLedger).filter_by(
+                idempotency_key=f"penalty-duel:ad:onclicka:session:{pending.id}",
+            ).count() == 1
+    finally:
+        engine.dispose()
+
+
+def test_onclicka_callback_without_pending_session_never_rewards(monkeypatch):
+    client, sessions, engine = build(monkeypatch)
+    try:
+        response = client.get(
+            f"/penalty-duel/rewards/onclicka/callback/{ONCLICKA_TOKEN}",
+            params={"USERID": 707},
+        )
+        assert response.status_code == 200
+        assert response.json()["rewarded"] is False
+        with sessions() as db:
+            assert db.get(GameTicketWallet, 707) is None
+            assert db.query(GameTicketLedger).count() == 0
     finally:
         engine.dispose()
 

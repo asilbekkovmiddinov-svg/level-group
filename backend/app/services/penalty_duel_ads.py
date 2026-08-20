@@ -33,6 +33,7 @@ def grant_penalty_duel_ad_ticket(
     provider_event_id: str,
     *,
     now: datetime | None = None,
+    commit: bool = True,
 ) -> GameTicketWallet:
     """Grant one Game Ticket after a trusted provider callback is verified."""
     normalized_provider = str(provider).strip().upper()
@@ -65,6 +66,9 @@ def grant_penalty_duel_ad_ticket(
         idempotency_key=key,
         metadata_json={"provider": normalized_provider},
     ))
-    db.commit()
-    db.refresh(wallet)
+    if commit:
+        db.commit()
+        db.refresh(wallet)
+    else:
+        db.flush()
     return wallet
