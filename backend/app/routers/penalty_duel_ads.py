@@ -159,7 +159,7 @@ def tads_reward_webhook(
         )
     except PenaltyDuelAdError as error:
         db.rollback()
-        if "once per 5 minutes" in str(error):
+        if "once per 30 minutes" in str(error):
             return {"status": "ok", "rewarded": False, "reason": "cooldown"}
         raise HTTPException(status_code=409, detail=str(error)) from error
     if completed is None:
@@ -228,7 +228,7 @@ def telega_reward_callback(
         )
     except PenaltyDuelAdError as error:
         db.rollback()
-        if "once per 5 minutes" in str(error):
+        if "once per 30 minutes" in str(error):
             return {"status": "ok", "rewarded": False, "reason": "cooldown"}
         raise HTTPException(status_code=409, detail=str(error)) from error
     if completed is None:
@@ -292,7 +292,7 @@ def onclicka_reward_callback(
         completed = adsgram_reward.complete_onclicka_penalty_duel_reward(db, USERID)
     except PenaltyDuelAdError as error:
         db.rollback()
-        if "once per 5 minutes" in str(error):
+        if "once per 30 minutes" in str(error):
             return {"status": "ok", "rewarded": False, "reason": "cooldown"}
         raise HTTPException(status_code=409, detail=str(error)) from error
     if completed is None:
