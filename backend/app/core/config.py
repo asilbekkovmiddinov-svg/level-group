@@ -135,6 +135,18 @@ def onclicka_rewarded_ad_ready() -> bool:
     )
 
 
+def penalty_duel_tads_ready() -> bool:
+    return bool((TADS_WEBHOOK_SECRET or "").strip() and TADS_WALL_RUSH_WIDGET_ID)
+
+
+def penalty_duel_telega_ready() -> bool:
+    return bool(
+        (TELEGA_REWARD_SECRET or "").strip()
+        and (TELEGA_MINIAPP_TOKEN or "").strip()
+        and TELEGA_REWARDED_AD_BLOCK_UUID
+    )
+
+
 MONETAG_REWARD_SESSION_TTL_SECONDS = int(os.getenv("MONETAG_REWARD_SESSION_TTL_SECONDS", "60"))
 RECEIPT_NOTIFICATION_MAX_ATTEMPTS = int(os.getenv("RECEIPT_NOTIFICATION_MAX_ATTEMPTS", "5"))
 RECEIPT_NOTIFICATION_STALE_SECONDS = int(os.getenv("RECEIPT_NOTIFICATION_STALE_SECONDS", "300"))

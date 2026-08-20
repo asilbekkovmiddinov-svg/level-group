@@ -14,10 +14,20 @@ PENALTY_DUEL_PRODUCTION_AD_PROVIDERS = ("ADSGRAM", "TADS", "TELEGA")
 PENALTY_DUEL_AD_PROVIDERS = PENALTY_DUEL_PRODUCTION_AD_PROVIDERS + ("ONCLICKA",)
 
 
-def active_penalty_duel_ad_providers(onclicka_enabled: bool) -> tuple[str, ...]:
+def active_penalty_duel_ad_providers(
+    onclicka_enabled: bool,
+    *,
+    tads_enabled: bool = True,
+    telega_enabled: bool = True,
+) -> tuple[str, ...]:
+    providers = ["ADSGRAM"]
+    if tads_enabled:
+        providers.append("TADS")
+    if telega_enabled:
+        providers.append("TELEGA")
     if onclicka_enabled:
-        return PENALTY_DUEL_AD_PROVIDERS
-    return PENALTY_DUEL_PRODUCTION_AD_PROVIDERS
+        providers.append("ONCLICKA")
+    return tuple(providers)
 
 
 def utc_now():

@@ -32,6 +32,7 @@ def build(monkeypatch):
         db.commit()
 
     monkeypatch.setattr(config, "TELEGA_REWARD_SECRET", "telega-secret")
+    monkeypatch.setattr(config, "TELEGA_MINIAPP_TOKEN", "telega-token")
     monkeypatch.setattr(
         config, "TELEGA_REWARDED_AD_BLOCK_UUID",
         "626b9d82-89c5-4e08-b6d4-9fc8bdc2f486",
@@ -174,6 +175,10 @@ def test_disabled_onclicka_callback_cannot_reward(monkeypatch):
 def test_tads_webhook_is_verified_idempotent_and_advances_to_telega(monkeypatch):
     client, sessions, engine = build(monkeypatch)
     try:
+        with sessions() as db:
+            pending, _ = adsgram_reward.create_tads_penalty_duel_reward_session(
+                db, 707,
+            )
         path = "/penalty-duel/rewards/tads/webhook?secret=tads-secret"
         payload = {"telegram_id": "707", "widget_id": "11416"}
         rewarded = client.post(path, json=payload)
@@ -186,7 +191,9 @@ def test_tads_webhook_is_verified_idempotent_and_advances_to_telega(monkeypatch)
             == "TELEGA"
         )
         assert duplicate.status_code == 200
+        assert duplicate.json()["reason"] == "duplicate"
         with sessions() as db:
+            assert db.get(AdsgramRewardSession, pending.id).status == adsgram_reward.CLAIMED
             assert db.get(GameTicketWallet, 707).game_tickets == 1
             assert db.query(GameTicketLedger).filter_by(
                 operation="PENALTY_AD_GRANT",

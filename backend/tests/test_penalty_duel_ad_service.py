@@ -16,6 +16,11 @@ from app.services.penalty_duel_ads import (
 
 def test_penalty_ad_rotation_is_global_idempotent_and_separate_from_wall_rush(monkeypatch):
     monkeypatch.setattr(config, "ONCLICKA_REWARDED_AD_ENABLED", False)
+    monkeypatch.setattr(config, "TADS_WEBHOOK_SECRET", "tads-secret")
+    monkeypatch.setattr(config, "TADS_WALL_RUSH_WIDGET_ID", "11416")
+    monkeypatch.setattr(config, "TELEGA_REWARD_SECRET", "telega-secret")
+    monkeypatch.setattr(config, "TELEGA_MINIAPP_TOKEN", "telega-token")
+    monkeypatch.setattr(config, "TELEGA_REWARDED_AD_BLOCK_UUID", "telega-block")
     engine = create_engine(
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool,
     )
