@@ -2,7 +2,8 @@ import hashlib
 import hmac
 import json
 import time
-from urllib.parse import urlencode
+from datetime import datetime
+from urllib.parse import quote, urlencode
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -11,8 +12,9 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.core import telegram_auth
+from app.routers import penalty_duel as penalty_duel_router_module
 from app.core.database import Base, get_db
-from app.models.penalty_duel import PenaltyDuelMatch, PenaltyDuelRound, PenaltyDuelSubmission
+from app.models.penalty_duel import PenaltyDuelMatch, PenaltyDuelMode, PenaltyDuelRound, PenaltyDuelStatus, PenaltyDuelSubmission
 from app.models.user import User
 from app.models.wall_rush import GameTicketLedger, GameTicketWallet
 from app.routers.penalty_duel import router
@@ -99,13 +101,64 @@ def test_public_penalty_endpoints_require_verified_telegram_identity(monkeypatch
             headers=headers(101),
         )
         assert rating.status_code == 200
-        assert rating.json() == {"mode": "FREE", "rows": []}
+        rating_payload = rating.json()
+        assert rating_payload["mode"] == "FREE"
+        assert rating_payload["period"] == "WEEKLY"
+        assert rating_payload["rows"] == []
+        assert datetime.fromisoformat(rating_payload["week_end_at"]) > datetime.fromisoformat(
+            rating_payload["week_start_at"]
+        )
     finally:
         engine.dispose()
 
 
 def test_realtime_refresh_is_subsecond():
     assert PENALTY_WEBSOCKET_REFRESH_SECONDS == 0.25
+
+
+def test_finished_match_can_be_recovered_by_id_after_active_query_is_empty(monkeypatch):
+    client, engine = build(monkeypatch)
+    sessions = sessionmaker(bind=engine)
+    monkeypatch.setattr(penalty_duel_router_module, "SessionLocal", sessions)
+    db = sessions()
+    match = PenaltyDuelMatch(
+        id="finished-penalty-match",
+        mode=PenaltyDuelMode.FREE,
+        status=PenaltyDuelStatus.FINISHED,
+        player_one_id=101,
+        player_two_id=202,
+        round_number=10,
+        player_one_score=4,
+        player_two_score=3,
+        winner_id=101,
+        version=12,
+    )
+    db.add(match)
+    db.commit()
+    db.close()
+    try:
+        assert client.get("/penalty-duel/matches/active", headers=headers(101)).json() is None
+        recovered = client.get(
+            "/penalty-duel/matches/finished-penalty-match",
+            headers=headers(101),
+        )
+        assert recovered.status_code == 200
+        assert recovered.json()["status"] == "FINISHED"
+        assert recovered.json()["winner_id"] == 101
+        assert client.get(
+            "/penalty-duel/matches/finished-penalty-match",
+            headers=headers(303),
+        ).status_code == 404
+
+        init_data = quote(make_init_data(101), safe="")
+        with client.websocket_connect(
+            f"/penalty-duel/ws?init_data={init_data}&match_id=finished-penalty-match"
+        ) as websocket:
+            message = websocket.receive_json()
+            assert message["match"]["status"] == "FINISHED"
+            assert message["match"]["id"] == "finished-penalty-match"
+    finally:
+        engine.dispose()
 
 
 def test_http_flow_hides_choices_and_returns_authoritative_score(monkeypatch):

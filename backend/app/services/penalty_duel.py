@@ -176,6 +176,20 @@ def get_current_match(db: Session, telegram_id: int) -> PenaltyDuelMatch | None:
     return db.query(PenaltyDuelMatch).filter(PenaltyDuelMatch.status == PenaltyDuelStatus.FINISHED, or_(PenaltyDuelMatch.player_one_id == telegram_id, PenaltyDuelMatch.player_two_id == telegram_id)).order_by(PenaltyDuelMatch.finished_at.desc()).first()
 
 
+def get_player_match(db: Session, match_id: str, telegram_id: int) -> PenaltyDuelMatch | None:
+    return (
+        db.query(PenaltyDuelMatch)
+        .filter(
+            PenaltyDuelMatch.id == match_id,
+            or_(
+                PenaltyDuelMatch.player_one_id == telegram_id,
+                PenaltyDuelMatch.player_two_id == telegram_id,
+            ),
+        )
+        .first()
+    )
+
+
 def cancel_waiting_match(db: Session, match_id: str, telegram_id: int) -> PenaltyDuelMatch:
     match = db.query(PenaltyDuelMatch).filter_by(id=match_id).with_for_update().first()
     if match is None or match.player_one_id != telegram_id: raise PenaltyDuelError("Match not found")

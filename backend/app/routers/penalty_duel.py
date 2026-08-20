@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
@@ -7,9 +8,9 @@ from app.core.database import SessionLocal, get_db
 from app.core.telegram_auth import TelegramUser, get_current_telegram_user, verify_init_data
 from app.schemas.penalty_duel import PenaltyDuelChoiceRequest, PenaltyDuelJoinRequest
 from app.models.penalty_duel import PenaltyDuelMatch, PenaltyDuelMode, PenaltyDuelStatus
-from app.services.penalty_duel import PenaltyDuelError, cancel_waiting_match, get_active_match, join_match, match_response
+from app.services.penalty_duel import PenaltyDuelError, cancel_waiting_match, get_active_match, get_player_match, join_match, match_response
 from app.services.penalty_duel_ai import activate_ai_opponent, waiting_for_ai
-from app.services.penalty_duel_leaderboard import leaderboard_rows
+from app.services.penalty_duel_leaderboard import leaderboard_rows, weekly_period_end, weekly_period_start
 from app.services.penalty_duel_single_choice import player_role, process_single_choice_timeout, submit_single_choice
 
 router = APIRouter(prefix="/penalty-duel", tags=["Penalty Duel"])
@@ -48,7 +49,14 @@ def _response(db: Session, match: PenaltyDuelMatch, telegram_id: int) -> dict:
 
 @router.get("/leaderboard")
 def leaderboard(mode: PenaltyDuelMode, limit: int = Query(default=20, ge=1, le=50), _: TelegramUser = Depends(get_current_telegram_user), db: Session = Depends(get_db)):
-    return {"mode": mode.value, "rows": leaderboard_rows(db, mode, limit)}
+    now = datetime.now(timezone.utc)
+    return {
+        "mode": mode.value,
+        "period": "WEEKLY",
+        "week_start_at": weekly_period_start(now).isoformat(),
+        "week_end_at": weekly_period_end(now).isoformat(),
+        "rows": leaderboard_rows(db, mode, limit, now=now),
+    }
 
 
 @router.post("/matchmaking/join")
@@ -64,6 +72,14 @@ def matchmaking_join(payload: PenaltyDuelJoinRequest, user: TelegramUser = Depen
 def current_match(user: TelegramUser = Depends(get_current_telegram_user), db: Session = Depends(get_db)):
     match = get_active_match(db, user.telegram_id); match = _activate_ai_if_due(db, match)
     return _response(db, match, user.telegram_id) if match else None
+
+
+@router.get("/matches/{match_id}")
+def match_by_id(match_id: str, user: TelegramUser = Depends(get_current_telegram_user), db: Session = Depends(get_db)):
+    match = get_player_match(db, match_id, user.telegram_id)
+    if match is None:
+        raise HTTPException(status_code=404, detail="Match not found")
+    return _response(db, match, user.telegram_id)
 
 
 @router.post("/matches/{match_id}/choices")
@@ -101,12 +117,13 @@ async def realtime_state(websocket: WebSocket):
     try: user = verify_init_data(init_data)
     except HTTPException:
         await websocket.close(code=4401, reason="Invalid Telegram authentication"); return
-    await websocket.accept(); db = SessionLocal(); last_signature = object(); tracked_match_id = None
+    requested_match_id = websocket.query_params.get("match_id")
+    await websocket.accept(); db = SessionLocal(); last_signature = object(); tracked_match_id = requested_match_id
     try:
         while True:
             db.expire_all(); match = get_active_match(db, user.telegram_id); match = _activate_ai_if_due(db, match)
             if match: tracked_match_id = match.id
-            elif tracked_match_id: match = db.query(PenaltyDuelMatch).filter_by(id=tracked_match_id).first()
+            elif tracked_match_id: match = get_player_match(db, tracked_match_id, user.telegram_id)
             payload = _response(db, match, user.telegram_id) if match else None
             signature = (payload["id"], payload["version"], payload["status"]) if payload else None
             if signature != last_signature:
