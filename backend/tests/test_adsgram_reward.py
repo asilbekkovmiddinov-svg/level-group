@@ -65,7 +65,7 @@ def db(monkeypatch):
     monkeypatch.setattr(wheel, "get_now", lambda: NOW)
     monkeypatch.setattr(wheel, "get_today", lambda: NOW.date())
     monkeypatch.setattr(penalty_duel_ads_router.config, "TADS_WEBHOOK_SECRET", "tads-secret")
-    monkeypatch.setattr(penalty_duel_ads_router.config, "TADS_WALL_RUSH_WIDGET_ID", "11416")
+    monkeypatch.setattr(penalty_duel_ads_router.config, "TADS_PENALTY_DUEL_WIDGET_ID", "11416")
     monkeypatch.setattr(penalty_duel_ads_router.config, "TELEGA_REWARD_SECRET", "telega-secret")
     monkeypatch.setattr(
         penalty_duel_ads_router.config, "TELEGA_MINIAPP_TOKEN", "test-client-token",
