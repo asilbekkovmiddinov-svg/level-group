@@ -128,7 +128,7 @@ def test_onclicka_callback_shares_cooldown_and_returns_rotation_to_adsgram(monke
                 telegram_id=707,
                 game_tickets=1,
                 last_penalty_duel_rewarded_ad_at=(
-                    datetime.now(timezone.utc) - timedelta(minutes=5)
+                    datetime.now(timezone.utc) - timedelta(minutes=30)
                 ),
                 penalty_duel_rewarded_ad_provider_index=3,
             )
