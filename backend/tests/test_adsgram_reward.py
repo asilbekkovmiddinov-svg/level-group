@@ -165,7 +165,7 @@ def test_failed_wall_rush_adsgram_session_can_be_cancelled_before_tads(db):
     assert replacement.status == adsgram_reward.PENDING
 
 
-def test_penalty_duel_adsgram_uses_separate_five_minute_rotation(db, monkeypatch):
+def test_penalty_duel_adsgram_uses_separate_thirty_minute_rotation(db, monkeypatch):
     session, token = adsgram_reward.create_penalty_duel_reward_session(db, 1001)
     assert session.purpose == adsgram_reward.PENALTY_DUEL_PURPOSE
     assert adsgram_reward.verify_adsgram_callback(db, 1001).id == session.id
@@ -177,13 +177,13 @@ def test_penalty_duel_adsgram_uses_separate_five_minute_rotation(db, monkeypatch
     assert wallet.last_rewarded_ad_at is None
 
     monkeypatch.setattr(
-        adsgram_reward, "utc_now", lambda: NOW + timedelta(minutes=4, seconds=59)
+        adsgram_reward, "utc_now", lambda: NOW + timedelta(minutes=29, seconds=59)
     )
     with pytest.raises(ValueError, match="cooldown"):
         adsgram_reward.create_penalty_duel_reward_session(db, 1001)
 
     monkeypatch.setattr(
-        adsgram_reward, "utc_now", lambda: NOW + timedelta(minutes=5)
+        adsgram_reward, "utc_now", lambda: NOW + timedelta(minutes=30)
     )
     next_session, _ = adsgram_reward.create_penalty_duel_reward_session(db, 1001)
     assert next_session.purpose == adsgram_reward.PENALTY_DUEL_PURPOSE
