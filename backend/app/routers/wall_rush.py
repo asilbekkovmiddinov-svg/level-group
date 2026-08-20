@@ -21,7 +21,6 @@ from app.services.wall_rush import (
     leaderboard_rows, match_response, process_timeout, submit_action, wallet_response,
 )
 from app.services import adsgram_reward
-from app.services.penalty_duel_ads import PenaltyDuelAdError
 
 router = APIRouter(prefix="/wall-rush", tags=["Wall Rush"])
 
@@ -78,21 +77,6 @@ def tads_reward_webhook(
         raise HTTPException(status_code=422, detail="Invalid telegram_id") from error
     if telegram_id <= 0:
         raise HTTPException(status_code=422, detail="Invalid telegram_id")
-
-    try:
-        completed = adsgram_reward.complete_tads_penalty_duel_reward(
-            db, telegram_id,
-        )
-    except PenaltyDuelAdError as error:
-        db.rollback()
-        if "once per 5 minutes" in str(error):
-            return {"status": "ok", "rewarded": False, "reason": "cooldown"}
-        raise HTTPException(status_code=409, detail=str(error)) from error
-    if completed is not None:
-        _, wallet = completed
-        return {"status": "ok", "rewarded": True, "wallet": wallet_response(wallet)}
-    if adsgram_reward.has_recent_tads_penalty_duel_reward(db, telegram_id):
-        return {"status": "ok", "rewarded": False, "reason": "duplicate"}
 
     hour = datetime.now(timezone.utc).strftime("%Y%m%d%H")
     event_key = f"widget:{payload.widget_id}:user:{telegram_id}:hour:{hour}"

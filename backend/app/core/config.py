@@ -117,6 +117,9 @@ ADSGRAM_REWARD_SESSION_TTL_SECONDS = int(os.getenv("ADSGRAM_REWARD_SESSION_TTL_S
 MONETAG_POSTBACK_SECRET = os.getenv("MONETAG_POSTBACK_SECRET")
 TADS_WEBHOOK_SECRET = os.getenv("TADS_WEBHOOK_SECRET")
 TADS_WALL_RUSH_WIDGET_ID = os.getenv("TADS_WALL_RUSH_WIDGET_ID", "11416").strip()
+TADS_PENALTY_DUEL_WIDGET_ID = os.getenv(
+    "TADS_PENALTY_DUEL_WIDGET_ID", TADS_WALL_RUSH_WIDGET_ID,
+).strip()
 TELEGA_REWARD_SECRET = os.getenv("TELEGA_REWARD_SECRET")
 TELEGA_MINIAPP_TOKEN = os.getenv("TELEGA_MINIAPP_TOKEN")
 TELEGA_REWARDED_AD_BLOCK_UUID = os.getenv(
@@ -136,7 +139,7 @@ def onclicka_rewarded_ad_ready() -> bool:
 
 
 def penalty_duel_tads_ready() -> bool:
-    return bool((TADS_WEBHOOK_SECRET or "").strip() and TADS_WALL_RUSH_WIDGET_ID)
+    return bool((TADS_WEBHOOK_SECRET or "").strip() and TADS_PENALTY_DUEL_WIDGET_ID)
 
 
 def penalty_duel_telega_ready() -> bool:

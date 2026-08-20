@@ -29,7 +29,7 @@ def rewarded_ad_config(
             tads_enabled=tads_enabled,
             telega_enabled=telega_enabled,
         )),
-        "tads_widget_id": config.TADS_WALL_RUSH_WIDGET_ID if tads_enabled else "",
+        "tads_widget_id": config.TADS_PENALTY_DUEL_WIDGET_ID if tads_enabled else "",
         "telega_token": (config.TELEGA_MINIAPP_TOKEN or "") if telega_enabled else "",
         "telega_ad_block_uuid": (
             config.TELEGA_REWARDED_AD_BLOCK_UUID if telega_enabled else ""
@@ -147,7 +147,7 @@ def tads_reward_webhook(
         raise HTTPException(status_code=503, detail="TADS webhook is not configured")
     if not hmac.compare_digest(secret, config.TADS_WEBHOOK_SECRET):
         raise HTTPException(status_code=401, detail="Invalid TADS webhook secret")
-    if not hmac.compare_digest(payload.widget_id, config.TADS_WALL_RUSH_WIDGET_ID):
+    if not hmac.compare_digest(payload.widget_id, config.TADS_PENALTY_DUEL_WIDGET_ID):
         raise HTTPException(status_code=403, detail="Unknown TADS widget")
     try:
         telegram_id = int(payload.telegram_id)
