@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
@@ -9,7 +10,7 @@ from app.schemas.penalty_duel import PenaltyDuelChoiceRequest, PenaltyDuelJoinRe
 from app.models.penalty_duel import PenaltyDuelMatch, PenaltyDuelMode, PenaltyDuelStatus
 from app.services.penalty_duel import PenaltyDuelError, cancel_waiting_match, get_active_match, get_player_match, join_match, match_response
 from app.services.penalty_duel_ai import activate_ai_opponent, waiting_for_ai
-from app.services.penalty_duel_leaderboard import leaderboard_rows
+from app.services.penalty_duel_leaderboard import leaderboard_rows, weekly_period_end, weekly_period_start
 from app.services.penalty_duel_single_choice import player_role, process_single_choice_timeout, submit_single_choice
 
 router = APIRouter(prefix="/penalty-duel", tags=["Penalty Duel"])
@@ -48,7 +49,14 @@ def _response(db: Session, match: PenaltyDuelMatch, telegram_id: int) -> dict:
 
 @router.get("/leaderboard")
 def leaderboard(mode: PenaltyDuelMode, limit: int = Query(default=20, ge=1, le=50), _: TelegramUser = Depends(get_current_telegram_user), db: Session = Depends(get_db)):
-    return {"mode": mode.value, "rows": leaderboard_rows(db, mode, limit)}
+    now = datetime.now(timezone.utc)
+    return {
+        "mode": mode.value,
+        "period": "WEEKLY",
+        "week_start_at": weekly_period_start(now).isoformat(),
+        "week_end_at": weekly_period_end(now).isoformat(),
+        "rows": leaderboard_rows(db, mode, limit, now=now),
+    }
 
 
 @router.post("/matchmaking/join")

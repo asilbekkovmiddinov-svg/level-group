@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import json
 import time
+from datetime import datetime
 from urllib.parse import quote, urlencode
 
 from fastapi import FastAPI
@@ -100,7 +101,13 @@ def test_public_penalty_endpoints_require_verified_telegram_identity(monkeypatch
             headers=headers(101),
         )
         assert rating.status_code == 200
-        assert rating.json() == {"mode": "FREE", "rows": []}
+        rating_payload = rating.json()
+        assert rating_payload["mode"] == "FREE"
+        assert rating_payload["period"] == "WEEKLY"
+        assert rating_payload["rows"] == []
+        assert datetime.fromisoformat(rating_payload["week_end_at"]) > datetime.fromisoformat(
+            rating_payload["week_start_at"]
+        )
     finally:
         engine.dispose()
 
