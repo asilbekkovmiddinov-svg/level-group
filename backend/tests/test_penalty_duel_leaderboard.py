@@ -55,26 +55,29 @@ def test_week_starts_on_tashkent_monday():
     assert weekly_period_end(now) == datetime(2026, 8, 23, 19, 0, tzinfo=timezone.utc)
 
 
-def test_weekly_order_and_overall_rating_are_returned_per_mode(db):
+def test_weekly_and_overall_rankings_are_separate_per_mode(db):
     now = datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc)
     previous_week = datetime(2026, 8, 16, 18, 0, tzinfo=timezone.utc)
     current_week = datetime(2026, 8, 18, 12, 0, tzinfo=timezone.utc)
 
     _finished(db, "free-old", PenaltyDuelMode.FREE, 101, 202, 101, previous_week)
+    _finished(db, "free-old-two", PenaltyDuelMode.FREE, 101, 303, 101, previous_week)
     _finished(db, "free-one", PenaltyDuelMode.FREE, 101, 202, 202, current_week)
     _finished(db, "free-two", PenaltyDuelMode.FREE, 202, 303, 202, current_week)
     _finished(db, "ticket-one", PenaltyDuelMode.TICKET, 101, 303, 303, current_week)
 
-    free = leaderboard_rows(db, PenaltyDuelMode.FREE, now=now)
-    assert [row["telegram_id"] for row in free] == [202, 101, 303]
-    assert free[0]["weekly_rating"] == 1050
-    assert free[0]["weekly_wins"] == 2
-    assert free[0]["overall_rating"] == 1050
-    assert free[1]["weekly_rating"] == 1000
-    assert free[1]["overall_rating"] == 1025
-    assert free[1]["overall_wins"] == 1
+    weekly_free = leaderboard_rows(db, PenaltyDuelMode.FREE, now=now, period="WEEKLY")
+    overall_free = leaderboard_rows(db, PenaltyDuelMode.FREE, now=now, period="OVERALL")
+    assert [row["telegram_id"] for row in weekly_free] == [202, 101, 303]
+    assert [row["telegram_id"] for row in overall_free] == [101, 202, 303]
+    assert weekly_free[0]["period"] == "WEEKLY"
+    assert weekly_free[0]["weekly_rating"] == 1050
+    assert "overall_rating" not in weekly_free[0]
+    assert overall_free[0]["period"] == "OVERALL"
+    assert overall_free[0]["overall_rating"] == 1050
+    assert "weekly_rating" not in overall_free[0]
 
-    ticket = leaderboard_rows(db, PenaltyDuelMode.TICKET, now=now)
-    assert [row["telegram_id"] for row in ticket] == [303, 101]
-    assert ticket[0]["weekly_rating"] == 1025
-    assert ticket[0]["overall_rating"] == 1025
+    weekly_ticket = leaderboard_rows(db, PenaltyDuelMode.TICKET, now=now, period="WEEKLY")
+    overall_ticket = leaderboard_rows(db, PenaltyDuelMode.TICKET, now=now, period="OVERALL")
+    assert [row["telegram_id"] for row in weekly_ticket] == [303, 101]
+    assert [row["telegram_id"] for row in overall_ticket] == [303, 101]

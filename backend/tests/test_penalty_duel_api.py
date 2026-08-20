@@ -105,6 +105,8 @@ def test_public_penalty_endpoints_require_verified_telegram_identity(monkeypatch
         assert rating_payload["mode"] == "FREE"
         assert rating_payload["period"] == "WEEKLY"
         assert rating_payload["rows"] == []
+        assert rating_payload["weekly_rows"] == []
+        assert rating_payload["overall_rows"] == []
         assert datetime.fromisoformat(rating_payload["week_end_at"]) > datetime.fromisoformat(
             rating_payload["week_start_at"]
         )
