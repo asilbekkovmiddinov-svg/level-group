@@ -40,7 +40,8 @@ def build(monkeypatch):
     monkeypatch.setattr(config, "ONCLICKA_REWARD_SECRET", ONCLICKA_TOKEN)
     monkeypatch.setattr(config, "ONCLICKA_REWARDED_AD_ENABLED", False)
     monkeypatch.setattr(config, "TADS_WEBHOOK_SECRET", "tads-secret")
-    monkeypatch.setattr(config, "TADS_WALL_RUSH_WIDGET_ID", "11416")
+    monkeypatch.setattr(config, "TADS_WALL_RUSH_WIDGET_ID", "legacy-wall-widget")
+    monkeypatch.setattr(config, "TADS_PENALTY_DUEL_WIDGET_ID", "11416")
 
     app = FastAPI()
     app.include_router(router)
