@@ -44,20 +44,20 @@ def test_penalty_ad_rotation_is_global_idempotent_and_separate_from_wall_rush(mo
         )
         assert replay.game_tickets == 1
 
-        with pytest.raises(PenaltyDuelAdError, match="once per 5 minutes"):
+        with pytest.raises(PenaltyDuelAdError, match="once per 30 minutes"):
             grant_penalty_duel_ad_ticket(
                 db, 808, "TADS", "tads-event-0001",
-                now=now + timedelta(minutes=4, seconds=59),
+                now=now + timedelta(minutes=29, seconds=59),
             )
         db.rollback()
 
         wallet = grant_penalty_duel_ad_ticket(
-            db, 808, "TADS", "tads-event-0002", now=now + timedelta(minutes=5),
+            db, 808, "TADS", "tads-event-0002", now=now + timedelta(minutes=30),
         )
         assert wallet.game_tickets == 2
         assert wallet.penalty_duel_rewarded_ad_provider_index == 2
         wallet = grant_penalty_duel_ad_ticket(
-            db, 808, "TELEGA", "telega-event-0001", now=now + timedelta(minutes=10),
+            db, 808, "TELEGA", "telega-event-0001", now=now + timedelta(minutes=60),
         )
         assert wallet.game_tickets == 3
         assert wallet.penalty_duel_rewarded_ad_provider_index == 0
