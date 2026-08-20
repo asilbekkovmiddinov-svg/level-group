@@ -1,5 +1,4 @@
 import hmac
-from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -10,9 +9,7 @@ from app.core.telegram_auth import TelegramUser, get_current_telegram_user
 from app.models.wall_rush import active_penalty_duel_ad_providers
 from app.schemas.wall_rush import TadsWebhookPayload, WallRushAdsgramRewardToken
 from app.services import adsgram_reward
-from app.services.penalty_duel_ads import (
-    PenaltyDuelAdError, grant_penalty_duel_ad_ticket,
-)
+from app.services.penalty_duel_ads import PenaltyDuelAdError
 from app.services.wall_rush import wallet_response
 
 
@@ -56,27 +53,6 @@ def _callback_user_id(
     if value <= 0:
         raise HTTPException(status_code=422, detail="Invalid Telegram user id")
     return value
-
-
-def _reward_callback(
-    db: Session,
-    *,
-    provider: str,
-    telegram_id: int,
-    event_id: str | None,
-):
-    bucket = int(datetime.now(timezone.utc).timestamp()) // 300
-    provider_event_id = event_id or f"user:{telegram_id}:bucket:{bucket}"
-    try:
-        wallet = grant_penalty_duel_ad_ticket(
-            db, telegram_id, provider, provider_event_id,
-        )
-        return {"status": "ok", "rewarded": True, "wallet": wallet_response(wallet)}
-    except PenaltyDuelAdError as error:
-        db.rollback()
-        if "once per 5 minutes" in str(error):
-            return {"status": "ok", "rewarded": False, "reason": "cooldown"}
-        raise HTTPException(status_code=409, detail=str(error)) from error
 
 
 @router.post("/adsgram/session")
@@ -236,7 +212,6 @@ def telega_reward_callback(
     USERID: int | None = Query(default=None),
     user_id: int | None = Query(default=None),
     telegram_id: int | None = Query(default=None),
-    event_id: str | None = Query(default=None, min_length=8, max_length=128),
     ad_block_uuid: str = "",
     db: Session = Depends(get_db),
 ):
@@ -246,12 +221,58 @@ def telega_reward_callback(
         raise HTTPException(status_code=401, detail="Invalid Telega reward secret")
     if not hmac.compare_digest(ad_block_uuid, config.TELEGA_REWARDED_AD_BLOCK_UUID):
         raise HTTPException(status_code=403, detail="Unknown Telega ad block")
-    return _reward_callback(
-        db,
-        provider="TELEGA",
-        telegram_id=_callback_user_id(USERID, user_id, telegram_id),
-        event_id=event_id,
-    )
+    callback_user_id = _callback_user_id(USERID, user_id, telegram_id)
+    try:
+        completed = adsgram_reward.complete_telega_penalty_duel_reward(
+            db, callback_user_id,
+        )
+    except PenaltyDuelAdError as error:
+        db.rollback()
+        if "once per 5 minutes" in str(error):
+            return {"status": "ok", "rewarded": False, "reason": "cooldown"}
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    if completed is None:
+        reason = (
+            "duplicate" if adsgram_reward.has_recent_telega_penalty_duel_reward(
+                db, callback_user_id,
+            ) else "no_pending_session"
+        )
+        return {"status": "ok", "rewarded": False, "reason": reason}
+    _, wallet = completed
+    return {"status": "ok", "rewarded": True, "wallet": wallet_response(wallet)}
+
+
+@router.post("/telega/session")
+def create_telega_session(
+    user: TelegramUser = Depends(get_current_telegram_user),
+    db: Session = Depends(get_db),
+):
+    if not config.penalty_duel_telega_ready():
+        raise HTTPException(status_code=503, detail="Telega.io rewarded ads are disabled")
+    try:
+        session, token = adsgram_reward.create_telega_penalty_duel_reward_session(
+            db, user.telegram_id,
+        )
+    except ValueError as error:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    return {"session_id": session.id, "token": token, "expires_at": session.expires_at}
+
+
+@router.post("/telega/cancel")
+def cancel_telega_session(
+    payload: WallRushAdsgramRewardToken,
+    user: TelegramUser = Depends(get_current_telegram_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        session = adsgram_reward.cancel_telega_penalty_duel_reward_session(
+            db, user.telegram_id, payload.token,
+        )
+    except ValueError as error:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    return {"success": True, "session_id": session.id, "status": session.status}
 
 
 @router.get("/onclicka/callback/{opaque_token}")

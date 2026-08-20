@@ -32,6 +32,7 @@ WHEEL_PURPOSE = "WHEEL"
 WALL_RUSH_PURPOSE = "WALL_RUSH"
 PENALTY_DUEL_PURPOSE = "PENALTY_DUEL"
 PENALTY_DUEL_TADS_PURPOSE = "PENALTY_DUEL_TADS"
+PENALTY_DUEL_TELEGA_PURPOSE = "PENALTY_DUEL_TELEGA"
 PENALTY_DUEL_ONCLICKA_PURPOSE = "PENALTY_DUEL_ONCLICKA"
 
 
@@ -173,6 +174,22 @@ def create_tads_penalty_duel_reward_session(
         if _as_utc(now) < _as_utc(last) + PENALTY_DUEL_AD_COOLDOWN:
             raise ValueError("Penalty Duel reklama cooldown faol")
     return _new_session(db, telegram_id, PENALTY_DUEL_TADS_PURPOSE, now)
+
+
+def create_telega_penalty_duel_reward_session(
+    db: Session, telegram_id: int,
+) -> tuple[AdsgramRewardSession, str]:
+    """Open a server-authoritative session before showing a Telega.io ad."""
+    if not config.penalty_duel_telega_ready():
+        raise ValueError("Telega.io rewarded ads are disabled")
+    now = utc_now()
+    db.query(User).filter(User.telegram_id == telegram_id).with_for_update().one()
+    wallet = get_wallet(db, telegram_id, lock=True)
+    last = wallet.last_penalty_duel_rewarded_ad_at
+    if last is not None:
+        if _as_utc(now) < _as_utc(last) + PENALTY_DUEL_AD_COOLDOWN:
+            raise ValueError("Penalty Duel reklama cooldown faol")
+    return _new_session(db, telegram_id, PENALTY_DUEL_TELEGA_PURPOSE, now)
 
 
 def verify_adsgram_callback(db: Session, telegram_id: int) -> AdsgramRewardSession | None:
@@ -429,6 +446,58 @@ def has_recent_tads_penalty_duel_reward(db: Session, telegram_id: int) -> bool:
     ).first() is not None
 
 
+def complete_telega_penalty_duel_reward(
+    db: Session, telegram_id: int,
+) -> tuple[AdsgramRewardSession, GameTicketWallet] | None:
+    """Settle one pending Telega.io session without requiring an event id."""
+    now = utc_now()
+    session = (
+        db.query(AdsgramRewardSession)
+        .filter(
+            AdsgramRewardSession.telegram_id == telegram_id,
+            AdsgramRewardSession.purpose == PENALTY_DUEL_TELEGA_PURPOSE,
+            AdsgramRewardSession.status == PENDING,
+            AdsgramRewardSession.expires_at > now,
+        )
+        .order_by(AdsgramRewardSession.created_at.desc(), AdsgramRewardSession.id.desc())
+        .with_for_update()
+        .first()
+    )
+    if not session:
+        db.rollback()
+        return None
+    try:
+        wallet = grant_penalty_duel_ad_ticket(
+            db,
+            telegram_id,
+            "TELEGA",
+            f"session:{session.id}",
+            now=now,
+            commit=False,
+        )
+    except PenaltyDuelAdError:
+        session.status = EXPIRED
+        db.commit()
+        raise
+    session.status = CLAIMED
+    session.verified_at = now
+    session.claimed_at = now
+    db.commit()
+    db.refresh(session)
+    db.refresh(wallet)
+    return session, wallet
+
+
+def has_recent_telega_penalty_duel_reward(db: Session, telegram_id: int) -> bool:
+    now = utc_now()
+    return db.query(AdsgramRewardSession.id).filter(
+        AdsgramRewardSession.telegram_id == telegram_id,
+        AdsgramRewardSession.purpose == PENALTY_DUEL_TELEGA_PURPOSE,
+        AdsgramRewardSession.status == CLAIMED,
+        AdsgramRewardSession.expires_at > now,
+    ).first() is not None
+
+
 def cancel_wall_rush_reward_session(
     db: Session, telegram_id: int, token: str,
 ) -> AdsgramRewardSession:
@@ -504,6 +573,28 @@ def cancel_tads_penalty_duel_reward_session(
             AdsgramRewardSession.telegram_id == telegram_id,
             AdsgramRewardSession.token_hash == _token_hash(token),
             AdsgramRewardSession.purpose == PENALTY_DUEL_TADS_PURPOSE,
+        )
+        .with_for_update()
+        .first()
+    )
+    if not session:
+        raise ValueError("Reward sessiyasi topilmadi")
+    if session.status == PENDING:
+        session.status = EXPIRED
+        db.commit()
+        db.refresh(session)
+    return session
+
+
+def cancel_telega_penalty_duel_reward_session(
+    db: Session, telegram_id: int, token: str,
+) -> AdsgramRewardSession:
+    session = (
+        db.query(AdsgramRewardSession)
+        .filter(
+            AdsgramRewardSession.telegram_id == telegram_id,
+            AdsgramRewardSession.token_hash == _token_hash(token),
+            AdsgramRewardSession.purpose == PENALTY_DUEL_TELEGA_PURPOSE,
         )
         .with_for_update()
         .first()
