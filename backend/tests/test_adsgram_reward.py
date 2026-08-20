@@ -64,6 +64,15 @@ def db(monkeypatch):
     monkeypatch.setattr(adsgram_reward, "utc_now", lambda: NOW)
     monkeypatch.setattr(wheel, "get_now", lambda: NOW)
     monkeypatch.setattr(wheel, "get_today", lambda: NOW.date())
+    monkeypatch.setattr(penalty_duel_ads_router.config, "TADS_WEBHOOK_SECRET", "tads-secret")
+    monkeypatch.setattr(penalty_duel_ads_router.config, "TADS_WALL_RUSH_WIDGET_ID", "11416")
+    monkeypatch.setattr(penalty_duel_ads_router.config, "TELEGA_REWARD_SECRET", "telega-secret")
+    monkeypatch.setattr(
+        penalty_duel_ads_router.config, "TELEGA_MINIAPP_TOKEN", "test-client-token",
+    )
+    monkeypatch.setattr(
+        penalty_duel_ads_router.config, "TELEGA_REWARDED_AD_BLOCK_UUID", "test-block",
+    )
     try:
         yield session
     finally:
@@ -178,6 +187,14 @@ def test_penalty_duel_adsgram_uses_separate_five_minute_rotation(db, monkeypatch
     )
     next_session, _ = adsgram_reward.create_penalty_duel_reward_session(db, 1001)
     assert next_session.purpose == adsgram_reward.PENALTY_DUEL_PURPOSE
+
+
+def test_adsgram_callback_never_verifies_a_tads_session(db):
+    session, _ = adsgram_reward.create_tads_penalty_duel_reward_session(db, 1001)
+
+    assert adsgram_reward.verify_adsgram_callback(db, 1001) is None
+    db.refresh(session)
+    assert session.status == adsgram_reward.PENDING
 
 
 def test_reward_routes_require_authentication_and_server_callback(db, monkeypatch):
@@ -345,6 +362,30 @@ def test_penalty_duel_adsgram_routes_are_scoped_and_exactly_once(db, monkeypatch
     assert db.get(GameTicketWallet, 1001).game_tickets == 1
 
 
+def test_penalty_duel_tads_session_routes_are_authenticated_and_cancellable(db, monkeypatch):
+    monkeypatch.setattr(telegram_auth, "BOT_TOKEN", "test-token")
+
+    app = FastAPI()
+    app.include_router(penalty_duel_ads_router.router)
+    app.dependency_overrides[get_db] = lambda: db
+    client = TestClient(app)
+
+    assert client.post("/penalty-duel/rewards/tads/session").status_code == 401
+    issued = client.post(
+        "/penalty-duel/rewards/tads/session", headers=auth_headers(1001),
+    )
+    assert issued.status_code == 200
+    token = issued.json()["token"]
+
+    cancelled = client.post(
+        "/penalty-duel/rewards/tads/cancel",
+        json={"token": token},
+        headers=auth_headers(1001),
+    )
+    assert cancelled.status_code == 200
+    assert cancelled.json()["status"] == adsgram_reward.EXPIRED
+
+
 def test_onclicka_session_routes_are_authenticated_and_cancellable(db, monkeypatch):
     monkeypatch.setattr(telegram_auth, "BOT_TOKEN", "test-token")
     opaque_token = "opaque-token-0123456789abcdef0123456789abcdef"
@@ -416,3 +457,24 @@ def test_incomplete_onclicka_env_never_enters_production_rotation(db, monkeypatc
         "/penalty-duel/rewards/onclicka/session",
         headers=auth_headers(1001),
     ).status_code == 503
+
+
+def test_incomplete_tads_and_telega_env_are_not_advertised(db, monkeypatch):
+    monkeypatch.setattr(telegram_auth, "BOT_TOKEN", "test-token")
+    monkeypatch.setattr(penalty_duel_ads_router.config, "TADS_WEBHOOK_SECRET", "")
+    monkeypatch.setattr(penalty_duel_ads_router.config, "TELEGA_REWARD_SECRET", "")
+
+    app = FastAPI()
+    app.include_router(penalty_duel_ads_router.router)
+    app.dependency_overrides[get_db] = lambda: db
+    client = TestClient(app)
+
+    ad_config = client.get(
+        "/penalty-duel/rewards/config", headers=auth_headers(1001),
+    )
+    assert ad_config.status_code == 200
+    assert ad_config.json()["providers"] == ["ADSGRAM"]
+    assert ad_config.json()["tads_widget_id"] == ""
+    assert ad_config.json()["telega_token"] == ""
+    assert ad_config.json()["tads_enabled"] is False
+    assert ad_config.json()["telega_enabled"] is False

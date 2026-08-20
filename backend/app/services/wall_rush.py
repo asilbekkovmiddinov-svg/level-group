@@ -146,6 +146,8 @@ def wallet_response(wallet: GameTicketWallet) -> dict:
     provider_index = int(wallet.penalty_duel_rewarded_ad_provider_index or 0)
     providers = active_penalty_duel_ad_providers(
         config.onclicka_rewarded_ad_ready(),
+        tads_enabled=config.penalty_duel_tads_ready(),
+        telega_enabled=config.penalty_duel_telega_ready(),
     )
     return {
         "game_tickets": wallet.game_tickets,

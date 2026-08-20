@@ -43,6 +43,8 @@ def grant_penalty_duel_ad_ticket(
         raise PenaltyDuelAdError("Unknown Penalty Duel ad provider")
     providers = active_penalty_duel_ad_providers(
         config.onclicka_rewarded_ad_ready(),
+        tads_enabled=config.penalty_duel_tads_ready(),
+        telega_enabled=config.penalty_duel_telega_ready(),
     )
     if normalized_provider not in providers:
         raise PenaltyDuelAdError("Penalty Duel ad provider is disabled")

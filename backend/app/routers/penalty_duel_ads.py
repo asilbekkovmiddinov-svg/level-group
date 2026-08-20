@@ -24,11 +24,21 @@ def rewarded_ad_config(
     _: TelegramUser = Depends(get_current_telegram_user),
 ):
     onclicka_enabled = config.onclicka_rewarded_ad_ready()
+    tads_enabled = config.penalty_duel_tads_ready()
+    telega_enabled = config.penalty_duel_telega_ready()
     return {
-        "providers": list(active_penalty_duel_ad_providers(onclicka_enabled)),
-        "tads_widget_id": config.TADS_WALL_RUSH_WIDGET_ID,
-        "telega_token": config.TELEGA_MINIAPP_TOKEN or "",
-        "telega_ad_block_uuid": config.TELEGA_REWARDED_AD_BLOCK_UUID,
+        "providers": list(active_penalty_duel_ad_providers(
+            onclicka_enabled,
+            tads_enabled=tads_enabled,
+            telega_enabled=telega_enabled,
+        )),
+        "tads_widget_id": config.TADS_WALL_RUSH_WIDGET_ID if tads_enabled else "",
+        "telega_token": (config.TELEGA_MINIAPP_TOKEN or "") if telega_enabled else "",
+        "telega_ad_block_uuid": (
+            config.TELEGA_REWARDED_AD_BLOCK_UUID if telega_enabled else ""
+        ),
+        "tads_enabled": tads_enabled,
+        "telega_enabled": telega_enabled,
         "onclicka_enabled": onclicka_enabled,
         "onclicka_spot_id": config.ONCLICKA_SPOT_ID if onclicka_enabled else "",
     }
@@ -167,7 +177,57 @@ def tads_reward_webhook(
         telegram_id = int(payload.telegram_id)
     except ValueError as error:
         raise HTTPException(status_code=422, detail="Invalid telegram_id") from error
-    return _reward_callback(db, provider="TADS", telegram_id=telegram_id, event_id=None)
+    try:
+        completed = adsgram_reward.complete_tads_penalty_duel_reward(
+            db, telegram_id,
+        )
+    except PenaltyDuelAdError as error:
+        db.rollback()
+        if "once per 5 minutes" in str(error):
+            return {"status": "ok", "rewarded": False, "reason": "cooldown"}
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    if completed is None:
+        reason = (
+            "duplicate" if adsgram_reward.has_recent_tads_penalty_duel_reward(
+                db, telegram_id,
+            ) else "no_pending_session"
+        )
+        return {"status": "ok", "rewarded": False, "reason": reason}
+    _, wallet = completed
+    return {"status": "ok", "rewarded": True, "wallet": wallet_response(wallet)}
+
+
+@router.post("/tads/session")
+def create_tads_session(
+    user: TelegramUser = Depends(get_current_telegram_user),
+    db: Session = Depends(get_db),
+):
+    if not config.penalty_duel_tads_ready():
+        raise HTTPException(status_code=503, detail="TADS rewarded ads are disabled")
+    try:
+        session, token = adsgram_reward.create_tads_penalty_duel_reward_session(
+            db, user.telegram_id,
+        )
+    except ValueError as error:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    return {"session_id": session.id, "token": token, "expires_at": session.expires_at}
+
+
+@router.post("/tads/cancel")
+def cancel_tads_session(
+    payload: WallRushAdsgramRewardToken,
+    user: TelegramUser = Depends(get_current_telegram_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        session = adsgram_reward.cancel_tads_penalty_duel_reward_session(
+            db, user.telegram_id, payload.token,
+        )
+    except ValueError as error:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    return {"success": True, "session_id": session.id, "status": session.status}
 
 
 @router.get("/telega/callback")

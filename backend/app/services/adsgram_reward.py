@@ -31,6 +31,7 @@ EXPIRED = "EXPIRED"
 WHEEL_PURPOSE = "WHEEL"
 WALL_RUSH_PURPOSE = "WALL_RUSH"
 PENALTY_DUEL_PURPOSE = "PENALTY_DUEL"
+PENALTY_DUEL_TADS_PURPOSE = "PENALTY_DUEL_TADS"
 PENALTY_DUEL_ONCLICKA_PURPOSE = "PENALTY_DUEL_ONCLICKA"
 
 
@@ -158,6 +159,22 @@ def create_onclicka_penalty_duel_reward_session(
     return _new_session(db, telegram_id, PENALTY_DUEL_ONCLICKA_PURPOSE, now)
 
 
+def create_tads_penalty_duel_reward_session(
+    db: Session, telegram_id: int,
+) -> tuple[AdsgramRewardSession, str]:
+    """Open a server-authoritative session before showing a TADS video."""
+    if not config.penalty_duel_tads_ready():
+        raise ValueError("TADS rewarded ads are disabled")
+    now = utc_now()
+    db.query(User).filter(User.telegram_id == telegram_id).with_for_update().one()
+    wallet = get_wallet(db, telegram_id, lock=True)
+    last = wallet.last_penalty_duel_rewarded_ad_at
+    if last is not None:
+        if _as_utc(now) < _as_utc(last) + PENALTY_DUEL_AD_COOLDOWN:
+            raise ValueError("Penalty Duel reklama cooldown faol")
+    return _new_session(db, telegram_id, PENALTY_DUEL_TADS_PURPOSE, now)
+
+
 def verify_adsgram_callback(db: Session, telegram_id: int) -> AdsgramRewardSession | None:
     now = utc_now()
     session = (
@@ -165,7 +182,9 @@ def verify_adsgram_callback(db: Session, telegram_id: int) -> AdsgramRewardSessi
         .filter(
             AdsgramRewardSession.telegram_id == telegram_id,
             AdsgramRewardSession.status == PENDING,
-            AdsgramRewardSession.purpose != PENALTY_DUEL_ONCLICKA_PURPOSE,
+            AdsgramRewardSession.purpose.in_((
+                WHEEL_PURPOSE, WALL_RUSH_PURPOSE, PENALTY_DUEL_PURPOSE,
+            )),
             AdsgramRewardSession.expires_at > now,
         )
         .order_by(AdsgramRewardSession.created_at.desc(), AdsgramRewardSession.id.desc())
@@ -357,6 +376,59 @@ def complete_onclicka_penalty_duel_reward(
     return session, wallet
 
 
+def complete_tads_penalty_duel_reward(
+    db: Session, telegram_id: int,
+) -> tuple[AdsgramRewardSession, GameTicketWallet] | None:
+    """Atomically settle the newest pending TADS session exactly once."""
+    now = utc_now()
+    session = (
+        db.query(AdsgramRewardSession)
+        .filter(
+            AdsgramRewardSession.telegram_id == telegram_id,
+            AdsgramRewardSession.purpose == PENALTY_DUEL_TADS_PURPOSE,
+            AdsgramRewardSession.status == PENDING,
+            AdsgramRewardSession.expires_at > now,
+        )
+        .order_by(AdsgramRewardSession.created_at.desc(), AdsgramRewardSession.id.desc())
+        .with_for_update()
+        .first()
+    )
+    if not session:
+        db.rollback()
+        return None
+    try:
+        wallet = grant_penalty_duel_ad_ticket(
+            db,
+            telegram_id,
+            "TADS",
+            f"session:{session.id}",
+            now=now,
+            commit=False,
+        )
+    except PenaltyDuelAdError:
+        session.status = EXPIRED
+        db.commit()
+        raise
+    session.status = CLAIMED
+    session.verified_at = now
+    session.claimed_at = now
+    db.commit()
+    db.refresh(session)
+    db.refresh(wallet)
+    return session, wallet
+
+
+def has_recent_tads_penalty_duel_reward(db: Session, telegram_id: int) -> bool:
+    """Absorb duplicate callbacks when Penalty and Wall Rush share a TADS widget."""
+    now = utc_now()
+    return db.query(AdsgramRewardSession.id).filter(
+        AdsgramRewardSession.telegram_id == telegram_id,
+        AdsgramRewardSession.purpose == PENALTY_DUEL_TADS_PURPOSE,
+        AdsgramRewardSession.status == CLAIMED,
+        AdsgramRewardSession.expires_at > now,
+    ).first() is not None
+
+
 def cancel_wall_rush_reward_session(
     db: Session, telegram_id: int, token: str,
 ) -> AdsgramRewardSession:
@@ -410,6 +482,28 @@ def cancel_onclicka_penalty_duel_reward_session(
             AdsgramRewardSession.telegram_id == telegram_id,
             AdsgramRewardSession.token_hash == _token_hash(token),
             AdsgramRewardSession.purpose == PENALTY_DUEL_ONCLICKA_PURPOSE,
+        )
+        .with_for_update()
+        .first()
+    )
+    if not session:
+        raise ValueError("Reward sessiyasi topilmadi")
+    if session.status == PENDING:
+        session.status = EXPIRED
+        db.commit()
+        db.refresh(session)
+    return session
+
+
+def cancel_tads_penalty_duel_reward_session(
+    db: Session, telegram_id: int, token: str,
+) -> AdsgramRewardSession:
+    session = (
+        db.query(AdsgramRewardSession)
+        .filter(
+            AdsgramRewardSession.telegram_id == telegram_id,
+            AdsgramRewardSession.token_hash == _token_hash(token),
+            AdsgramRewardSession.purpose == PENALTY_DUEL_TADS_PURPOSE,
         )
         .with_for_update()
         .first()
