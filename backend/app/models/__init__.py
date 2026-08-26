@@ -34,6 +34,7 @@ from .division import (
     DivisionTicketLedger,
 )
 from .tournament import Tournament, TournamentMatch, TournamentParticipant
+from .arena_promocode import ArenaTicketPromocode, ArenaTicketPromocodeClaim
 
 from .arena_v3 import (
     ArenaV3AIReview,
