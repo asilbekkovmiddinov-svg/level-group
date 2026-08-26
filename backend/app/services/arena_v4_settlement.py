@@ -22,7 +22,8 @@ from app.models.arena_v3 import (
     ArenaV4SettlementOperation,
     ArenaV4SettlementOperationStatus,
 )
-from app.models.wall_rush import GameTicketWallet
+from app.models.wall_rush import GameTicketLedger, GameTicketWallet, TicketKind
+from uuid import uuid4
 from app.repositories.arena_v3 import ArenaV3Repository
 from app.services.arena_v3 import ArenaV3Conflict
 from app.services.arena_v3_state_machine import transition_arena_v3
@@ -38,11 +39,15 @@ def _money(value) -> Decimal:
     return Decimal(str(value)).quantize(CENT)
 
 
-def result_from_score(owner_score: int, opponent_score: int) -> ArenaV4ResultType:
+def result_from_score(
+    owner_score: int, opponent_score: int, *, allow_draw: bool = False
+) -> ArenaV4ResultType:
     if owner_score > opponent_score:
         return ArenaV4ResultType.PLAYER_A_WIN
     if opponent_score > owner_score:
         return ArenaV4ResultType.PLAYER_B_WIN
+    if allow_draw:
+        return ArenaV4ResultType.DRAW
     raise ArenaV3Conflict("Equal scores are not allowed; penalty shootout is mandatory")
 
 
@@ -237,6 +242,8 @@ def _update_competitive_stats(repository, match, decision):
     if decision == ArenaV4ResultType.DRAW:
         owner.draws += 1
         opponent.draws += 1
+        owner.points += 1
+        opponent.points += 1
         owner.current_streak = 0
         opponent.current_streak = 0
     else:
@@ -247,6 +254,7 @@ def _update_competitive_stats(repository, match, decision):
         )
         winner.wins += 1
         loser.losses += 1
+        winner.points += 3
         winner.current_streak += 1
         winner.best_streak = max(winner.best_streak, winner.current_streak)
         loser.current_streak = 0
@@ -271,6 +279,7 @@ def _recalculate_player_stats(repository, player_id: int):
     stats.total_efc_lost = Decimal("0.00")
     stats.current_streak = 0
     stats.best_streak = 0
+    stats.points = 0
     for item in repository.list_finished_matches_for_player(player_id):
         if item.current_result_type in {None, ArenaV4ResultType.CANCEL}:
             continue
@@ -282,9 +291,11 @@ def _recalculate_player_stats(repository, player_id: int):
         stats.goals_against += other_score or 0
         if item.current_result_type == ArenaV4ResultType.DRAW:
             stats.draws += 1
+            stats.points += 1
             stats.current_streak = 0
         elif item.winner_id == player_id:
             stats.wins += 1
+            stats.points += 3
             stats.current_streak += 1
             stats.best_streak = max(stats.best_streak, stats.current_streak)
             stats.total_efc_won += (
@@ -683,6 +694,19 @@ def _refund_ticket_arena_entry(db, match, player_id: int, state_attr: str) -> No
         raise ArenaV3Conflict("Arena ticket wallet is unavailable")
     wallet.tournament_tickets += match.ticket_cost
     setattr(match, state_attr, "REFUNDED")
+    if match.flow_version >= 5:
+        key = f"arena-v5:match:{match.id}:refund:{player_id}"
+        if not db.query(GameTicketLedger).filter_by(idempotency_key=key).first():
+            db.add(GameTicketLedger(
+                id=str(uuid4()),
+                telegram_id=player_id,
+                ticket_kind=TicketKind.TOURNAMENT,
+                operation="ARENA_V5_REFUND",
+                amount=match.ticket_cost,
+                match_id=None,
+                idempotency_key=key,
+                metadata_json={"arena_match_id": match.id, "flow_version": 5},
+            ))
 
 
 def _apply_ticket_arena_admin_result(
@@ -783,7 +807,9 @@ def apply_admin_settlement(
 
     now = now or datetime.now(timezone.utc)
     decision = decision or result_from_score(
-        payload.owner_score, payload.opponent_score
+        payload.owner_score,
+        payload.opponent_score,
+        allow_draw=match.flow_version >= 5,
     )
     if match.match_type == "DIVISION":
         _apply_division_admin_result(

@@ -5,6 +5,7 @@ from app.models.arena_v3 import (
     ArenaV3AIReview, ArenaV3Appeal, ArenaV3Match, ArenaV3MatchEvent,
     ArenaV3MatchScreenshot, ArenaV3NotificationDelivery, ArenaV3RankingPrize,
     ArenaV3Stats,
+    ArenaV5QueueEntry, ArenaV5ScreenshotSubmission,
     ArenaV4AdminReview, ArenaV4ResultRevision, ArenaV4SettlementOperation,
 )
 
@@ -26,6 +27,11 @@ ARENA_V4_TABLES = (
     ArenaV4SettlementOperation.__table__,
 )
 
+ARENA_V5_TABLES = (
+    ArenaV5QueueEntry.__table__,
+    ArenaV5ScreenshotSubmission.__table__,
+)
+
 
 def _columns(inspector, table_name):
     return {
@@ -39,6 +45,8 @@ def run_arena_v3_migrations(bind: Engine | Connection) -> None:
         table.create(bind=bind, checkfirst=True)
     for table in ARENA_V4_TABLES:
         table.create(bind=bind, checkfirst=True)
+    for table in ARENA_V5_TABLES:
+        table.create(bind=bind, checkfirst=True)
 
     inspector = inspect(bind)
     ai_columns = _columns(inspector, "arena_ai_reviews")
@@ -49,6 +57,9 @@ def run_arena_v3_migrations(bind: Engine | Connection) -> None:
         _columns(inspector, "wallets") if inspector.has_table("wallets") else None
     )
     stats_columns = _columns(inspector, "arena_stats_v3")
+    user_columns = (
+        _columns(inspector, "users") if inspector.has_table("users") else None
+    )
     connection = bind.connect() if isinstance(bind, Engine) else bind
     owns_connection = isinstance(bind, Engine)
     try:
@@ -69,6 +80,7 @@ def run_arena_v3_migrations(bind: Engine | Connection) -> None:
                 "goals_for": "INTEGER NOT NULL DEFAULT 0",
                 "goals_against": "INTEGER NOT NULL DEFAULT 0",
                 "win_rate": "NUMERIC(5, 2) NOT NULL DEFAULT 0",
+                "points": "INTEGER NOT NULL DEFAULT 0",
             }
             for name, ddl in stats_additions.items():
                 if name not in stats_columns:
@@ -95,12 +107,35 @@ def run_arena_v3_migrations(bind: Engine | Connection) -> None:
                 "initial_decision_id": (
                     "INTEGER REFERENCES arena_admin_reviews (id)"
                 ),
+                "flow_version": "INTEGER NOT NULL DEFAULT 4",
+                "bot_relay_token": "VARCHAR(64)",
             }
             for name, ddl in match_additions.items():
                 if name not in match_columns:
                     connection.execute(text(
                         f"ALTER TABLE arena_matches ADD COLUMN {name} {ddl}"
                     ))
+
+            if (
+                user_columns is not None
+                and "efootball_username" not in user_columns
+            ):
+                connection.execute(text(
+                    "ALTER TABLE users ADD COLUMN efootball_username VARCHAR(64)"
+                ))
+
+            connection.execute(text(
+                "UPDATE arena_stats_v3 SET points = wins * 3 + draws "
+                "WHERE points = 0 AND (wins > 0 OR draws > 0)"
+            ))
+            connection.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_arena_matches_bot_relay_token "
+                "ON arena_matches (bot_relay_token)"
+            ))
+            connection.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_arena_matches_flow_version "
+                "ON arena_matches (flow_version)"
+            ))
 
             appeal_additions = {
                 "reason": "VARCHAR(500)",

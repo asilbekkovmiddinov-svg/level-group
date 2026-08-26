@@ -44,6 +44,8 @@ from .arena_v3 import (
     ArenaV3NotificationDelivery,
     ArenaV3RankingPrize,
     ArenaV3Stats,
+    ArenaV5QueueEntry,
+    ArenaV5ScreenshotSubmission,
     ArenaV4AdminReview,
     ArenaV4ResultRevision,
     ArenaV4SettlementOperation,

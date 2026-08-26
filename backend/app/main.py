@@ -28,6 +28,10 @@ from app.routers.system import router as system_router
 from app.routers.match import router as match_router
 from app.routers.match_overview import router as match_overview_router
 from app.routers.arena_v4 import router as arena_v4_router
+from app.routers.arena_v5 import (
+    internal_router as arena_v5_internal_router,
+    router as arena_v5_router,
+)
 from app.routers.arena_v3 import (
     admin_router as arena_v3_admin_router,
     internal_router as arena_v3_internal_router,
@@ -161,6 +165,8 @@ app.include_router(system_router)
 app.include_router(match_router)
 app.include_router(match_overview_router)
 app.include_router(arena_v4_router)
+app.include_router(arena_v5_router)
+app.include_router(arena_v5_internal_router)
 app.include_router(arena_v3_router)
 app.include_router(arena_v3_internal_router)
 app.include_router(arena_v3_admin_router)

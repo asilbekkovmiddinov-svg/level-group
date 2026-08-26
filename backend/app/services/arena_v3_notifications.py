@@ -51,6 +51,31 @@ def _utc_now():
 
 def _message(match: ArenaV3Match, event_type: str) -> str:
     label = EVENT_LABELS.get(event_type, "Arena V3 yangilanishi")
+    if match.flow_version >= 5:
+        label = {
+            "MATCH_WON": "G‘alaba",
+            "MATCH_DRAW": "Durang",
+            "MATCH_LOST": "Mag‘lubiyat",
+            "MATCH_CANCELLED": "Match bekor qilindi",
+        }.get(event_type, "Arena yangilanishi")
+        points = {"MATCH_WON": 3, "MATCH_DRAW": 1, "MATCH_LOST": 0}.get(
+            event_type
+        )
+        score = (
+            f"{match.owner_score}:{match.opponent_score}"
+            if match.owner_score is not None and match.opponent_score is not None
+            else "—"
+        )
+        lines = [
+            f"⚔️ {label}",
+            "",
+            f"Match: №{match.id}",
+            f"{match.owner_efootball_username} {score} "
+            f"{match.opponent_efootball_username}",
+        ]
+        if points is not None:
+            lines.append(f"Olingan ochko: +{points}")
+        return "\n".join(lines)
     return (
         f"🎮 {label}\n\n"
         f"Match: {match.public_id}\n"

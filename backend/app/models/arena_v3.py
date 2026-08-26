@@ -158,6 +158,8 @@ class ArenaV3Match(Base):
     owner_result_confirmed_at = Column(DateTime(timezone=True))
     opponent_result_confirmed_at = Column(DateTime(timezone=True))
     admin_channel_message_id = Column(BigInteger)
+    flow_version = Column(Integer, nullable=False, default=4, index=True)
+    bot_relay_token = Column(String(64), unique=True, index=True)
     reward_hold_status = Column(
         SQLEnum(ArenaV4RewardHoldStatus, native_enum=False),
         nullable=False, default=ArenaV4RewardHoldStatus.NONE, index=True,
@@ -490,6 +492,7 @@ class ArenaV3Stats(Base):
     current_streak = Column(Integer, nullable=False, default=0)
     best_streak = Column(Integer, nullable=False, default=0)
     rating = Column(Integer, nullable=False, default=1000)
+    points = Column(Integer, nullable=False, default=0)
     updated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
 
 class ArenaV3RankingPrize(Base):
@@ -508,3 +511,44 @@ class ArenaV3RankingPrize(Base):
     updated_at = Column(
         DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now
     )
+
+
+class ArenaV5QueueEntry(Base):
+    __tablename__ = "arena_matchmaking_queue"
+    __table_args__ = (
+        Index("ix_arena_matchmaking_queue_created", "created_at", "player_id"),
+    )
+
+    player_id = Column(
+        BigInteger, ForeignKey("users.telegram_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    efootball_username = Column(String(64), nullable=False)
+    idempotency_key = Column(String(128), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+
+class ArenaV5ScreenshotSubmission(Base):
+    __tablename__ = "arena_v5_screenshot_submissions"
+    __table_args__ = (
+        UniqueConstraint(
+            "match_id", "player_id", name="uq_arena_v5_submission_player"
+        ),
+        Index("ix_arena_v5_submission_status", "delivery_status", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    match_id = Column(
+        Integer, ForeignKey("arena_matches.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    player_id = Column(
+        BigInteger, ForeignKey("users.telegram_id"), nullable=False, index=True
+    )
+    telegram_file_id = Column(String(500), nullable=False)
+    telegram_message_id = Column(BigInteger, nullable=False)
+    admin_channel_message_id = Column(BigInteger)
+    delivery_status = Column(String(16), nullable=False, default="PENDING")
+    last_error = Column(String(255))
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+    delivered_at = Column(DateTime(timezone=True))
