@@ -357,10 +357,11 @@ class ArenaV4AdminDecisionRequest(BaseModel):
     owner_score: int = Field(ge=0, le=99)
     opponent_score: int = Field(ge=0, le=99)
     reason: str | None = Field(default=None, max_length=500)
+    allow_draw: bool = False
 
     @model_validator(mode="after")
     def reject_draw(self):
-        if self.owner_score == self.opponent_score:
+        if self.owner_score == self.opponent_score and not self.allow_draw:
             raise ValueError("Equal scores are not allowed; penalty shootout is mandatory")
         return self
 

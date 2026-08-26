@@ -9,7 +9,10 @@ ALLOWED_TRANSITIONS: dict[ArenaV3Status, frozenset[ArenaV3Status]] = {
     ArenaV3Status.OPEN: frozenset({ArenaV3Status.READY, ArenaV3Status.CANCELLED}),
     ArenaV3Status.READY: frozenset({ArenaV3Status.WAITING_ROOM_CODE, ArenaV3Status.CANCELLED}),
     ArenaV3Status.WAITING_ROOM_CODE: frozenset({ArenaV3Status.PLAYING, ArenaV3Status.CANCELLED}),
-    ArenaV3Status.PLAYING: frozenset({ArenaV3Status.WAITING_SCREENSHOT}),
+    ArenaV3Status.PLAYING: frozenset({
+        ArenaV3Status.WAITING_SCREENSHOT,
+        ArenaV3Status.WAITING_ADMIN,
+    }),
     ArenaV3Status.WAITING_SCREENSHOT: frozenset({
         ArenaV3Status.WAITING_ADMIN,
         ArenaV3Status.AI_REVIEW,

@@ -18,9 +18,11 @@ from app.models.arena_v3 import (
     ArenaV4AdminReview,
     ArenaV4AdminReviewStatus,
     ArenaV4ReviewType,
+    ArenaV5QueueEntry,
 )
 from app.repositories.arena_v3 import ArenaV3Repository
 from app.models.wall_rush import GameTicketWallet
+from app.models.user import User
 from app.services.arena_v3_state_machine import (
     ArenaV3InvalidTransition,
     transition_arena_v3,
@@ -125,6 +127,9 @@ class ArenaV3Service:
             self.db.flush()
         return wallet
 
+    def _lock_player(self, player_id: int) -> None:
+        self.db.query(User).filter(User.telegram_id == player_id).with_for_update().first()
+
     def _lock_ticket(self, match: ArenaV3Match, player_id: int, state_attr: str) -> None:
         if getattr(match, state_attr) == TICKET_LOCKED:
             return
@@ -162,6 +167,7 @@ class ArenaV3Service:
     def create_match(self, *, payload, owner_id: int, idempotency_key: str):
         if not config.ARENA_V3_CREATE_ENABLED:
             raise ArenaV3Unavailable("Arena V3 create is disabled")
+        self._lock_player(owner_id)
         fingerprint = self._fingerprint(payload)
         existing = self.repository.get_by_owner_idempotency(owner_id, idempotency_key)
         if existing:
@@ -170,6 +176,8 @@ class ArenaV3Service:
             return existing
         if self.repository.get_active_for_player(owner_id):
             raise ArenaV3Conflict("Player already has an active Arena V3 match")
+        if self.db.get(ArenaV5QueueEntry, owner_id) is not None:
+            raise ArenaV3Conflict("Player is already searching for an Arena opponent")
         if payload.match_type not in SUPPORTED_MATCH_TYPES:
             raise ArenaV3ServiceError("Unsupported Arena V3 match type")
 
@@ -204,6 +212,7 @@ class ArenaV3Service:
 
     def join_match(self, *, match_id: int, payload, opponent_id: int, idempotency_key: str):
         match = self._locked_match(match_id)
+        self._lock_player(opponent_id)
         previous = self.repository.get_event_by_idempotency(
             match_id, f"join:{idempotency_key}"
         )
@@ -219,6 +228,8 @@ class ArenaV3Service:
             raise ArenaV3Conflict("Arena V3 match is not open")
         if self.repository.get_active_for_player(opponent_id):
             raise ArenaV3Conflict("Player already has an active Arena V3 match")
+        if self.db.get(ArenaV5QueueEntry, opponent_id) is not None:
+            raise ArenaV3Conflict("Player is already searching for an Arena opponent")
         if match.ticket_cost > 0:
             self._lock_ticket(match, opponent_id, "opponent_ticket_state")
         elif config.ARENA_V3_SETTLEMENT_ENABLED:

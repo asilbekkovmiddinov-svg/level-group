@@ -13,6 +13,7 @@ class User(Base):
     first_name = Column(String(100), nullable=False)
     last_name = Column(String(100), nullable=True)
     language = Column(String(10), default="uz")
+    efootball_username = Column(String(64), nullable=True)
 
     is_banned = Column(Boolean, default=False)
 

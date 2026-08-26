@@ -224,7 +224,14 @@ class ArenaV4AdminReviewService:
         review = self.repository.get_admin_review_for_update(review_id)
         if review is None:
             raise ArenaV3NotFound("Arena admin review not found")
-        decision = result_from_score(payload.owner_score, payload.opponent_score)
+        match = self.repository.get_match_for_update(review.match_id)
+        if match is None:
+            raise ArenaV3NotFound("Arena V3 match not found")
+        decision = result_from_score(
+            payload.owner_score,
+            payload.opponent_score,
+            allow_draw=match.flow_version >= 5,
+        )
         if review.status == ArenaV4AdminReviewStatus.DECIDED:
             if (
                 review.idempotency_key == idempotency_key
@@ -243,9 +250,6 @@ class ArenaV4AdminReviewService:
         ):
             raise ArenaV3Conflict("Admin must claim the review before deciding")
 
-        match = self.repository.get_match_for_update(review.match_id)
-        if match is None:
-            raise ArenaV3NotFound("Arena V3 match not found")
         if match.status != ArenaV3Status.WAITING_ADMIN:
             raise ArenaV3Conflict("Arena match is not waiting for admin")
         if (
