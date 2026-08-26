@@ -52,27 +52,6 @@ def emergency_cancel_arena_match(
     return {"ok": True, "match_id": match.id, "status": "CANCELLED", "tickets_refunded": False}
 
 
-def user_metrics(
-    _admin: TelegramUser = Depends(require_promotions_admin),
-    db: Session = Depends(get_db),
-):
-    now = datetime.now(timezone.utc)
-    active_since = now - timedelta(days=ACTIVE_WINDOW_DAYS)
-    total_users = db.query(func.count(User.telegram_id)).scalar() or 0
-    monthly_active_users = (
-        db.query(func.count(User.telegram_id))
-        .filter(User.last_seen_at.isnot(None), User.last_seen_at >= active_since)
-        .scalar()
-        or 0
-    )
-    return {
-        "total_users": int(total_users),
-        "monthly_active_users": int(monthly_active_users),
-        "active_window_days": ACTIVE_WINDOW_DAYS,
-        "generated_at": now,
-    }
-
-
 @router.get("/users")
 def user_metrics(
     _admin: TelegramUser = Depends(require_promotions_admin),
