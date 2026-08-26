@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -7,6 +9,7 @@ from app.core.admin_auth import require_promotions_admin
 from app.core.database import get_db
 from app.core.telegram_auth import TelegramUser
 from app.models.arena_promocode import ArenaTicketPromocode
+from app.models.arena_v3 import ArenaV3Match, ArenaV3Status
 from app.schemas.arena_promocode import ArenaPromocodeCreate, ArenaPromocodeResponse
 
 
@@ -75,3 +78,30 @@ def deactivate_promocode(
     db.commit()
     db.refresh(promo)
     return promo
+
+
+@router.post("/matches/{match_id}/cancel")
+def cancel_arena_match(
+    match_id: int,
+    admin: TelegramUser = Depends(require_promotions_admin),
+    db: Session = Depends(get_db),
+):
+    """Admin-only emergency cancel. Does not refund tickets."""
+    match = db.execute(
+        select(ArenaV3Match)
+        .where(ArenaV3Match.id == match_id)
+        .with_for_update()
+    ).scalar_one_or_none()
+    if match is None:
+        raise HTTPException(404, "Arena match topilmadi")
+    if match.status == ArenaV3Status.FINISHED:
+        raise HTTPException(409, "Yakunlangan matchni bekor qilib bo‘lmaydi")
+    if match.status == ArenaV3Status.CANCELLED:
+        return {"ok": True, "match_id": match.id, "status": "CANCELLED", "already_cancelled": True}
+
+    match.status = ArenaV3Status.CANCELLED
+    match.cancel_reason = f"Admin emergency cancel by {admin.telegram_id}"
+    match.finished_at = datetime.now(timezone.utc)
+    match.version = (match.version or 0) + 1
+    db.commit()
+    return {"ok": True, "match_id": match.id, "status": "CANCELLED", "tickets_refunded": False}
