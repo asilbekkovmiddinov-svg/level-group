@@ -1,12 +1,13 @@
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import String, cast, func, or_
+from sqlalchemy import String, cast, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.admin_auth import require_promotions_admin
 from app.core.database import get_db
 from app.core.telegram_auth import TelegramUser
+from app.models.arena_v3 import ArenaV3Match, ArenaV3Status
 from app.models.transaction import Transaction
 from app.models.user import User
 from app.models.wallet import Wallet
@@ -22,6 +23,54 @@ def _as_utc(value: datetime | None) -> datetime | None:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
+
+
+@router.post("/arena/matches/{match_id}/cancel")
+def emergency_cancel_arena_match(
+    match_id: int,
+    admin: TelegramUser = Depends(require_promotions_admin),
+    db: Session = Depends(get_db),
+):
+    """Admin-only emergency cancel for a stuck Arena match. No ticket refund."""
+    match = db.execute(
+        select(ArenaV3Match)
+        .where(ArenaV3Match.id == match_id)
+        .with_for_update()
+    ).scalar_one_or_none()
+    if match is None:
+        raise HTTPException(status_code=404, detail="Arena match topilmadi")
+    if match.status == ArenaV3Status.FINISHED:
+        raise HTTPException(status_code=409, detail="Yakunlangan matchni bekor qilib bo‘lmaydi")
+    if match.status == ArenaV3Status.CANCELLED:
+        return {"ok": True, "match_id": match.id, "status": "CANCELLED", "already_cancelled": True}
+
+    match.status = ArenaV3Status.CANCELLED
+    match.cancel_reason = f"Admin emergency cancel by {admin.telegram_id}"
+    match.finished_at = datetime.now(timezone.utc)
+    match.version = (match.version or 0) + 1
+    db.commit()
+    return {"ok": True, "match_id": match.id, "status": "CANCELLED", "tickets_refunded": False}
+
+
+def user_metrics(
+    _admin: TelegramUser = Depends(require_promotions_admin),
+    db: Session = Depends(get_db),
+):
+    now = datetime.now(timezone.utc)
+    active_since = now - timedelta(days=ACTIVE_WINDOW_DAYS)
+    total_users = db.query(func.count(User.telegram_id)).scalar() or 0
+    monthly_active_users = (
+        db.query(func.count(User.telegram_id))
+        .filter(User.last_seen_at.isnot(None), User.last_seen_at >= active_since)
+        .scalar()
+        or 0
+    )
+    return {
+        "total_users": int(total_users),
+        "monthly_active_users": int(monthly_active_users),
+        "active_window_days": ACTIVE_WINDOW_DAYS,
+        "generated_at": now,
+    }
 
 
 @router.get("/users")
