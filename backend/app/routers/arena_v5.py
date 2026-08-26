@@ -21,6 +21,7 @@ from app.schemas.arena_v5 import (
 )
 from app.services.arena_v3 import ArenaV3ServiceError
 from app.services.arena_v5 import ArenaV5Service
+from app.services.arena_v5_history import get_arena_v5_history
 
 
 router = APIRouter(prefix="/arena/v5", tags=["Arena V5"])
@@ -124,8 +125,8 @@ def history(
     current_user: TelegramUser = Depends(get_current_telegram_user),
     db: Session = Depends(get_db),
 ):
-    return _call(lambda: ArenaV5Service(db).history(
-        current_user.telegram_id, limit=limit, offset=offset
+    return _call(lambda: get_arena_v5_history(
+        db, current_user.telegram_id, limit=limit, offset=offset
     ))
 
 
