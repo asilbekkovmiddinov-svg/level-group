@@ -38,6 +38,7 @@ from app.routers.arena_v3 import (
     router as arena_v3_router,
 )
 from app.routers.internal_wallet import router as internal_wallet_router
+from app.routers.internal_shop import router as internal_shop_router
 from app.routers.deposit_receipt import router as deposit_receipt_router
 from app.routers.health import router as health_router
 from app.routers.coin_order_chat import router as coin_order_chat_router
@@ -171,6 +172,7 @@ app.include_router(arena_v3_router)
 app.include_router(arena_v3_internal_router)
 app.include_router(arena_v3_admin_router)
 app.include_router(internal_wallet_router)
+app.include_router(internal_shop_router)
 app.include_router(deposit_receipt_router)
 app.include_router(health_router)
 app.include_router(coin_order_chat_router)

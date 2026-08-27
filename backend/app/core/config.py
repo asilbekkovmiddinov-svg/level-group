@@ -40,6 +40,14 @@ DEPOSIT_CARD_NUMBER = os.getenv("DEPOSIT_CARD_NUMBER")
 DEPOSIT_CARD_HOLDER = os.getenv("DEPOSIT_CARD_HOLDER")
 DEPOSIT_BANK_NAME = os.getenv("DEPOSIT_BANK_NAME")
 
+# Bot shop purchase limits. Prices are configured by an admin and stored in DB.
+SHOP_MAX_EFC_PER_PURCHASE = int(os.getenv("SHOP_MAX_EFC_PER_PURCHASE", "10000"))
+SHOP_MAX_TICKETS_PER_PURCHASE = int(
+    os.getenv("SHOP_MAX_TICKETS_PER_PURCHASE", "100")
+)
+if SHOP_MAX_EFC_PER_PURCHASE < 1 or SHOP_MAX_TICKETS_PER_PURCHASE < 1:
+    raise ValueError("Shop purchase limits must be positive")
+
 S3_ENDPOINT_URL = os.getenv("S3_ENDPOINT_URL")
 S3_ACCESS_KEY_ID = os.getenv("S3_ACCESS_KEY_ID")
 S3_SECRET_ACCESS_KEY = os.getenv("S3_SECRET_ACCESS_KEY")
