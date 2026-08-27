@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from dotenv import load_dotenv
 import os
 
@@ -39,6 +41,20 @@ ADMIN_TELEGRAM_IDS = _telegram_id_allowlist(os.getenv("ADMIN_TELEGRAM_IDS"))
 DEPOSIT_CARD_NUMBER = os.getenv("DEPOSIT_CARD_NUMBER")
 DEPOSIT_CARD_HOLDER = os.getenv("DEPOSIT_CARD_HOLDER")
 DEPOSIT_BANK_NAME = os.getenv("DEPOSIT_BANK_NAME")
+
+# Bot shop exchange rates. Deployments can change them without a code release.
+SHOP_EFC_PRICE_UZS = Decimal(os.getenv("SHOP_EFC_PRICE_UZS", "1000"))
+SHOP_ARENA_TICKET_PRICE_EFC = Decimal(
+    os.getenv("SHOP_ARENA_TICKET_PRICE_EFC", "10")
+)
+SHOP_MAX_EFC_PER_PURCHASE = int(os.getenv("SHOP_MAX_EFC_PER_PURCHASE", "10000"))
+SHOP_MAX_TICKETS_PER_PURCHASE = int(
+    os.getenv("SHOP_MAX_TICKETS_PER_PURCHASE", "100")
+)
+if SHOP_EFC_PRICE_UZS <= 0 or SHOP_ARENA_TICKET_PRICE_EFC <= 0:
+    raise ValueError("Shop exchange rates must be positive")
+if SHOP_MAX_EFC_PER_PURCHASE < 1 or SHOP_MAX_TICKETS_PER_PURCHASE < 1:
+    raise ValueError("Shop purchase limits must be positive")
 
 S3_ENDPOINT_URL = os.getenv("S3_ENDPOINT_URL")
 S3_ACCESS_KEY_ID = os.getenv("S3_ACCESS_KEY_ID")
