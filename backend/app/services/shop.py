@@ -20,6 +20,10 @@ class ShopNotFound(ShopError):
     pass
 
 
+class ShopNotConfigured(ShopError):
+    pass
+
+
 class ShopInvalidAmount(ShopError):
     pass
 
@@ -99,11 +103,7 @@ def settings(db: Session, *, lock: bool = False) -> ShopSettings:
     value = db.execute(query).scalar_one_or_none()
     if value is not None:
         return value
-    value = ShopSettings(
-        id="default",
-        efc_price_uzs=config.SHOP_EFC_PRICE_UZS,
-        ticket_price_efc=config.SHOP_ARENA_TICKET_PRICE_EFC,
-    )
+    value = ShopSettings(id="default")
     db.add(value)
     try:
         db.commit()
@@ -144,8 +144,16 @@ def update_settings(
 
 def settings_result(value: ShopSettings) -> dict:
     return {
-        "efc_price_uzs": float(value.efc_price_uzs),
-        "ticket_price_efc": float(value.ticket_price_efc),
+        "efc_price_uzs": (
+            float(value.efc_price_uzs) if value.efc_price_uzs is not None else None
+        ),
+        "ticket_price_efc": (
+            float(value.ticket_price_efc)
+            if value.ticket_price_efc is not None else None
+        ),
+        "configured": (
+            value.efc_price_uzs is not None and value.ticket_price_efc is not None
+        ),
         "updated_by": value.updated_by,
         "updated_at": value.updated_at,
     }
@@ -157,6 +165,8 @@ def catalog(db: Session, telegram_id: int) -> dict:
         raise ShopNotFound("Hamyon topilmadi")
     ticket_wallet = db.get(GameTicketWallet, telegram_id)
     prices = settings(db)
+    if prices.efc_price_uzs is None or prices.ticket_price_efc is None:
+        raise ShopNotConfigured("Magazin narxlari admin tomonidan belgilanmagan")
     return {
         "efc_price_uzs": float(prices.efc_price_uzs),
         "ticket_price_efc": float(prices.ticket_price_efc),
@@ -193,6 +203,8 @@ def buy_efc(
 
     try:
         prices = settings(db, lock=True)
+        if prices.efc_price_uzs is None:
+            raise ShopNotConfigured("EFC narxi admin tomonidan belgilanmagan")
         cost = amount * _decimal(prices.efc_price_uzs)
         wallet = db.execute(
             select(Wallet)
@@ -243,7 +255,7 @@ def buy_efc(
         db.commit()
         db.refresh(purchase)
         return _result(db, purchase)
-    except (ShopNotFound, ShopInsufficientBalance):
+    except (ShopNotFound, ShopNotConfigured, ShopInsufficientBalance):
         db.rollback()
         raise
     except IntegrityError as error:
@@ -285,6 +297,8 @@ def buy_arena_tickets(
 
     try:
         prices = settings(db, lock=True)
+        if prices.ticket_price_efc is None:
+            raise ShopNotConfigured("Ticket narxi admin tomonidan belgilanmagan")
         cost = _decimal(prices.ticket_price_efc) * quantity
         wallet = db.execute(
             select(Wallet)
@@ -345,7 +359,7 @@ def buy_arena_tickets(
         db.commit()
         db.refresh(purchase)
         return _result(db, purchase)
-    except (ShopNotFound, ShopInsufficientBalance):
+    except (ShopNotFound, ShopNotConfigured, ShopInsufficientBalance):
         db.rollback()
         raise
     except IntegrityError as error:

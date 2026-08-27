@@ -16,6 +16,7 @@ from app.services import shop
 from app.services.shop import (
     ShopIdempotencyConflict,
     ShopInsufficientBalance,
+    ShopNotConfigured,
     buy_arena_tickets,
     buy_efc,
     catalog,
@@ -25,8 +26,6 @@ from app.services.shop import (
 
 @pytest.fixture()
 def db(monkeypatch):
-    monkeypatch.setattr(shop.config, "SHOP_EFC_PRICE_UZS", shop.Decimal("1000"))
-    monkeypatch.setattr(shop.config, "SHOP_ARENA_TICKET_PRICE_EFC", shop.Decimal("10"))
     monkeypatch.setattr(shop.config, "SHOP_MAX_EFC_PER_PURCHASE", 10000)
     monkeypatch.setattr(shop.config, "SHOP_MAX_TICKETS_PER_PURCHASE", 100)
     engine = create_engine(
@@ -47,6 +46,11 @@ def db(monkeypatch):
             locked_reward_efc=0,
         ),
         GameTicketWallet(telegram_id=42, tournament_tickets=1),
+        ShopSettings(
+            id="default",
+            efc_price_uzs=1000,
+            ticket_price_efc=10,
+        ),
     ])
     session.commit()
     try:
@@ -146,6 +150,23 @@ def test_admin_prices_are_persisted_and_used_by_catalog(db):
     data = catalog(db, 42)
     assert data["efc_price_uzs"] == 750
     assert data["ticket_price_efc"] == 7.5
+
+
+def test_shop_is_closed_until_admin_sets_both_prices(db):
+    db.query(ShopSettings).delete()
+    db.commit()
+    with pytest.raises(ShopNotConfigured):
+        catalog(db, 42)
+    with pytest.raises(ShopNotConfigured):
+        buy_efc(
+            db,
+            telegram_id=42,
+            efc_amount=1,
+            idempotency_key="unconfigured-price",
+        )
+    wallet = db.get(Wallet, 42)
+    assert float(wallet.uzs_balance) == 100000
+    assert float(wallet.efc_balance) == 20
 
 
 def test_every_shop_route_requires_internal_auth():

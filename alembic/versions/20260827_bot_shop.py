@@ -16,8 +16,8 @@ def upgrade():
         op.create_table(
             "shop_settings",
             sa.Column("id", sa.String(length=32), nullable=False),
-            sa.Column("efc_price_uzs", sa.Numeric(18, 2), nullable=False),
-            sa.Column("ticket_price_efc", sa.Numeric(18, 2), nullable=False),
+            sa.Column("efc_price_uzs", sa.Numeric(18, 2), nullable=True),
+            sa.Column("ticket_price_efc", sa.Numeric(18, 2), nullable=True),
             sa.Column("updated_by", sa.BigInteger(), nullable=True),
             sa.Column(
                 "updated_at",

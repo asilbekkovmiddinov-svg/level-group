@@ -1,5 +1,3 @@
-from decimal import Decimal
-
 from dotenv import load_dotenv
 import os
 
@@ -42,17 +40,11 @@ DEPOSIT_CARD_NUMBER = os.getenv("DEPOSIT_CARD_NUMBER")
 DEPOSIT_CARD_HOLDER = os.getenv("DEPOSIT_CARD_HOLDER")
 DEPOSIT_BANK_NAME = os.getenv("DEPOSIT_BANK_NAME")
 
-# Bot shop exchange rates. Deployments can change them without a code release.
-SHOP_EFC_PRICE_UZS = Decimal(os.getenv("SHOP_EFC_PRICE_UZS", "1000"))
-SHOP_ARENA_TICKET_PRICE_EFC = Decimal(
-    os.getenv("SHOP_ARENA_TICKET_PRICE_EFC", "10")
-)
+# Bot shop purchase limits. Prices are configured by an admin and stored in DB.
 SHOP_MAX_EFC_PER_PURCHASE = int(os.getenv("SHOP_MAX_EFC_PER_PURCHASE", "10000"))
 SHOP_MAX_TICKETS_PER_PURCHASE = int(
     os.getenv("SHOP_MAX_TICKETS_PER_PURCHASE", "100")
 )
-if SHOP_EFC_PRICE_UZS <= 0 or SHOP_ARENA_TICKET_PRICE_EFC <= 0:
-    raise ValueError("Shop exchange rates must be positive")
 if SHOP_MAX_EFC_PER_PURCHASE < 1 or SHOP_MAX_TICKETS_PER_PURCHASE < 1:
     raise ValueError("Shop purchase limits must be positive")
 

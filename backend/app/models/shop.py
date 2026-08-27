@@ -18,8 +18,8 @@ class ShopSettings(Base):
     __tablename__ = "shop_settings"
 
     id = Column(String(32), primary_key=True, default="default")
-    efc_price_uzs = Column(Numeric(18, 2), nullable=False)
-    ticket_price_efc = Column(Numeric(18, 2), nullable=False)
+    efc_price_uzs = Column(Numeric(18, 2), nullable=True)
+    ticket_price_efc = Column(Numeric(18, 2), nullable=True)
     updated_by = Column(BigInteger, ForeignKey("users.telegram_id"), nullable=True)
     updated_at = Column(
         DateTime(timezone=True),

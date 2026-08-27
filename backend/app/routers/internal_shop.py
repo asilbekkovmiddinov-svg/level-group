@@ -10,6 +10,7 @@ from app.services.shop import (
     ShopIdempotencyConflict,
     ShopInsufficientBalance,
     ShopInvalidAmount,
+    ShopNotConfigured,
     ShopNotFound,
     ShopOperationFailed,
     buy_arena_tickets,
@@ -41,6 +42,8 @@ def _idempotency_key(value: str | None) -> str:
 def _raise_shop_error(error: Exception):
     if isinstance(error, ShopNotFound):
         raise HTTPException(status_code=404, detail=str(error))
+    if isinstance(error, ShopNotConfigured):
+        raise HTTPException(status_code=409, detail=str(error))
     if isinstance(error, ShopInvalidAmount):
         raise HTTPException(status_code=422, detail=str(error))
     if isinstance(error, ShopInsufficientBalance):
