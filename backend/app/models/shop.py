@@ -14,6 +14,21 @@ from sqlalchemy.sql import func
 from app.core.database import Base
 
 
+class ShopSettings(Base):
+    __tablename__ = "shop_settings"
+
+    id = Column(String(32), primary_key=True, default="default")
+    efc_price_uzs = Column(Numeric(18, 2), nullable=False)
+    ticket_price_efc = Column(Numeric(18, 2), nullable=False)
+    updated_by = Column(BigInteger, ForeignKey("users.telegram_id"), nullable=True)
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
 class ShopPurchase(Base):
     __tablename__ = "shop_purchases"
     __table_args__ = (

@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.routers.internal_wallet import require_internal_api_key
-from app.schemas.shop import BuyArenaTicketRequest, BuyEFCRequest
+from app.schemas.shop import BuyArenaTicketRequest, BuyEFCRequest, ShopSettingsUpdate
 from app.services.shop import (
     ShopIdempotencyConflict,
     ShopInsufficientBalance,
@@ -15,6 +15,9 @@ from app.services.shop import (
     buy_arena_tickets,
     buy_efc,
     catalog,
+    settings,
+    settings_result,
+    update_settings,
 )
 
 
@@ -55,6 +58,31 @@ def shop_catalog(telegram_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=422, detail="Telegram ID noto‘g‘ri")
     try:
         return {"success": True, "data": catalog(db, telegram_id)}
+    except Exception as error:
+        _raise_shop_error(error)
+
+
+@router.get("/admin/settings")
+def shop_admin_settings(db: Session = Depends(get_db)):
+    try:
+        return {"success": True, "data": settings_result(settings(db))}
+    except Exception as error:
+        _raise_shop_error(error)
+
+
+@router.put("/admin/settings")
+def shop_admin_update_settings(
+    data: ShopSettingsUpdate,
+    db: Session = Depends(get_db),
+):
+    try:
+        value = update_settings(
+            db,
+            admin_id=data.admin_id,
+            efc_price_uzs=data.efc_price_uzs,
+            ticket_price_efc=data.ticket_price_efc,
+        )
+        return {"success": True, "data": settings_result(value)}
     except Exception as error:
         _raise_shop_error(error)
 

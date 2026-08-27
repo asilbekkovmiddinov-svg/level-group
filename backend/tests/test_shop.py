@@ -5,17 +5,21 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.database import Base
 from app.models import *  # noqa: F401,F403 - register foreign keys
-from app.models.shop import ShopPurchase
+from app.models.shop import ShopPurchase, ShopSettings
 from app.models.transaction import Transaction
 from app.models.user import User
 from app.models.wallet import Wallet
 from app.models.wall_rush import GameTicketLedger, GameTicketWallet
+from app.routers.internal_shop import router as internal_shop_router
+from app.routers.internal_wallet import require_internal_api_key
 from app.services import shop
 from app.services.shop import (
     ShopIdempotencyConflict,
     ShopInsufficientBalance,
     buy_arena_tickets,
     buy_efc,
+    catalog,
+    update_settings,
 )
 
 
@@ -126,3 +130,63 @@ def test_insufficient_efc_does_not_add_ticket(db):
     assert db.get(Wallet, 42).efc_balance == 20
     assert db.get(GameTicketWallet, 42).tournament_tickets == 1
     assert db.query(GameTicketLedger).count() == 0
+
+
+def test_admin_prices_are_persisted_and_used_by_catalog(db):
+    value = update_settings(
+        db,
+        admin_id=42,
+        efc_price_uzs=750,
+        ticket_price_efc=7.5,
+    )
+    assert float(value.efc_price_uzs) == 750
+    assert float(value.ticket_price_efc) == 7.5
+    assert value.updated_by == 42
+    assert db.query(ShopSettings).count() == 1
+    data = catalog(db, 42)
+    assert data["efc_price_uzs"] == 750
+    assert data["ticket_price_efc"] == 7.5
+
+
+def test_every_shop_route_requires_internal_auth():
+    assert internal_shop_router.routes
+    for route in internal_shop_router.routes:
+        dependencies = {item.call for item in route.dependant.dependencies}
+        assert require_internal_api_key in dependencies
+
+
+def test_purchase_uses_admin_price_snapshot(db):
+    update_settings(
+        db,
+        admin_id=42,
+        efc_price_uzs=500,
+        ticket_price_efc=4,
+    )
+    efc = buy_efc(
+        db,
+        telegram_id=42,
+        efc_amount=10,
+        idempotency_key="admin-priced-efc",
+    )
+    assert efc["uzs_cost"] == 5000
+    purchase = db.get(ShopPurchase, efc["purchase_id"])
+    assert float(purchase.efc_price_uzs) == 500
+
+    update_settings(
+        db,
+        admin_id=42,
+        efc_price_uzs=900,
+        ticket_price_efc=4,
+    )
+    db.refresh(purchase)
+    assert float(purchase.efc_price_uzs) == 500
+
+    tickets = buy_arena_tickets(
+        db,
+        telegram_id=42,
+        quantity=2,
+        idempotency_key="admin-priced-tickets",
+    )
+    assert tickets["efc_cost"] == 8
+    ticket_purchase = db.get(ShopPurchase, tickets["purchase_id"])
+    assert float(ticket_purchase.ticket_price_efc) == 4

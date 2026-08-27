@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core import config
-from app.models.shop import ShopPurchase
+from app.models.shop import ShopPurchase, ShopSettings
 from app.models.transaction import Transaction
 from app.models.wallet import Wallet
 from app.models.wall_rush import GameTicketLedger, GameTicketWallet, TicketKind
@@ -92,14 +92,74 @@ def _verify_replay(
         raise ShopIdempotencyConflict("Idempotency key boshqa xarid uchun ishlatilgan")
 
 
+def settings(db: Session, *, lock: bool = False) -> ShopSettings:
+    query = select(ShopSettings).where(ShopSettings.id == "default")
+    if lock:
+        query = query.with_for_update()
+    value = db.execute(query).scalar_one_or_none()
+    if value is not None:
+        return value
+    value = ShopSettings(
+        id="default",
+        efc_price_uzs=config.SHOP_EFC_PRICE_UZS,
+        ticket_price_efc=config.SHOP_ARENA_TICKET_PRICE_EFC,
+    )
+    db.add(value)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        return db.execute(query).scalar_one()
+    db.refresh(value)
+    if lock:
+        return db.execute(query).scalar_one()
+    return value
+
+
+def update_settings(
+    db: Session,
+    *,
+    admin_id: int,
+    efc_price_uzs,
+    ticket_price_efc,
+) -> ShopSettings:
+    efc_price = _decimal(efc_price_uzs)
+    ticket_price = _decimal(ticket_price_efc)
+    if efc_price <= 0 or ticket_price <= 0:
+        raise ShopInvalidAmount("Magazin narxlari 0 dan katta bo‘lishi kerak")
+    if efc_price.as_tuple().exponent < -2 or ticket_price.as_tuple().exponent < -2:
+        raise ShopInvalidAmount("Magazin narxlari ko‘pi bilan 2 kasr xonali bo‘lishi mumkin")
+    value = settings(db, lock=True)
+    value.efc_price_uzs = efc_price
+    value.ticket_price_efc = ticket_price
+    value.updated_by = admin_id
+    try:
+        db.commit()
+    except SQLAlchemyError as error:
+        db.rollback()
+        raise ShopOperationFailed("Magazin narxlari saqlanmadi") from error
+    db.refresh(value)
+    return value
+
+
+def settings_result(value: ShopSettings) -> dict:
+    return {
+        "efc_price_uzs": float(value.efc_price_uzs),
+        "ticket_price_efc": float(value.ticket_price_efc),
+        "updated_by": value.updated_by,
+        "updated_at": value.updated_at,
+    }
+
+
 def catalog(db: Session, telegram_id: int) -> dict:
     wallet = db.get(Wallet, telegram_id)
     if wallet is None:
         raise ShopNotFound("Hamyon topilmadi")
     ticket_wallet = db.get(GameTicketWallet, telegram_id)
+    prices = settings(db)
     return {
-        "efc_price_uzs": float(config.SHOP_EFC_PRICE_UZS),
-        "ticket_price_efc": float(config.SHOP_ARENA_TICKET_PRICE_EFC),
+        "efc_price_uzs": float(prices.efc_price_uzs),
+        "ticket_price_efc": float(prices.ticket_price_efc),
         "max_efc_per_purchase": config.SHOP_MAX_EFC_PER_PURCHASE,
         "max_tickets_per_purchase": config.SHOP_MAX_TICKETS_PER_PURCHASE,
         "efc_balance": float(wallet.efc_balance),
@@ -131,8 +191,9 @@ def buy_efc(
         )
         return _result(db, existing)
 
-    cost = amount * config.SHOP_EFC_PRICE_UZS
     try:
+        prices = settings(db, lock=True)
+        cost = amount * _decimal(prices.efc_price_uzs)
         wallet = db.execute(
             select(Wallet)
             .where(Wallet.telegram_id == telegram_id)
@@ -153,7 +214,7 @@ def buy_efc(
             purchase_type="EFC",
             efc_amount=amount,
             uzs_cost=cost,
-            efc_price_uzs=config.SHOP_EFC_PRICE_UZS,
+            efc_price_uzs=prices.efc_price_uzs,
             status="COMPLETED",
         )
         db.add_all([
@@ -222,8 +283,9 @@ def buy_arena_tickets(
         )
         return _result(db, existing)
 
-    cost = config.SHOP_ARENA_TICKET_PRICE_EFC * quantity
     try:
+        prices = settings(db, lock=True)
+        cost = _decimal(prices.ticket_price_efc) * quantity
         wallet = db.execute(
             select(Wallet)
             .where(Wallet.telegram_id == telegram_id)
@@ -255,7 +317,7 @@ def buy_arena_tickets(
             purchase_type="ARENA_TICKET",
             ticket_quantity=quantity,
             efc_cost=cost,
-            ticket_price_efc=config.SHOP_ARENA_TICKET_PRICE_EFC,
+            ticket_price_efc=prices.ticket_price_efc,
             status="COMPLETED",
         )
         db.add_all([

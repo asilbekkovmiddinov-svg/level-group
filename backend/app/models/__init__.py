@@ -51,4 +51,4 @@ from .arena_v3 import (
     ArenaV4SettlementOperation,
 )
 
-from .shop import ShopPurchase
+from .shop import ShopPurchase, ShopSettings
