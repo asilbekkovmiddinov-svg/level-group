@@ -17,6 +17,17 @@ class ArenaV5ProfileUpdate(BaseModel):
         return normalized
 
 
+class ArenaV5PromocodeClaimRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    code: str = Field(min_length=1, max_length=32)
+
+
+class ArenaV5PromocodeClaimResponse(BaseModel):
+    code: str
+    ticket_amount: int
+    ticket_balance: int
+
+
 class ArenaV5ProfileResponse(BaseModel):
     telegram_id: int
     telegram_username: str | None

@@ -10,6 +10,8 @@ from app.schemas.arena_v5 import (
     ArenaV5HistoryItem,
     ArenaV5ProfileResponse,
     ArenaV5ProfileUpdate,
+    ArenaV5PromocodeClaimRequest,
+    ArenaV5PromocodeClaimResponse,
     ArenaV5QueueResponse,
     ArenaV5RankingResponse,
     ArenaV5RelayValidateRequest,
@@ -19,6 +21,7 @@ from app.schemas.arena_v5 import (
     ArenaV5SubmissionPrepareRequest,
     ArenaV5SubmissionResponse,
 )
+from app.services.arena_promocode import ArenaPromocodeService
 from app.services.arena_v3 import ArenaV3ServiceError
 from app.services.arena_v5 import ArenaV5Service
 from app.services.arena_v5_history import get_arena_v5_history
@@ -62,6 +65,17 @@ def arena_state(
     db: Session = Depends(get_db),
 ):
     return _call(lambda: ArenaV5Service(db).state(current_user.telegram_id))
+
+
+@router.post("/promocode/claim", response_model=ArenaV5PromocodeClaimResponse)
+def claim_promocode(
+    payload: ArenaV5PromocodeClaimRequest,
+    current_user: TelegramUser = Depends(get_current_telegram_user),
+    db: Session = Depends(get_db),
+):
+    return _call(lambda: ArenaPromocodeService(db).claim(
+        current_user.telegram_id, payload.code
+    ))
 
 
 @router.post("/queue", response_model=ArenaV5QueueResponse)
