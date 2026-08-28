@@ -23,6 +23,7 @@ from app.models.coin_credential import CoinOrderCredential
 from app.models.coin_order_message import CoinOrderMessage
 from app.models.coin_promotion import CoinPromotion
 from app.models.referral import Referral, ReferralProfile, ReferralReward
+from app.models.wall_rush import GameTicketLedger, GameTicketWallet
 from app.routers import order as order_router
 from app.routers import product as product_router
 from app.routers import internal_wallet
@@ -75,6 +76,8 @@ def client(monkeypatch):
             ReferralProfile.__table__,
             Referral.__table__,
             ReferralReward.__table__,
+            GameTicketWallet.__table__,
+            GameTicketLedger.__table__,
         ],
     )
     session_factory = sessionmaker(bind=engine)
@@ -315,6 +318,8 @@ def test_only_claimed_operator_can_finish_shop_order(client):
     )
     assert completed.status_code == 200
     assert completed.json()["data"]["status"] == "COMPLETED"
+    assert completed.json()["data"]["ticket_bonus_awarded"] == 13
+    assert completed.json()["data"]["ticket_balance"] == 13
 
 
 def test_idempotency_replay_never_regresses_lifecycle(client):

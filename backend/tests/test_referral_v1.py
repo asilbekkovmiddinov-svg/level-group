@@ -22,6 +22,7 @@ from app.models.referral import Referral, ReferralProfile, ReferralReward
 from app.models.transaction import Transaction
 from app.models.user import User
 from app.models.wallet import Wallet
+from app.models.wall_rush import GameTicketLedger, GameTicketWallet
 from app.schemas.user import InternalUserRegister
 from app.services.internal_users import register_internal_user
 from app.services.referrals import ensure_referral_profile, referral_summary
@@ -50,6 +51,8 @@ def session_factory():
             ReferralProfile.__table__,
             Referral.__table__,
             ReferralReward.__table__,
+            GameTicketWallet.__table__,
+            GameTicketLedger.__table__,
         ],
     )
     return sessionmaker(bind=engine)

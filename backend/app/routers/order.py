@@ -62,6 +62,8 @@ def order_response(order):
         ),
         "reject_reason": getattr(order, "reject_reason", None),
         "processing_seconds": getattr(order, "processing_seconds", None),
+        "ticket_bonus_awarded": getattr(order, "_ticket_bonus_awarded", None),
+        "ticket_balance": getattr(order, "_ticket_balance", None),
         "expires_at": str(order.expires_at) if getattr(order, "expires_at", None) else None,
         "cancelled_at": str(order.cancelled_at) if getattr(order, "cancelled_at", None) else None,
         "cancel_reason": getattr(order, "cancel_reason", None),
