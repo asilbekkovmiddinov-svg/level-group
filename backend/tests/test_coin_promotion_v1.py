@@ -27,6 +27,7 @@ from app.models.referral import Referral, ReferralProfile, ReferralReward
 from app.models.transaction import Transaction
 from app.models.user import User
 from app.models.wallet import Wallet
+from app.models.wall_rush import GameTicketLedger, GameTicketWallet
 from app.routers import internal_wallet
 from app.routers.order import router as order_router
 from app.routers.product import router as product_router
@@ -38,6 +39,7 @@ TABLES = [
     User.__table__, Wallet.__table__, Product.__table__, CoinPromotion.__table__,
     Order.__table__, Transaction.__table__, ReferralProfile.__table__, Referral.__table__,
     ReferralReward.__table__,
+    GameTicketWallet.__table__, GameTicketLedger.__table__,
 ]
 
 
