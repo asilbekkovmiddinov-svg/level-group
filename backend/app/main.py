@@ -38,6 +38,7 @@ from app.routers.arena_v3 import (
     internal_router as arena_v3_internal_router,
     router as arena_v3_router,
 )
+from app.routers.arena_finished_result_edit import router as arena_finished_result_edit_router
 from app.routers.internal_wallet import router as internal_wallet_router
 from app.routers.internal_shop import router as internal_shop_router
 from app.routers.miniapp_shop import (
@@ -177,6 +178,7 @@ app.include_router(arena_promocode_admin_router)
 app.include_router(arena_v3_router)
 app.include_router(arena_v3_internal_router)
 app.include_router(arena_v3_admin_router)
+app.include_router(arena_finished_result_edit_router)
 app.include_router(internal_wallet_router)
 app.include_router(internal_shop_router)
 app.include_router(miniapp_shop_router)
