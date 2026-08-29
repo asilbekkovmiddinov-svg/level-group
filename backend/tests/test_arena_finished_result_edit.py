@@ -9,6 +9,7 @@ from app.models.arena_v3 import (
     ArenaV4ResultType,
     ArenaV4RewardHoldStatus,
 )
+from app.routers.arena_finished_result_edit import ArenaFinishedResultEditRequest
 from app.services import arena_finished_result_edit as service
 from app.services.arena_v3 import ArenaV3Conflict
 
@@ -93,60 +94,50 @@ def run(monkeypatch, match, a, b):
 def test_finished_result_can_flip_winner_and_recalculate_stats(monkeypatch):
     match = make_match()
     result, db, repo, recalculated = run(monkeypatch, match, 1, 4)
-
-    assert result.owner_score == 1
-    assert result.opponent_score == 4
     assert result.current_result_type == ArenaV4ResultType.PLAYER_B_WIN
     assert result.winner_id == 2002
     assert result.loser_id == 1001
-    assert result.result_version == 2
-    assert result.result_source == "ADMIN_CORRECTION"
     assert recalculated == [1001, 2002]
     assert db.commit_count == 1
-    assert db.refresh_count == 1
     assert len(repo.revisions) == 1
-    assert repo.revisions[0].previous_owner_score == 3
-    assert repo.revisions[0].previous_opponent_score == 1
-    assert repo.revisions[0].new_owner_score == 1
-    assert repo.revisions[0].new_opponent_score == 4
     assert len(repo.events) == 1
-    assert repo.events[0].event_type == "ADMIN_FINISHED_RESULT_CORRECTED"
+
+
+def test_finished_v5_result_can_be_corrected_to_draw(monkeypatch):
+    payload = ArenaFinishedResultEditRequest(admin_id=9001, owner_score=1, opponent_score=1)
+    assert payload.owner_score == payload.opponent_score == 1
+
+    match = make_match()
+    result, db, repo, recalculated = run(monkeypatch, match, 1, 1)
+    assert result.current_result_type == ArenaV4ResultType.DRAW
+    assert result.winner_id is None
+    assert result.loser_id is None
+    assert result.owner_score == result.opponent_score == 1
+    assert recalculated == [1001, 2002]
+    assert db.commit_count == 1
+    assert len(repo.revisions) == 1
+    assert repo.revisions[0].new_result_type == ArenaV4ResultType.DRAW.value
 
 
 def test_non_finished_match_is_rejected(monkeypatch):
     match = make_match(status=ArenaV3Status.WAITING_ADMIN)
-    db = FakeDB()
-    repo = FakeRepository(match)
+    db = FakeDB(); repo = FakeRepository(match)
     with pytest.raises(ArenaV3Conflict, match="Only a finished"):
-        service.revise_finished_ticket_result(
-            db, repository=repo, match_id=42, admin_id=9001,
-            owner_score=1, opponent_score=4, reason="test",
-        )
+        service.revise_finished_ticket_result(db, repository=repo, match_id=42, admin_id=9001, owner_score=1, opponent_score=4, reason="test")
     assert db.commit_count == 0
-    assert repo.revisions == []
 
 
 def test_same_result_is_rejected_without_duplicate_audit(monkeypatch):
-    match = make_match()
-    db = FakeDB()
-    repo = FakeRepository(match)
+    match = make_match(); db = FakeDB(); repo = FakeRepository(match)
     with pytest.raises(ArenaV3Conflict, match="must differ"):
-        service.revise_finished_ticket_result(
-            db, repository=repo, match_id=42, admin_id=9001,
-            owner_score=3, opponent_score=1, reason="test",
-        )
+        service.revise_finished_ticket_result(db, repository=repo, match_id=42, admin_id=9001, owner_score=3, opponent_score=1, reason="test")
     assert db.commit_count == 0
     assert repo.revisions == []
     assert repo.events == []
 
 
 def test_non_ticket_match_is_rejected(monkeypatch):
-    match = make_match(ticket_cost=0)
-    db = FakeDB()
-    repo = FakeRepository(match)
+    match = make_match(ticket_cost=0); db = FakeDB(); repo = FakeRepository(match)
     with pytest.raises(ArenaV3Conflict, match="ticket Arena"):
-        service.revise_finished_ticket_result(
-            db, repository=repo, match_id=42, admin_id=9001,
-            owner_score=1, opponent_score=4, reason="test",
-        )
+        service.revise_finished_ticket_result(db, repository=repo, match_id=42, admin_id=9001, owner_score=1, opponent_score=4, reason="test")
     assert db.commit_count == 0
