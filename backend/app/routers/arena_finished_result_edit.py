@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Depends
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.orm import Session
 
 from app.core.arena_internal_auth import require_arena_internal_api_key
@@ -8,7 +8,6 @@ from app.repositories.arena_v3 import ArenaV3Repository
 from app.schemas.arena_v3 import ArenaV3MatchResponse
 from app.services.arena_finished_result_edit import revise_finished_ticket_result
 from app.services.arena_v3 import ArenaV3ServiceError
-from fastapi import HTTPException
 
 
 router = APIRouter(prefix="/internal/arena", tags=["Arena Finished Result Edit"])
@@ -22,14 +21,13 @@ class ArenaFinishedResultEditRequest(BaseModel):
     opponent_score: int = Field(ge=0, le=99)
     reason: str = Field(default="ADMIN_FINISHED_RESULT_CORRECTION", min_length=1, max_length=500)
 
-    @model_validator(mode="after")
-    def reject_draw(self):
-        if self.owner_score == self.opponent_score:
-            raise ValueError("Equal scores are not allowed; penalty shootout is mandatory")
-        self.reason = self.reason.strip()
-        if not self.reason:
+    @field_validator("reason")
+    @classmethod
+    def validate_reason(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
             raise ValueError("Correction reason is required")
-        return self
+        return value
 
 
 @router.post(
