@@ -58,3 +58,4 @@ from .arena_v3 import (
 )
 
 from .shop import ShopPurchase, ShopSettings
+from .subscription_channel import SubscriptionChannel
