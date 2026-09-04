@@ -78,6 +78,22 @@ ARENA_TIMEOUT_INTERVAL_SECONDS = float(os.getenv("ARENA_TIMEOUT_INTERVAL_SECONDS
 PENALTY_DUEL_TIMEOUT_INTERVAL_SECONDS = float(
     os.getenv("PENALTY_DUEL_TIMEOUT_INTERVAL_SECONDS", "5")
 )
+TOURNAMENT_WORKER_INTERVAL_SECONDS = float(
+    os.getenv("TOURNAMENT_WORKER_INTERVAL_SECONDS", "60")
+)
+TOURNAMENT_TIMEZONE = os.getenv("TOURNAMENT_TIMEZONE", "Asia/Tashkent").strip()
+TOURNAMENT_DAILY_NOTIFICATION_HOUR = int(
+    os.getenv("TOURNAMENT_DAILY_NOTIFICATION_HOUR", "9")
+)
+TOURNAMENT_DELIVERY_BATCH_SIZE = int(
+    os.getenv("TOURNAMENT_DELIVERY_BATCH_SIZE", "100")
+)
+TOURNAMENT_DELIVERY_CLAIM_TTL_SECONDS = int(
+    os.getenv("TOURNAMENT_DELIVERY_CLAIM_TTL_SECONDS", "300")
+)
+TOURNAMENT_DELIVERY_MAX_ATTEMPTS = int(
+    os.getenv("TOURNAMENT_DELIVERY_MAX_ATTEMPTS", "3")
+)
 
 def _env_bool(name: str, default: bool = False) -> bool:
     value = os.getenv(name)
@@ -87,6 +103,13 @@ def _env_bool(name: str, default: bool = False) -> bool:
     if normalized not in {"1", "0", "true", "false", "yes", "no", "on", "off"}:
         raise ValueError(f"{name} must be a boolean")
     return normalized in {"1", "true", "yes", "on"}
+
+
+TOURNAMENT_WORKER_ENABLED = _env_bool("TOURNAMENT_WORKER_ENABLED", True)
+if not 0 <= TOURNAMENT_DAILY_NOTIFICATION_HOUR <= 23:
+    raise ValueError("TOURNAMENT_DAILY_NOTIFICATION_HOUR must be between 0 and 23")
+if TOURNAMENT_WORKER_INTERVAL_SECONDS <= 0:
+    raise ValueError("TOURNAMENT_WORKER_INTERVAL_SECONDS must be positive")
 
 
 # Temporary launch gate. Keep disabled by default until referrals reopen.

@@ -19,6 +19,7 @@ from app.core.config import COIN_PROMOTION_ORDER_TIMEOUT_SECONDS
 from app.schemas.product import ProductType
 from app.services.coin_package_admin import item_type
 from app.services.coin_order_ticket_bonus import award_coin_order_ticket_bonus
+from app.services.tournament import TournamentService
 
 
 logger = logging.getLogger(__name__)
@@ -222,6 +223,7 @@ def approve_order(db: Session, order_id: int, admin_id: int):
         confirm_locked(db, order.promotion_id)
         award_first_shop_bonus(db, order.telegram_id)
         ticket_bonus = award_coin_order_ticket_bonus(db, order)
+        tournament_registrations = TournamentService(db).auto_register_coin_purchase(order)
         if order.claimed_at:
             claimed_at = order.claimed_at if order.claimed_at.tzinfo else order.claimed_at.replace(tzinfo=timezone.utc)
             order.processing_seconds = int((now - claimed_at).total_seconds())
@@ -232,6 +234,9 @@ def approve_order(db: Session, order_id: int, admin_id: int):
     db.refresh(order)
     order._ticket_bonus_awarded = ticket_bonus.amount
     order._ticket_balance = ticket_bonus.ticket_balance
+    order._tournament_registration_ids = [
+        participant.tournament_id for participant in tournament_registrations
+    ]
     return order
 
 

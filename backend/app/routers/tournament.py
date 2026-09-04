@@ -4,7 +4,11 @@ from sqlalchemy.orm import Session
 from app.core.admin_auth import require_promotions_admin
 from app.core.database import get_db
 from app.core.telegram_auth import TelegramUser, get_current_telegram_user
-from app.models.tournament import TournamentMatchStatus, TournamentParticipantStatus
+from app.models.tournament import (
+    TournamentMatchStatus,
+    TournamentParticipantStatus,
+    TournamentStatus,
+)
 from app.schemas.tournament import (
     TournamentApplicationDecision,
     TournamentCreate,
@@ -33,20 +37,12 @@ def tournament_call(callback):
         raise HTTPException(status_code=exc.status_code, detail=str(exc))
 
 
-@router.get("/current", response_model=TournamentOverviewResponse)
-def current(
-    current_user: TelegramUser = Depends(get_current_telegram_user),
-    db: Session = Depends(get_db),
-):
-    service = TournamentService(db)
-    tournament = service.current()
+def tournament_overview(service, tournament, telegram_id: int):
     if tournament is None:
         return {
             "tournament": None,
             "participant": None,
-            "tournament_tickets": service.ticket_balance(
-                current_user.telegram_id
-            ),
+            "tournament_tickets": service.ticket_balance(telegram_id),
             "participant_count": 0,
             "match_count": 0,
             "current_round": 0,
@@ -58,14 +54,9 @@ def current(
     participant_count = service.participant_count(tournament.id)
     match_count = service.match_count(tournament.id)
     current_round = service.current_round(tournament.id)
-    visible_matches = service.matches(
-        tournament.id,
-        limit=100,
-    )
+    visible_matches = service.matches(tournament.id, limit=100)
     my_matches = service.matches(
-        tournament.id,
-        player_id=current_user.telegram_id,
-        limit=20,
+        tournament.id, player_id=telegram_id, limit=20
     )
     matches_by_id = {match.id: match for match in visible_matches}
     matches_by_id.update({match.id: match for match in my_matches})
@@ -85,8 +76,8 @@ def current(
     })
     return {
         "tournament": tournament,
-        "participant": service.participant(tournament.id, current_user.telegram_id),
-        "tournament_tickets": service.ticket_balance(current_user.telegram_id),
+        "participant": service.participant(tournament.id, telegram_id),
+        "tournament_tickets": service.ticket_balance(telegram_id),
         "participant_count": participant_count,
         "match_count": match_count,
         "current_round": current_round,
@@ -100,6 +91,42 @@ def current(
         "participants": list(participants_by_id.values()),
         "matches": visible_matches,
     }
+
+
+@router.get("/current", response_model=TournamentOverviewResponse)
+def current(
+    current_user: TelegramUser = Depends(get_current_telegram_user),
+    db: Session = Depends(get_db),
+):
+    service = TournamentService(db)
+    return tournament_overview(
+        service, service.current(), current_user.telegram_id
+    )
+
+
+@router.get("", response_model=list[TournamentResponse])
+def list_tournaments(
+    status: list[TournamentStatus] | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    _current_user: TelegramUser = Depends(get_current_telegram_user),
+    db: Session = Depends(get_db),
+):
+    return TournamentService(db).list_tournaments(
+        statuses=set(status or []), limit=limit, offset=offset
+    )
+
+
+@router.get("/{tournament_id}", response_model=TournamentOverviewResponse)
+def overview(
+    tournament_id: int,
+    current_user: TelegramUser = Depends(get_current_telegram_user),
+    db: Session = Depends(get_db),
+):
+    service = TournamentService(db)
+    return tournament_call(lambda: tournament_overview(
+        service, service.require(tournament_id), current_user.telegram_id
+    ))
 
 
 @router.post(
@@ -151,6 +178,19 @@ def create(
 ):
     return tournament_call(
         lambda: TournamentService(db).create(payload, admin.telegram_id)
+    )
+
+
+@admin_router.get("", response_model=list[TournamentResponse])
+def admin_list_tournaments(
+    status: list[TournamentStatus] | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    _admin: TelegramUser = Depends(require_promotions_admin),
+    db: Session = Depends(get_db),
+):
+    return TournamentService(db).list_tournaments(
+        statuses=set(status or []), limit=limit, offset=offset
     )
 
 

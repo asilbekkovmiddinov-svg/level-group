@@ -4,6 +4,7 @@ from sqlalchemy.engine import Connection, Engine
 from app.models.tournament import (
     MAX_TOURNAMENT_PARTICIPANTS,
     Tournament,
+    TournamentDailyDelivery,
     TournamentMatch,
     TournamentParticipant,
 )
@@ -13,6 +14,7 @@ TOURNAMENT_TABLES = (
     Tournament.__table__,
     TournamentParticipant.__table__,
     TournamentMatch.__table__,
+    TournamentDailyDelivery.__table__,
 )
 
 
@@ -64,11 +66,18 @@ def run_tournament_migrations(bind: Engine | Connection) -> None:
             tournament_additions = {
                 "group_size": "INTEGER",
                 "group_mode": "VARCHAR(16)",
+                "entry_mode": "VARCHAR(32) NOT NULL DEFAULT 'TICKET'",
+                "minimum_coin_purchase": "INTEGER NOT NULL DEFAULT 300",
+                "duration_days": "INTEGER NOT NULL DEFAULT 7",
+                "auto_start_when_full": "BOOLEAN NOT NULL DEFAULT FALSE",
+                "announcement_channel_id": "VARCHAR(128)",
             }
             participant_additions = {
                 "entry_ticket_state": "VARCHAR(16)",
                 "goals_for": "INTEGER NOT NULL DEFAULT 0",
                 "goals_against": "INTEGER NOT NULL DEFAULT 0",
+                "qualification_order_id": "INTEGER",
+                "qualification_coin_amount": "INTEGER",
             }
             for name, definition in tournament_additions.items():
                 if name not in tournament_columns:
@@ -87,6 +96,14 @@ def run_tournament_migrations(bind: Engine | Connection) -> None:
                 "ELSE 4 END, group_mode = COALESCE(group_mode, 'POINTS') "
                 "WHERE format = 'GROUP_PLAYOFF' AND group_size IS NULL"
             ))
+            if bind.dialect.name == "postgresql":
+                connection.execute(text(
+                    "UPDATE tournaments SET duration_days = CASE "
+                    "WHEN starts_at IS NOT NULL AND ends_at IS NOT NULL "
+                    "THEN GREATEST(1, LEAST(365, "
+                    "CAST(EXTRACT(EPOCH FROM (ends_at - starts_at)) / 86400 AS INTEGER))) "
+                    "ELSE 7 END WHERE duration_days IS NULL"
+                ))
             if requires_ticket_upgrade:
                 connection.execute(
                     text(
@@ -117,8 +134,22 @@ def run_tournament_migrations(bind: Engine | Connection) -> None:
                 )
             if bind.dialect.name == "postgresql":
                 connection.execute(text(
+                    "ALTER TABLE tournaments ALTER COLUMN starts_at DROP NOT NULL"
+                ))
+                connection.execute(text(
+                    "ALTER TABLE tournaments ALTER COLUMN ends_at DROP NOT NULL"
+                ))
+                connection.execute(text(
                     "ALTER TABLE tournaments DROP CONSTRAINT IF EXISTS "
                     "ck_tournament_format_settings"
+                ))
+                connection.execute(text(
+                    "CREATE INDEX IF NOT EXISTS ix_tournament_entry_mode "
+                    "ON tournaments (entry_mode)"
+                ))
+                connection.execute(text(
+                    "CREATE INDEX IF NOT EXISTS ix_tournament_participant_qualification_order "
+                    "ON tournament_participants (qualification_order_id)"
                 ))
                 connection.execute(text(
                     "ALTER TABLE tournaments ADD CONSTRAINT "

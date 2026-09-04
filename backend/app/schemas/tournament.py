@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.models.tournament import (
     MAX_TOURNAMENT_PARTICIPANTS,
+    TournamentEntryMode,
     TournamentFormat,
     TournamentGroupMode,
     TournamentMatchStatus,
@@ -18,17 +19,36 @@ class TournamentCreate(BaseModel):
     format: TournamentFormat = TournamentFormat.GROUP_PLAYOFF
     max_participants: int = Field(ge=4, le=MAX_TOURNAMENT_PARTICIPANTS)
     ticket_cost: int = Field(ge=0, le=1_000_000)
+    entry_mode: TournamentEntryMode = TournamentEntryMode.TICKET
+    minimum_coin_purchase: int = Field(default=300, ge=300, le=1_000_000)
+    duration_days: int = Field(default=7, ge=1, le=365)
+    auto_start_when_full: bool = False
+    announcement_channel_id: str | None = Field(default=None, max_length=128)
     group_count: int | None = Field(default=None, ge=1, le=2048)
     group_size: Literal[4, 8] | None = None
     group_mode: TournamentGroupMode | None = None
     qualifiers_per_group: int | None = Field(default=None, ge=1, le=4)
     registration_opens_at: datetime
     registration_closes_at: datetime
-    starts_at: datetime
-    ends_at: datetime
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
 
     @model_validator(mode="after")
     def validate_format_settings(self):
+        channel = (self.announcement_channel_id or "").strip()
+        if channel and not (
+            channel.startswith("@")
+            or channel.removeprefix("-").isdigit()
+        ):
+            raise ValueError("Channel must be a numeric chat ID or @username")
+        self.announcement_channel_id = channel or None
+        if (self.starts_at is None) != (self.ends_at is None):
+            raise ValueError("Tournament start and end must be provided together")
+        if self.starts_at is not None and self.ends_at is not None:
+            if self.starts_at >= self.ends_at:
+                raise ValueError("Tournament end must be after its start")
+        if self.entry_mode == TournamentEntryMode.COIN_PURCHASE:
+            self.auto_start_when_full = True
         if self.format == TournamentFormat.SINGLE_ELIMINATION:
             if any(value is not None for value in (
                 self.group_count,
@@ -62,14 +82,19 @@ class TournamentResponse(BaseModel):
     status: TournamentStatus
     max_participants: int
     ticket_cost: int
+    entry_mode: TournamentEntryMode
+    minimum_coin_purchase: int
+    duration_days: int
+    auto_start_when_full: bool
+    announcement_channel_id: str | None
     group_count: int | None
     group_size: int | None
     group_mode: TournamentGroupMode | None
     qualifiers_per_group: int | None
     registration_opens_at: datetime
     registration_closes_at: datetime
-    starts_at: datetime
-    ends_at: datetime
+    starts_at: datetime | None
+    ends_at: datetime | None
 
 
 class TournamentParticipantResponse(BaseModel):
@@ -82,6 +107,8 @@ class TournamentParticipantResponse(BaseModel):
     seed: int | None
     group_name: str | None
     entry_ticket_state: str | None
+    qualification_order_id: int | None
+    qualification_coin_amount: int | None
     played: int
     wins: int
     losses: int
