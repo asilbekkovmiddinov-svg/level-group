@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import uuid4
 
@@ -12,6 +12,7 @@ from app.models.arena_v3 import (
 )
 from app.models.tournament import (
     Tournament,
+    TournamentEntryMode,
     TournamentFormat,
     TournamentGroupMode,
     TournamentMatch,
@@ -61,8 +62,28 @@ class TournamentService:
                     ]
                 )
             )
-            .order_by(Tournament.id.desc())
+            .order_by(
+                (Tournament.status == TournamentStatus.ACTIVE).desc(),
+                Tournament.id.desc(),
+            )
             .first()
+        )
+
+    def list_tournaments(
+        self,
+        *,
+        statuses: set[TournamentStatus] | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[Tournament]:
+        query = self.db.query(Tournament)
+        if statuses:
+            query = query.filter(Tournament.status.in_(statuses))
+        return (
+            query.order_by(Tournament.created_at.desc(), Tournament.id.desc())
+            .offset(offset)
+            .limit(limit)
+            .all()
         )
 
     def require(self, tournament_id: int) -> Tournament:
@@ -74,9 +95,13 @@ class TournamentService:
     def create(self, payload: TournamentCreate, admin_id: int) -> Tournament:
         registration_opens_at = as_utc(payload.registration_opens_at)
         registration_closes_at = as_utc(payload.registration_closes_at)
-        starts_at = as_utc(payload.starts_at)
-        ends_at = as_utc(payload.ends_at)
-        if not registration_opens_at < registration_closes_at <= starts_at < ends_at:
+        starts_at = as_utc(payload.starts_at) if payload.starts_at else None
+        ends_at = as_utc(payload.ends_at) if payload.ends_at else None
+        if not registration_opens_at < registration_closes_at:
+            raise TournamentServiceError(422, "Tournament dates are invalid")
+        if starts_at is not None and not (
+            registration_closes_at <= starts_at < ends_at
+        ):
             raise TournamentServiceError(422, "Tournament dates are invalid")
         tournament = Tournament(
             name=payload.name.strip(),
@@ -84,6 +109,11 @@ class TournamentService:
             status=TournamentStatus.REGISTRATION,
             max_participants=payload.max_participants,
             ticket_cost=payload.ticket_cost,
+            entry_mode=payload.entry_mode,
+            minimum_coin_purchase=payload.minimum_coin_purchase,
+            duration_days=payload.duration_days,
+            auto_start_when_full=payload.auto_start_when_full,
+            announcement_channel_id=payload.announcement_channel_id,
             group_count=payload.group_count,
             group_size=payload.group_size,
             group_mode=payload.group_mode,
@@ -113,6 +143,12 @@ class TournamentService:
         now = utc_now()
         if tournament.status != TournamentStatus.REGISTRATION:
             raise TournamentServiceError(409, "Tournament registration is closed")
+        if tournament.entry_mode == TournamentEntryMode.COIN_PURCHASE:
+            raise TournamentServiceError(
+                409,
+                f"Bu turnirga bitta xaridda kamida "
+                f"{tournament.minimum_coin_purchase} coin olish orqali avtomatik qo‘shilasiz",
+            )
         if not (
             as_utc(tournament.registration_opens_at)
             <= now
@@ -316,7 +352,14 @@ class TournamentService:
         return label
 
     def start(self, tournament_id: int, admin_id: int | None = None) -> Tournament:
-        tournament = self.require(tournament_id)
+        tournament = (
+            self.db.query(Tournament)
+            .filter(Tournament.id == tournament_id)
+            .with_for_update()
+            .one_or_none()
+        )
+        if tournament is None:
+            raise TournamentServiceError(404, "Tournament not found")
         if tournament.status == TournamentStatus.ACTIVE:
             return tournament
         if tournament.status != TournamentStatus.REGISTRATION:
@@ -335,6 +378,17 @@ class TournamentService:
                 409,
                 f"Turnir boshlanishi uchun {tournament.max_participants} ta joy to‘lishi kerak",
             )
+        self._activate(tournament, approved_rows, utc_now())
+        self.db.commit()
+        self.db.refresh(tournament)
+        return tournament
+
+    def _activate(
+        self,
+        tournament: Tournament,
+        approved_rows: list[TournamentParticipant],
+        started_at: datetime,
+    ) -> None:
         if tournament.format == TournamentFormat.GROUP_PLAYOFF:
             if tournament.group_size not in {4, 8} or tournament.group_mode is None:
                 raise TournamentServiceError(409, "Tournament group settings are missing")
@@ -342,9 +396,118 @@ class TournamentService:
                 participant.seed = index + 1
                 participant.group_name = self._group_label(index // tournament.group_size)
         tournament.status = TournamentStatus.ACTIVE
-        self.db.commit()
-        self.db.refresh(tournament)
-        return tournament
+        tournament.starts_at = started_at
+        tournament.ends_at = started_at + timedelta(days=tournament.duration_days)
+        tournament.updated_at = started_at
+
+    def auto_register_coin_purchase(self, order) -> list[TournamentParticipant]:
+        """Register one completed qualifying order in every open purchase tournament.
+
+        The caller owns the transaction, so the ticket bonus and registrations are
+        committed atomically. A purchase can qualify several concurrently open
+        tournaments, while the per-tournament unique key prevents duplicate entry.
+        """
+        if (
+            str(getattr(order, "product_type", "")).upper() != "COIN"
+            or int(getattr(order, "coins_amount", 0) or 0) < 300
+        ):
+            return []
+        now = utc_now()
+        ids = [
+            row[0]
+            for row in self.db.query(Tournament.id)
+            .filter(
+                Tournament.status == TournamentStatus.REGISTRATION,
+                Tournament.entry_mode == TournamentEntryMode.COIN_PURCHASE,
+                Tournament.registration_opens_at <= now,
+                Tournament.registration_closes_at >= now,
+                Tournament.minimum_coin_purchase <= int(order.coins_amount),
+            )
+            .order_by(Tournament.id)
+            .all()
+        ]
+        registrations: list[TournamentParticipant] = []
+        for tournament_id in ids:
+            tournament = (
+                self.db.query(Tournament)
+                .filter(Tournament.id == tournament_id)
+                .with_for_update()
+                .one()
+            )
+            existing = self.participant(tournament.id, order.telegram_id)
+            if existing is not None:
+                continue
+            approved_rows = (
+                self.db.query(TournamentParticipant)
+                .filter(
+                    TournamentParticipant.tournament_id == tournament.id,
+                    TournamentParticipant.status == TournamentParticipantStatus.APPROVED,
+                )
+                .order_by(TournamentParticipant.applied_at, TournamentParticipant.id)
+                .all()
+            )
+            if len(approved_rows) >= tournament.max_participants:
+                continue
+            participant = TournamentParticipant(
+                tournament_id=tournament.id,
+                telegram_id=order.telegram_id,
+                status=TournamentParticipantStatus.APPROVED,
+                entry_ticket_state="COIN_PURCHASE",
+                qualification_order_id=order.id,
+                qualification_coin_amount=int(order.coins_amount),
+                reviewed_at=now,
+            )
+            self.db.add(participant)
+            self.db.flush()
+            registrations.append(participant)
+            approved_rows.append(participant)
+            if (
+                tournament.auto_start_when_full
+                and len(approved_rows) == tournament.max_participants
+            ):
+                self._activate(tournament, approved_rows, now)
+        return registrations
+
+    def finish_due(self, now: datetime | None = None) -> list[Tournament]:
+        value = as_utc(now or utc_now())
+        tournaments = (
+            self.db.query(Tournament)
+            .filter(
+                Tournament.status == TournamentStatus.ACTIVE,
+                Tournament.ends_at.is_not(None),
+                Tournament.ends_at <= value,
+            )
+            .with_for_update(skip_locked=True)
+            .all()
+        )
+        for tournament in tournaments:
+            tournament.status = TournamentStatus.FINISHED
+            tournament.updated_at = value
+        if tournaments:
+            self.db.commit()
+        return tournaments
+
+    def standings(self, tournament_id: int) -> list[TournamentParticipant]:
+        self.require(tournament_id)
+        return (
+            self.db.query(TournamentParticipant)
+            .filter(
+                TournamentParticipant.tournament_id == tournament_id,
+                TournamentParticipant.status.in_([
+                    TournamentParticipantStatus.APPROVED,
+                    TournamentParticipantStatus.ELIMINATED,
+                ]),
+            )
+            .order_by(
+                TournamentParticipant.points.desc(),
+                TournamentParticipant.wins.desc(),
+                (TournamentParticipant.goals_for - TournamentParticipant.goals_against).desc(),
+                TournamentParticipant.goals_for.desc(),
+                TournamentParticipant.played.asc(),
+                TournamentParticipant.applied_at.asc(),
+            )
+            .all()
+        )
     def schedule_match(
         self,
         tournament_id: int,
@@ -360,6 +523,8 @@ class TournamentService:
         if payload.player_a_id == payload.player_b_id:
             raise TournamentServiceError(422, "Players must be different")
         scheduled_at = as_utc(payload.scheduled_at)
+        if tournament.starts_at is None or tournament.ends_at is None:
+            raise TournamentServiceError(409, "Tournament has not started yet")
         if not as_utc(tournament.starts_at) <= scheduled_at <= as_utc(tournament.ends_at):
             raise TournamentServiceError(422, "Match must be inside tournament dates")
         participants = (
@@ -437,6 +602,8 @@ class TournamentService:
         }:
             raise TournamentServiceError(409, "Started match cannot be rescheduled")
         value = as_utc(scheduled_at)
+        if tournament.starts_at is None or tournament.ends_at is None:
+            raise TournamentServiceError(409, "Tournament has not started yet")
         if not as_utc(tournament.starts_at) <= value <= as_utc(tournament.ends_at):
             raise TournamentServiceError(422, "Match must be inside tournament dates")
         match.scheduled_at = value

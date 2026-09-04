@@ -33,7 +33,12 @@ from .division import (
     DivisionSeason,
     DivisionTicketLedger,
 )
-from .tournament import Tournament, TournamentMatch, TournamentParticipant
+from .tournament import (
+    Tournament,
+    TournamentDailyDelivery,
+    TournamentMatch,
+    TournamentParticipant,
+)
 from .arena_promocode import ArenaTicketPromocode, ArenaTicketPromocodeClaim
 
 from .arena_v3 import (

@@ -3,8 +3,10 @@ from enum import Enum
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     Column,
+    Date,
     DateTime,
     Enum as SQLEnum,
     ForeignKey,
@@ -44,6 +46,11 @@ class TournamentStatus(str, Enum):
     CANCELLED = "CANCELLED"
 
 
+class TournamentEntryMode(str, Enum):
+    TICKET = "TICKET"
+    COIN_PURCHASE = "COIN_PURCHASE"
+
+
 class TournamentParticipantStatus(str, Enum):
     PENDING = "PENDING"
     APPROVED = "APPROVED"
@@ -72,6 +79,14 @@ class Tournament(Base):
             name="ck_tournament_ticket_cost",
         ),
         CheckConstraint(
+            "duration_days BETWEEN 1 AND 365",
+            name="ck_tournament_duration_days",
+        ),
+        CheckConstraint(
+            "minimum_coin_purchase >= 1",
+            name="ck_tournament_minimum_coin_purchase",
+        ),
+        CheckConstraint(
             "(format = 'SINGLE_ELIMINATION' AND group_count IS NULL "
             "AND qualifiers_per_group IS NULL AND group_size IS NULL "
             "AND group_mode IS NULL) OR "
@@ -94,14 +109,24 @@ class Tournament(Base):
     )
     max_participants = Column(Integer, nullable=False)
     ticket_cost = Column(Integer, nullable=False, default=TOURNAMENT_TICKET_COST)
+    entry_mode = Column(
+        SQLEnum(TournamentEntryMode, native_enum=False),
+        nullable=False,
+        default=TournamentEntryMode.TICKET,
+        index=True,
+    )
+    minimum_coin_purchase = Column(Integer, nullable=False, default=300)
+    duration_days = Column(Integer, nullable=False, default=7)
+    auto_start_when_full = Column(Boolean, nullable=False, default=False)
+    announcement_channel_id = Column(String(128))
     group_count = Column(Integer)
     group_size = Column(Integer)
     group_mode = Column(SQLEnum(TournamentGroupMode, native_enum=False))
     qualifiers_per_group = Column(Integer)
     registration_opens_at = Column(DateTime(timezone=True), nullable=False)
     registration_closes_at = Column(DateTime(timezone=True), nullable=False)
-    starts_at = Column(DateTime(timezone=True), nullable=False)
-    ends_at = Column(DateTime(timezone=True), nullable=False)
+    starts_at = Column(DateTime(timezone=True))
+    ends_at = Column(DateTime(timezone=True))
     created_by = Column(BigInteger, nullable=False)
     created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
     updated_at = Column(
@@ -141,6 +166,10 @@ class TournamentParticipant(Base):
     seed = Column(Integer)
     group_name = Column(String(16))
     entry_ticket_state = Column(String(16))
+    qualification_order_id = Column(
+        Integer, ForeignKey("orders.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    qualification_coin_amount = Column(Integer)
     played = Column(Integer, nullable=False, default=0)
     wins = Column(Integer, nullable=False, default=0)
     losses = Column(Integer, nullable=False, default=0)
@@ -220,3 +249,32 @@ class TournamentMatch(Base):
     updated_at = Column(
         DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now
     )
+
+
+class TournamentDailyDelivery(Base):
+    __tablename__ = "tournament_daily_deliveries"
+    __table_args__ = (
+        UniqueConstraint(
+            "tournament_id",
+            "delivery_date",
+            "recipient_kind",
+            "recipient_id",
+            name="uq_tournament_daily_delivery",
+        ),
+        Index("ix_tournament_daily_delivery_queue", "status", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    tournament_id = Column(
+        Integer, ForeignKey("tournaments.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    delivery_date = Column(Date, nullable=False)
+    recipient_kind = Column(String(16), nullable=False)
+    recipient_id = Column(String(128), nullable=False)
+    status = Column(String(16), nullable=False, default="PENDING", index=True)
+    attempts = Column(Integer, nullable=False, default=0)
+    last_attempt_at = Column(DateTime(timezone=True))
+    sent_at = Column(DateTime(timezone=True))
+    message_id = Column(String(64))
+    last_error = Column(String(120))
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)

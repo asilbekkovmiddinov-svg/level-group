@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
@@ -11,6 +12,8 @@ from app.core.tournament_migrations import run_tournament_migrations
 from app.models.arena_v3 import ArenaV3Match
 from app.models.tournament import (
     Tournament,
+    TournamentDailyDelivery,
+    TournamentEntryMode,
     TournamentFormat,
     TournamentGroupMode,
     TournamentMatch,
@@ -47,6 +50,7 @@ def build():
             Tournament.__table__,
             TournamentParticipant.__table__,
             TournamentMatch.__table__,
+            TournamentDailyDelivery.__table__,
         ],
     )
     sessions = sessionmaker(bind=engine)
@@ -70,17 +74,25 @@ def build():
 
 def payload(
     *,
+    name="Simple LEVEL Cup",
     mode=TournamentGroupMode.POINTS,
     max_participants=8,
     group_size=4,
     ticket_cost=7,
+    entry_mode=TournamentEntryMode.TICKET,
+    duration_days=7,
+    announcement_channel_id=None,
 ):
     now = datetime.now(timezone.utc)
     return TournamentCreate(
-        name="Simple LEVEL Cup",
+        name=name,
         format=TournamentFormat.GROUP_PLAYOFF,
         max_participants=max_participants,
         ticket_cost=ticket_cost,
+        entry_mode=entry_mode,
+        minimum_coin_purchase=300,
+        duration_days=duration_days,
+        announcement_channel_id=announcement_channel_id,
         group_size=group_size,
         group_mode=mode,
         qualifiers_per_group=2,
@@ -235,6 +247,97 @@ def test_start_requires_all_places_and_assigns_four_player_groups():
         assert started.status == TournamentStatus.ACTIVE
         assert [row.group_name for row in participants] == ["A"] * 4 + ["B"] * 4
         assert [row.seed for row in participants] == list(range(1, 9))
+    finally:
+        db.close()
+        engine.dispose()
+
+
+def test_single_300_coin_purchase_registers_and_auto_starts_when_full():
+    db, engine = build()
+    try:
+        service = TournamentService(db)
+        tournament = service.create(payload(
+            max_participants=4,
+            group_size=4,
+            ticket_cost=2,
+            entry_mode=TournamentEntryMode.COIN_PURCHASE,
+            duration_days=12,
+        ), 9001)
+        assert tournament.starts_at is None
+        assert tournament.ends_at is None
+
+        for index, telegram_id in enumerate(PLAYER_IDS[:4], start=1):
+            rows = service.auto_register_coin_purchase(SimpleNamespace(
+                id=1000 + index,
+                telegram_id=telegram_id,
+                product_type="COIN",
+                coins_amount=300,
+            ))
+            assert len(rows) == 1
+
+        db.commit()
+        db.refresh(tournament)
+        assert tournament.status == TournamentStatus.ACTIVE
+        assert tournament.starts_at is not None
+        assert tournament.ends_at - tournament.starts_at == timedelta(days=12)
+        participants = service.public_participants(tournament.id)
+        assert len(participants) == 4
+        assert {row.entry_ticket_state for row in participants} == {"COIN_PURCHASE"}
+        assert {row.qualification_coin_amount for row in participants} == {300}
+        assert all(db.get(GameTicketWallet, row.telegram_id).tournament_tickets == 50
+                   for row in participants)
+    finally:
+        db.close()
+        engine.dispose()
+
+
+def test_small_or_split_coin_purchases_do_not_qualify_and_duplicate_is_ignored():
+    db, engine = build()
+    try:
+        service = TournamentService(db)
+        tournament = service.create(payload(
+            max_participants=4,
+            group_size=4,
+            entry_mode=TournamentEntryMode.COIN_PURCHASE,
+        ), 9001)
+        for order_id, amount in ((1, 150), (2, 150)):
+            assert service.auto_register_coin_purchase(SimpleNamespace(
+                id=order_id, telegram_id=101, product_type="COIN", coins_amount=amount,
+            )) == []
+        first = service.auto_register_coin_purchase(SimpleNamespace(
+            id=3, telegram_id=101, product_type="COIN", coins_amount=300,
+        ))
+        repeated = service.auto_register_coin_purchase(SimpleNamespace(
+            id=4, telegram_id=101, product_type="COIN", coins_amount=840,
+        ))
+        db.commit()
+        assert len(first) == 1
+        assert repeated == []
+        assert service.participant_count(tournament.id) == 1
+    finally:
+        db.close()
+        engine.dispose()
+
+
+def test_finished_tournament_keeps_final_standings_and_multiple_tournaments_list():
+    db, engine = build()
+    try:
+        service = TournamentService(db)
+        first = service.create(payload(name="First Cup"), 9001)
+        second_values = payload().model_dump()
+        second_values["name"] = "Second Cup"
+        second = service.create(TournamentCreate(**second_values), 9001)
+        assert {row.id for row in service.list_tournaments()} >= {first.id, second.id}
+
+        join_all(service, first)
+        service.start(first.id, 9001)
+        first.ends_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        db.commit()
+        service.finish_due()
+
+        assert first.status == TournamentStatus.FINISHED
+        assert service.participant_count(first.id) == len(PLAYER_IDS)
+        assert len(service.standings(first.id)) == len(PLAYER_IDS)
     finally:
         db.close()
         engine.dispose()
