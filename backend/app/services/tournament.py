@@ -97,6 +97,11 @@ class TournamentService:
         registration_closes_at = as_utc(payload.registration_closes_at)
         starts_at = as_utc(payload.starts_at) if payload.starts_at else None
         ends_at = as_utc(payload.ends_at) if payload.ends_at else None
+        if payload.entry_mode == TournamentEntryMode.COIN_PURCHASE:
+            # Purchase-qualified tournaments do not have a predetermined start.
+            # Capacity completion activates them and duration_days defines the end.
+            starts_at = None
+            ends_at = None
         if not registration_opens_at < registration_closes_at:
             raise TournamentServiceError(422, "Tournament dates are invalid")
         if starts_at is not None and not (
