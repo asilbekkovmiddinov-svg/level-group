@@ -66,7 +66,10 @@ from app.routers.admin_metrics import router as admin_metrics_router
 from app.routers.wall_rush import router as wall_rush_router
 from app.routers.penalty_duel import router as penalty_duel_router
 from app.routers.penalty_duel_ads import router as penalty_duel_ads_router
-from app.routers.subscription import router as subscription_router
+from app.routers.subscription import (
+    internal_router as subscription_internal_router,
+    router as subscription_router,
+)
 from app.routers.division import (
     admin_router as division_admin_router,
     router as division_router,
@@ -90,6 +93,7 @@ from app.services.arena_v3_workers import ArenaV3AIWorker, ArenaV3ScreenshotTime
 from app.services.arena_v3_notifications import ArenaV3NotificationWorker
 from app.services.arena_v4_reward_release import ArenaV4RewardReleaseWorker
 from app.services.tournament_daily import TournamentWorker
+from app.services.subscription_channels import seed_subscription_channels
 
 
 configure_logging()
@@ -161,6 +165,7 @@ db = SessionLocal()
 
 try:
     seed_products(db)
+    seed_subscription_channels(db)
 finally:
     db.close()
 
@@ -211,6 +216,7 @@ app.include_router(wall_rush_router)
 app.include_router(penalty_duel_router)
 app.include_router(penalty_duel_ads_router)
 app.include_router(subscription_router)
+app.include_router(subscription_internal_router)
 app.include_router(division_router)
 app.include_router(division_admin_router)
 app.include_router(tournament_router)
