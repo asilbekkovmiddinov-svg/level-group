@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -13,11 +14,20 @@ from app.models.arena_v3 import (
     ArenaV5QueueEntry,
     ArenaV5ScreenshotSubmission,
 )
+from app.models.arena_v5_season import (
+    ArenaV5ReferralPoint,
+    ArenaV5Season,
+    ArenaV5SeasonStatus,
+)
+from app.models.referral import ReferralProfile
 from app.models.user import User
 from app.models.wall_rush import GameTicketLedger, GameTicketWallet
+from app.models.wallet import Wallet
 from app.services.arena_v3 import ArenaV3Conflict, ArenaV3Forbidden
 from app.services.arena_v4_admin_review import ArenaV4AdminReviewService
 from app.services.arena_v5 import ArenaV5Service
+from app.services.arena_v5_seasons import ArenaV5SeasonService
+from app.services.referrals import attach_registration_referral
 from app.routers.arena_v5 import internal_router
 
 
@@ -26,12 +36,25 @@ def db():
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
     session = sessionmaker(bind=engine)()
+    now = datetime.now(timezone.utc)
     session.add_all([
         User(
             telegram_id=101,
             username="alpha_tg",
             first_name="Alpha",
             efootball_username="ALPHA FC",
+        ),
+        ArenaV5Season(
+            name="Sinov Arena",
+            status=ArenaV5SeasonStatus.ACTIVE,
+            duration_days=7,
+            points_for_win=3,
+            points_for_draw=1,
+            points_for_loss=0,
+            referral_points=3,
+            starts_at=now - timedelta(hours=1),
+            ends_at=now + timedelta(days=7),
+            created_by=9001,
         ),
         User(
             telegram_id=202,
@@ -93,6 +116,7 @@ def test_matchmaking_spends_one_ticket_only_after_pairing(db):
     ).scalars().all()
     assert len(ledgers) == 2
     assert {row.amount for row in ledgers} == {-1}
+    assert service.repository.get_match(match["id"]).arena_v5_season_id is not None
 
 
 def test_duplicate_queue_and_cancel_are_idempotent_without_ticket_loss(db):
@@ -223,12 +247,95 @@ def test_win_updates_points_ranking_and_player_history(db):
         "BETA FC",
     ]
     assert [item["points"] for item in ranking["players"]] == [3, 0]
+    assert ranking["players"][0]["match_points"] == 3
+    assert ranking["players"][0]["referral_points"] == 0
     owner_history = service.history(101, limit=10, offset=0)
     opponent_history = service.history(202, limit=10, offset=0)
     assert owner_history[0]["result"] == "WIN"
     assert owner_history[0]["points"] == 3
+    assert owner_history[0]["season_id"] == ranking["season_id"]
     assert opponent_history[0]["result"] == "LOSS"
     assert opponent_history[0]["points"] == 0
+
+    seasons = ArenaV5SeasonService(db)
+    old_season = seasons.finish(ranking["season_id"])
+    new_season = seasons.create(
+        name="Keyingi Arena",
+        duration_days=5,
+        created_by=9001,
+    )
+    summaries = service.season_history(101)
+    assert [item["season_id"] for item in summaries] == [new_season.id, old_season.id]
+    assert summaries[0]["games_played"] == 0
+    assert summaries[0]["points"] == 0
+    assert summaries[1]["games_played"] == 1
+    assert summaries[1]["wins"] == 1
+    assert summaries[1]["goals_for"] == 3
+    assert summaries[1]["match_points"] == 3
+    assert summaries[1]["referral_points"] == 0
+    assert summaries[1]["points"] == 3
+    assert service.history(
+        101, limit=10, offset=0, season_id=new_season.id
+    ) == []
+
+
+def test_admin_controls_duration_and_archives_each_season(db):
+    seasons = ArenaV5SeasonService(db)
+    active = seasons.active()
+    updated = seasons.update_duration(active.id, duration_days=14)
+    assert updated.duration_days == 14
+    assert updated.ends_at - updated.starts_at == timedelta(days=14)
+    finished = seasons.finish(active.id)
+    assert finished.status == ArenaV5SeasonStatus.FINISHED
+
+    created = seasons.create(
+        name="30 kunlik Arena",
+        duration_days=30,
+        created_by=9001,
+        prize_text="Top 3 sovrin oladi",
+    )
+    assert created.duration_days == 30
+    assert created.status == ArenaV5SeasonStatus.ACTIVE
+    assert created.ends_at - created.starts_at == timedelta(days=30)
+    assert len(seasons.list()) == 2
+
+
+def test_closed_arena_blocks_new_matchmaking(db):
+    seasons = ArenaV5SeasonService(db)
+    seasons.finish(seasons.active().id)
+    with pytest.raises(ArenaV3Conflict, match="faol Arena mavsumi yo‘q"):
+        ArenaV5Service(db).join_queue(101, "closed-arena")
+
+
+def test_real_referral_awards_three_points_only_in_active_season(db, monkeypatch):
+    monkeypatch.setattr("app.services.referrals.config.REFERRALS_ENABLED", True)
+    db.add_all([
+        User(telegram_id=404, username="new_user", first_name="New"),
+        Wallet(telegram_id=101, uzs_balance=0, efc_balance=0),
+        ReferralProfile(telegram_id=101, referral_code="ALPHA-REF"),
+    ])
+    db.commit()
+
+    referral = attach_registration_referral(db, 404, "ALPHA-REF")
+    db.commit()
+    assert referral is not None
+    award = db.query(ArenaV5ReferralPoint).one()
+    assert award.points == 3
+    assert award.referrer_telegram_id == 101
+
+    ranking = ArenaV5Service(db).ranking(limit=10, offset=0)
+    assert ranking["players"][0]["telegram_id"] == 101
+    assert ranking["players"][0]["referral_count"] == 1
+    assert ranking["players"][0]["referral_points"] == 3
+    assert ranking["players"][0]["points"] == 3
+    profile = ArenaV5Service(db).profile(101)
+    assert profile["referral_count"] == 1
+    assert profile["points"] == 3
+    season_result = ArenaV5Service(db).season_history(101)[0]
+    assert season_result["games_played"] == 0
+    assert season_result["referral_count"] == 1
+    assert season_result["referral_points"] == 3
+    assert season_result["points"] == 3
 
 
 def test_admin_cancel_refunds_each_ticket_exactly_once(db):

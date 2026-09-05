@@ -16,6 +16,12 @@ from app.schemas.arena_v5 import (
     ArenaV5RankingResponse,
     ArenaV5RelayValidateRequest,
     ArenaV5StateResponse,
+    ArenaV5SeasonCreateRequest,
+    ArenaV5SeasonDurationRequest,
+    ArenaV5SeasonFinishRequest,
+    ArenaV5SeasonHistoryItem,
+    ArenaV5SeasonListResponse,
+    ArenaV5SeasonResponse,
     ArenaV5SubmissionCompleteRequest,
     ArenaV5SubmissionFailedRequest,
     ArenaV5SubmissionPrepareRequest,
@@ -25,6 +31,7 @@ from app.services.arena_promocode import ArenaPromocodeService
 from app.services.arena_v3 import ArenaV3ServiceError
 from app.services.arena_v5 import ArenaV5Service
 from app.services.arena_v5_history import get_arena_v5_history
+from app.services.arena_v5_seasons import ArenaV5SeasonService
 
 
 router = APIRouter(prefix="/arena/v5", tags=["Arena V5"])
@@ -124,23 +131,51 @@ def update_profile(
 def ranking(
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    season_id: int | None = Query(default=None, ge=1),
     _: TelegramUser = Depends(get_current_telegram_user),
     db: Session = Depends(get_db),
 ):
     return _call(lambda: ArenaV5Service(db).ranking(
-        limit=limit, offset=offset
+        limit=limit, offset=offset, season_id=season_id
     ))
+
+
+@router.get("/seasons", response_model=list[ArenaV5SeasonResponse])
+def seasons(
+    limit: int = Query(20, ge=1, le=100),
+    _: TelegramUser = Depends(get_current_telegram_user),
+    db: Session = Depends(get_db),
+):
+    return _call(lambda: ArenaV5SeasonService(db).list(limit=limit))
 
 
 @router.get("/history", response_model=list[ArenaV5HistoryItem])
 def history(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    season_id: int | None = Query(default=None, ge=1),
     current_user: TelegramUser = Depends(get_current_telegram_user),
     db: Session = Depends(get_db),
 ):
     return _call(lambda: get_arena_v5_history(
-        db, current_user.telegram_id, limit=limit, offset=offset
+        db,
+        current_user.telegram_id,
+        limit=limit,
+        offset=offset,
+        season_id=season_id,
+    ))
+
+
+@router.get(
+    "/history/seasons", response_model=list[ArenaV5SeasonHistoryItem]
+)
+def season_history(
+    limit: int = Query(50, ge=1, le=100),
+    current_user: TelegramUser = Depends(get_current_telegram_user),
+    db: Session = Depends(get_db),
+):
+    return _call(lambda: ArenaV5Service(db).season_history(
+        current_user.telegram_id, limit=limit
     ))
 
 
@@ -212,3 +247,59 @@ def fail_submission(
     return _call(lambda: ArenaV5Service(db).fail_submission(
         submission_id, payload.error
     ))
+
+
+@internal_router.get("/seasons", response_model=ArenaV5SeasonListResponse)
+def internal_seasons(
+    limit: int = Query(50, ge=1, le=100),
+    _: None = Depends(require_arena_internal_api_key),
+    db: Session = Depends(get_db),
+):
+    return {"seasons": _call(lambda: ArenaV5SeasonService(db).list(limit=limit))}
+
+
+@internal_router.post("/seasons", response_model=ArenaV5SeasonResponse)
+def create_internal_season(
+    payload: ArenaV5SeasonCreateRequest,
+    _: None = Depends(require_arena_internal_api_key),
+    db: Session = Depends(get_db),
+):
+    service = ArenaV5SeasonService(db)
+    season = _call(lambda: service.create(
+        name=payload.name,
+        duration_days=payload.duration_days,
+        prize_text=payload.prize_text,
+        created_by=payload.admin_id,
+    ))
+    return service.summary(season)
+
+
+@internal_router.post(
+    "/seasons/{season_id}/finish", response_model=ArenaV5SeasonResponse
+)
+def finish_internal_season(
+    season_id: int,
+    payload: ArenaV5SeasonFinishRequest,
+    _: None = Depends(require_arena_internal_api_key),
+    db: Session = Depends(get_db),
+):
+    del payload
+    service = ArenaV5SeasonService(db)
+    season = _call(lambda: service.finish(season_id))
+    return service.summary(season)
+
+
+@internal_router.patch(
+    "/seasons/{season_id}/duration", response_model=ArenaV5SeasonResponse
+)
+def update_internal_season_duration(
+    season_id: int,
+    payload: ArenaV5SeasonDurationRequest,
+    _: None = Depends(require_arena_internal_api_key),
+    db: Session = Depends(get_db),
+):
+    service = ArenaV5SeasonService(db)
+    season = _call(lambda: service.update_duration(
+        season_id, duration_days=payload.duration_days
+    ))
+    return service.summary(season)

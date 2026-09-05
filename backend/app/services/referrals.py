@@ -109,6 +109,9 @@ def attach_registration_referral(
     db.add(referral)
     db.flush()
     _credit_reward(db, referral, REGISTRATION_REWARD, REGISTRATION_BONUS)
+    from app.services.arena_v5_seasons import award_active_arena_referral_points
+
+    award_active_arena_referral_points(db, referral)
     return referral
 
 

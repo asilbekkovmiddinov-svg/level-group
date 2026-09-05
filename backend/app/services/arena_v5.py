@@ -1,26 +1,29 @@
 from __future__ import annotations
 
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import uuid4
 
-from sqlalchemy import case, func, or_, select, union_all
+from sqlalchemy import case, func, literal, or_, select, union_all
 from sqlalchemy.exc import IntegrityError
 
 from app.core import config
 from app.models.arena_v3 import (
     ArenaV3Match,
     ArenaV3MatchEvent,
-    ArenaV3RankingPrize,
     ArenaV3SettlementStatus,
-    ArenaV3Stats,
     ArenaV3Status,
     ArenaV4AdminReview,
     ArenaV4AdminReviewStatus,
     ArenaV4ReviewType,
     ArenaV5QueueEntry,
     ArenaV5ScreenshotSubmission,
+)
+from app.models.arena_v5_season import (
+    ArenaV5ReferralPoint,
+    ArenaV5Season,
+    ArenaV5SeasonStatus,
 )
 from app.models.user import User
 from app.models.wall_rush import (
@@ -35,6 +38,12 @@ from app.services.arena_v3 import (
     ArenaV3NotFound,
 )
 from app.services.arena_v3_state_machine import transition_arena_v3
+from app.services.arena_v5_seasons import (
+    ARENA_V5_REFERRAL_POINTS,
+    ArenaV5SeasonService,
+    legacy_season_window,
+)
+from app.services.arena_v5_history import get_arena_v5_history
 
 
 ARENA_V5_TICKET_COST = 1
@@ -47,20 +56,7 @@ def _utc_now() -> datetime:
 
 
 def season_window(now: datetime | None = None) -> tuple[datetime, datetime]:
-    now = now or _utc_now()
-    configured_end = config.ARENA_V5_SEASON_END_AT
-    if configured_end:
-        try:
-            end = datetime.fromisoformat(configured_end.replace("Z", "+00:00"))
-            if end.tzinfo is None:
-                end = end.replace(tzinfo=timezone.utc)
-            return end - timedelta(days=7), end
-        except ValueError:
-            pass
-    start = (now - timedelta(days=now.weekday())).replace(
-        hour=0, minute=0, second=0, microsecond=0
-    )
-    return start, start + timedelta(days=7)
+    return legacy_season_window(now)
 
 
 class ArenaV5Service:
@@ -143,24 +139,103 @@ class ArenaV5Service:
         self.db.commit()
         return self.profile(player_id)
 
+    def _player_season_stats(
+        self, player_id: int, season: ArenaV5Season | None
+    ) -> dict:
+        matches = []
+        referral_points = 0
+        referral_count = 0
+        if season is not None:
+            matches = self.db.execute(
+                select(ArenaV3Match).where(
+                    ArenaV3Match.arena_v5_season_id == season.id,
+                    ArenaV3Match.flow_version == 5,
+                    ArenaV3Match.status == ArenaV3Status.FINISHED,
+                    ArenaV3Match.owner_score.is_not(None),
+                    ArenaV3Match.opponent_score.is_not(None),
+                    or_(
+                        ArenaV3Match.owner_id == player_id,
+                        ArenaV3Match.opponent_id == player_id,
+                    ),
+                )
+            ).scalars().all()
+            referral_rows = self.db.execute(
+                select(ArenaV5ReferralPoint.points).where(
+                    ArenaV5ReferralPoint.season_id == season.id,
+                    ArenaV5ReferralPoint.referrer_telegram_id == player_id,
+                )
+            ).scalars().all()
+            referral_points = sum(int(value or 0) for value in referral_rows)
+            referral_count = len(referral_rows)
+        wins = draws = losses = goals_for = goals_against = 0
+        for match in matches:
+            owner = match.owner_id == player_id
+            own_score = int(match.owner_score if owner else match.opponent_score)
+            rival_score = int(match.opponent_score if owner else match.owner_score)
+            goals_for += own_score
+            goals_against += rival_score
+            if own_score > rival_score:
+                wins += 1
+            elif own_score == rival_score:
+                draws += 1
+            else:
+                losses += 1
+        match_points = wins * 3 + draws
+        return {
+            "games_played": len(matches),
+            "wins": wins,
+            "draws": draws,
+            "losses": losses,
+            "goals_for": goals_for,
+            "goals_against": goals_against,
+            "goal_difference": goals_for - goals_against,
+            "match_points": match_points,
+            "referral_points": referral_points,
+            "referral_count": referral_count,
+            "points": match_points + referral_points,
+        }
+
     def profile(self, player_id: int) -> dict:
         user = self._user(player_id)
-        stats = self.db.get(ArenaV3Stats, player_id)
+        seasons = ArenaV5SeasonService(self.db)
+        season = seasons.active() or seasons.latest()
         return {
             "telegram_id": player_id,
             "telegram_username": user.username,
             "efootball_username": user.efootball_username,
-            "games_played": int(stats.total_matches if stats else 0),
-            "wins": int(stats.wins if stats else 0),
-            "draws": int(stats.draws if stats else 0),
-            "losses": int(stats.losses if stats else 0),
-            "goals_for": int(stats.goals_for if stats else 0),
-            "goals_against": int(stats.goals_against if stats else 0),
-            "goal_difference": int(
-                (stats.goals_for - stats.goals_against) if stats else 0
-            ),
-            "points": int(stats.points if stats else 0),
+            "season_id": season.id if season else None,
+            **self._player_season_stats(player_id, season),
         }
+
+    def season_history(self, player_id: int, *, limit: int = 50) -> list[dict]:
+        self._user(player_id)
+        seasons = ArenaV5SeasonService(self.db)
+        seasons.finish_expired()
+        rows = self.db.execute(
+            select(ArenaV5Season)
+            .order_by(ArenaV5Season.starts_at.desc(), ArenaV5Season.id.desc())
+            .limit(limit)
+        ).scalars().all()
+        items = []
+        for season in rows:
+            stats = self._player_season_stats(player_id, season)
+            is_active = season.status == ArenaV5SeasonStatus.ACTIVE
+            if not is_active and not stats["games_played"] and not stats["referral_count"]:
+                continue
+            items.append({
+                "season_id": season.id,
+                "season_name": season.name,
+                "season_status": (
+                    season.status.value
+                    if hasattr(season.status, "value")
+                    else season.status
+                ),
+                "season_start_at": season.starts_at,
+                "season_end_at": season.ends_at,
+                **stats,
+            })
+        self.db.commit()
+        return items
 
     def state(self, player_id: int) -> dict:
         active = self.repository.find_active_for_player(player_id)
@@ -215,6 +290,13 @@ class ArenaV5Service:
                 **self.state(player_id),
                 "matched_now": False,
             }
+        season = ArenaV5SeasonService(self.db).active()
+        if season is None:
+            stale_entry = self.db.get(ArenaV5QueueEntry, player_id)
+            if stale_entry is not None:
+                self.db.delete(stale_entry)
+                self.db.commit()
+            raise ArenaV3Conflict("Hozir faol Arena mavsumi yo‘q")
         name = " ".join((requester.efootball_username or "").strip().split())
         if not name:
             raise ArenaV3Conflict(
@@ -306,6 +388,7 @@ class ArenaV5Service:
                 idempotency_key=f"arena-v5:{idempotency_key}",
                 request_fingerprint=f"queue:{candidate_id}:{player_id}",
                 flow_version=5,
+                arena_v5_season_id=season.id,
                 bot_relay_token=secrets.token_urlsafe(24),
             )
             self.repository.add_match(match)
@@ -354,29 +437,50 @@ class ArenaV5Service:
         return {**self.state(player_id), "matched_now": False}
 
     def config_response(self, player_id: int) -> dict:
-        start, end = season_window()
-        prize = self.db.get(ArenaV3RankingPrize, "weekly")
+        season = ArenaV5SeasonService(self.db).active()
+        balance = self._ticket_balance(player_id)
+        self.db.commit()
         return {
             "ticket_cost": ARENA_V5_TICKET_COST,
-            "ticket_balance": self._ticket_balance(player_id),
-            "season_name": config.ARENA_V5_SEASON_NAME or "Haftalik Arena",
-            "season_start_at": start,
-            "season_end_at": end,
-            "prize_text": prize.prize_text if prize else None,
+            "ticket_balance": balance,
+            "season_id": season.id if season else None,
+            "season_status": "ACTIVE" if season else "CLOSED",
+            "season_name": season.name if season else None,
+            "season_start_at": season.starts_at if season else None,
+            "season_end_at": season.ends_at if season else None,
+            "duration_days": season.duration_days if season else None,
+            "prize_text": season.prize_text if season else None,
+            "points_for_win": 3,
+            "points_for_draw": 1,
+            "points_for_loss": 0,
+            "referral_points": ARENA_V5_REFERRAL_POINTS,
         }
 
-    def ranking(self, *, limit: int, offset: int) -> dict:
-        start, end = season_window()
+    def ranking(
+        self, *, limit: int, offset: int, season_id: int | None = None
+    ) -> dict:
+        seasons = ArenaV5SeasonService(self.db)
+        season = seasons.get(season_id) if season_id else (seasons.active() or seasons.latest())
+        if season is None:
+            return {
+                "season_id": None,
+                "season_status": "CLOSED",
+                "season_name": None,
+                "season_start_at": None,
+                "season_end_at": None,
+                "prize_text": None,
+                "players": [],
+            }
         filters = (
             ArenaV3Match.flow_version == 5,
+            ArenaV3Match.arena_v5_season_id == season.id,
             ArenaV3Match.status == ArenaV3Status.FINISHED,
-            ArenaV3Match.finished_at >= start,
-            ArenaV3Match.finished_at < end,
             ArenaV3Match.owner_score.is_not(None),
             ArenaV3Match.opponent_score.is_not(None),
         )
         owner = select(
             ArenaV3Match.owner_id.label("player_id"),
+            literal(1).label("games_played"),
             case((ArenaV3Match.owner_score > ArenaV3Match.opponent_score, 1), else_=0).label("wins"),
             case((ArenaV3Match.owner_score == ArenaV3Match.opponent_score, 1), else_=0).label("draws"),
             case((ArenaV3Match.owner_score < ArenaV3Match.opponent_score, 1), else_=0).label("losses"),
@@ -386,10 +490,13 @@ class ArenaV5Service:
                 (ArenaV3Match.owner_score > ArenaV3Match.opponent_score, 3),
                 (ArenaV3Match.owner_score == ArenaV3Match.opponent_score, 1),
                 else_=0,
-            ).label("points"),
+            ).label("match_points"),
+            literal(0).label("referral_points"),
+            literal(0).label("referral_count"),
         ).where(*filters)
         opponent = select(
             ArenaV3Match.opponent_id.label("player_id"),
+            literal(1).label("games_played"),
             case((ArenaV3Match.opponent_score > ArenaV3Match.owner_score, 1), else_=0).label("wins"),
             case((ArenaV3Match.opponent_score == ArenaV3Match.owner_score, 1), else_=0).label("draws"),
             case((ArenaV3Match.opponent_score < ArenaV3Match.owner_score, 1), else_=0).label("losses"),
@@ -399,19 +506,35 @@ class ArenaV5Service:
                 (ArenaV3Match.opponent_score > ArenaV3Match.owner_score, 3),
                 (ArenaV3Match.opponent_score == ArenaV3Match.owner_score, 1),
                 else_=0,
-            ).label("points"),
+            ).label("match_points"),
+            literal(0).label("referral_points"),
+            literal(0).label("referral_count"),
         ).where(*filters)
-        rows = union_all(owner, opponent).subquery()
+        referrals = select(
+            ArenaV5ReferralPoint.referrer_telegram_id.label("player_id"),
+            literal(0).label("games_played"),
+            literal(0).label("wins"),
+            literal(0).label("draws"),
+            literal(0).label("losses"),
+            literal(0).label("goals_for"),
+            literal(0).label("goals_against"),
+            literal(0).label("match_points"),
+            ArenaV5ReferralPoint.points.label("referral_points"),
+            literal(1).label("referral_count"),
+        ).where(ArenaV5ReferralPoint.season_id == season.id)
+        rows = union_all(owner, opponent, referrals).subquery()
         aggregated = (
             select(
                 rows.c.player_id,
-                func.count().label("games_played"),
+                func.sum(rows.c.games_played).label("games_played"),
                 func.sum(rows.c.wins).label("wins"),
                 func.sum(rows.c.draws).label("draws"),
                 func.sum(rows.c.losses).label("losses"),
                 func.sum(rows.c.goals_for).label("goals_for"),
                 func.sum(rows.c.goals_against).label("goals_against"),
-                func.sum(rows.c.points).label("points"),
+                func.sum(rows.c.match_points).label("match_points"),
+                func.sum(rows.c.referral_points).label("referral_points"),
+                func.sum(rows.c.referral_count).label("referral_count"),
             )
             .group_by(rows.c.player_id)
             .subquery()
@@ -420,7 +543,7 @@ class ArenaV5Service:
             select(aggregated, User)
             .join(User, User.telegram_id == aggregated.c.player_id)
             .order_by(
-                aggregated.c.points.desc(),
+                (aggregated.c.match_points + aggregated.c.referral_points).desc(),
                 (aggregated.c.goals_for - aggregated.c.goals_against).desc(),
                 aggregated.c.goals_for.desc(),
                 aggregated.c.wins.desc(),
@@ -433,6 +556,7 @@ class ArenaV5Service:
         for index, row in enumerate(result, start=offset + 1):
             players.append({
                 "rank": index,
+                "telegram_id": row.player_id,
                 "efootball_username": row.User.efootball_username
                 or row.User.username
                 or "O‘yinchi",
@@ -443,57 +567,37 @@ class ArenaV5Service:
                 "goals_for": int(row.goals_for or 0),
                 "goals_against": int(row.goals_against or 0),
                 "goal_difference": int((row.goals_for or 0) - (row.goals_against or 0)),
-                "points": int(row.points or 0),
+                "match_points": int(row.match_points or 0),
+                "referral_points": int(row.referral_points or 0),
+                "referral_count": int(row.referral_count or 0),
+                "points": int((row.match_points or 0) + (row.referral_points or 0)),
             })
-        prize = self.db.get(ArenaV3RankingPrize, "weekly")
+        self.db.commit()
         return {
-            "season_name": config.ARENA_V5_SEASON_NAME or "Haftalik Arena",
-            "season_start_at": start,
-            "season_end_at": end,
-            "prize_text": prize.prize_text if prize else None,
+            "season_id": season.id,
+            "season_status": season.status.value if hasattr(season.status, "value") else season.status,
+            "season_name": season.name,
+            "season_start_at": season.starts_at,
+            "season_end_at": season.ends_at,
+            "prize_text": season.prize_text,
             "players": players,
         }
 
-    def history(self, player_id: int, *, limit: int, offset: int) -> list[dict]:
-        matches = self.db.execute(
-            select(ArenaV3Match)
-            .where(
-                ArenaV3Match.flow_version == 5,
-                ArenaV3Match.status == ArenaV3Status.FINISHED,
-                or_(
-                    ArenaV3Match.owner_id == player_id,
-                    ArenaV3Match.opponent_id == player_id,
-                ),
-            )
-            .order_by(ArenaV3Match.finished_at.desc(), ArenaV3Match.id.desc())
-            .offset(offset)
-            .limit(limit)
-        ).scalars().all()
-        items = []
-        for match in matches:
-            is_owner = match.owner_id == player_id
-            own_score = match.owner_score if is_owner else match.opponent_score
-            opponent_score = match.opponent_score if is_owner else match.owner_score
-            if own_score > opponent_score:
-                result, points = "WIN", 3
-            elif own_score == opponent_score:
-                result, points = "DRAW", 1
-            else:
-                result, points = "LOSS", 0
-            items.append({
-                "match_id": match.id,
-                "public_id": match.public_id,
-                "opponent_efootball_username": (
-                    match.opponent_efootball_username
-                    if is_owner else match.owner_efootball_username
-                ),
-                "own_score": own_score,
-                "opponent_score": opponent_score,
-                "result": result,
-                "points": points,
-                "finished_at": match.finished_at,
-            })
-        return items
+    def history(
+        self,
+        player_id: int,
+        *,
+        limit: int,
+        offset: int,
+        season_id: int | None = None,
+    ) -> list[dict]:
+        return get_arena_v5_history(
+            self.db,
+            player_id,
+            limit=limit,
+            offset=offset,
+            season_id=season_id,
+        )
 
     def active_internal(self, player_id: int) -> dict:
         match = self.repository.find_active_for_player(player_id)

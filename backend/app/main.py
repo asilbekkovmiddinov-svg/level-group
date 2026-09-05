@@ -32,6 +32,7 @@ from app.routers.arena_v5 import (
     internal_router as arena_v5_internal_router,
     router as arena_v5_router,
 )
+from app.services.arena_v5_seasons import seed_arena_v5_season
 from app.routers.arena_promocode_admin import router as arena_promocode_admin_router
 from app.routers.arena_v3 import (
     admin_router as arena_v3_admin_router,
@@ -166,6 +167,7 @@ db = SessionLocal()
 try:
     seed_products(db)
     seed_subscription_channels(db)
+    seed_arena_v5_season(db)
 finally:
     db.close()
 
