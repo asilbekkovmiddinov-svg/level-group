@@ -5,16 +5,12 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core import config
-from app.crud.transaction import create_transaction
-from app.crud.wallet import get_wallet_for_update
 from app.models.order import Order
 from app.models.referral import Referral, ReferralProfile, ReferralReward
 
 
-REGISTRATION_BONUS = Decimal("1000")
-FIRST_SHOP_BONUS = Decimal("5000")
-REGISTRATION_REWARD = "REGISTRATION"
-FIRST_SHOP_REWARD = "FIRST_SHOP_COMPLETION"
+REGISTRATION_BONUS = Decimal("0")
+FIRST_SHOP_BONUS = Decimal("0")
 
 
 def _new_referral_code(db: Session) -> str:
@@ -38,45 +34,6 @@ def ensure_referral_profile(db: Session, telegram_id: int) -> ReferralProfile:
     db.add(profile)
     db.flush()
     return profile
-
-
-def _credit_reward(
-    db: Session,
-    referral: Referral,
-    reward_type: str,
-    amount: Decimal,
-) -> ReferralReward:
-    wallet = get_wallet_for_update(db, referral.referrer_telegram_id)
-    if not wallet:
-        raise RuntimeError("Referrer wallet not found")
-    before = Decimal(str(wallet.uzs_balance))
-    wallet.uzs_balance = before + amount
-    transaction = create_transaction(
-        db=db,
-        telegram_id=referral.referrer_telegram_id,
-        currency="UZS",
-        amount=amount,
-        balance_before=before,
-        balance_after=wallet.uzs_balance,
-        type=(
-            "REFERRAL_REGISTRATION_BONUS"
-            if reward_type == REGISTRATION_REWARD
-            else "REFERRAL_FIRST_SHOP_BONUS"
-        ),
-        description=f"Referral reward #{referral.id}",
-        commit=False,
-    )
-    reward = ReferralReward(
-        referral_id=referral.id,
-        beneficiary_telegram_id=referral.referrer_telegram_id,
-        reward_type=reward_type,
-        amount=amount,
-        transaction_id=transaction.id,
-        status="AWARDED",
-    )
-    db.add(reward)
-    db.flush()
-    return reward
 
 
 def attach_registration_referral(
@@ -108,7 +65,6 @@ def attach_registration_referral(
     )
     db.add(referral)
     db.flush()
-    _credit_reward(db, referral, REGISTRATION_REWARD, REGISTRATION_BONUS)
     from app.services.arena_v5_seasons import award_active_arena_referral_points
 
     award_active_arena_referral_points(db, referral)
@@ -116,24 +72,8 @@ def attach_registration_referral(
 
 
 def award_first_shop_bonus(db: Session, referred_telegram_id: int) -> bool:
-    referral = (
-        db.query(Referral)
-        .filter(
-            Referral.referred_telegram_id == referred_telegram_id,
-            Referral.status == "ACTIVE",
-        )
-        .with_for_update()
-        .first()
-    )
-    if not referral:
-        return False
-    if db.query(ReferralReward.id).filter(
-        ReferralReward.referral_id == referral.id,
-        ReferralReward.reward_type == FIRST_SHOP_REWARD,
-    ).first():
-        return False
-    _credit_reward(db, referral, FIRST_SHOP_REWARD, FIRST_SHOP_BONUS)
-    return True
+    del db, referred_telegram_id
+    return False
 
 
 def referral_summary(db: Session, telegram_id: int) -> dict:

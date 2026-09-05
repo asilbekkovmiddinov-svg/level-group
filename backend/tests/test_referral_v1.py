@@ -89,7 +89,7 @@ def init_data(telegram_id: int) -> str:
     return urlencode(values)
 
 
-def test_new_referral_is_linked_once_and_credits_registration_bonus():
+def test_new_referral_is_linked_once_without_uzs_bonus():
     sessions = session_factory()
     db = sessions()
     add_user(db, 100)
@@ -106,13 +106,11 @@ def test_new_referral_is_linked_once_and_credits_registration_bonus():
     )
     assert result.created is True
     assert db.query(Referral).filter(Referral.referred_telegram_id == 200).count() == 1
-    assert Decimal(str(db.get(Wallet, 100).uzs_balance)) == Decimal("1000")
-    reward = db.query(ReferralReward).one()
-    assert reward.reward_type == "REGISTRATION"
-    assert Decimal(str(reward.amount)) == Decimal("1000")
+    assert Decimal(str(db.get(Wallet, 100).uzs_balance)) == Decimal("0")
+    assert db.query(ReferralReward).count() == 0
     assert db.query(Transaction).filter(
         Transaction.type == "REFERRAL_REGISTRATION_BONUS"
-    ).count() == 1
+    ).count() == 0
 
     replay = register_internal_user(
         db,
@@ -124,11 +122,11 @@ def test_new_referral_is_linked_once_and_credits_registration_bonus():
     )
     assert replay.created is False
     assert db.query(Referral).count() == 1
-    assert db.query(ReferralReward).count() == 1
-    assert Decimal(str(db.get(Wallet, 100).uzs_balance)) == Decimal("1000")
+    assert db.query(ReferralReward).count() == 0
+    assert Decimal(str(db.get(Wallet, 100).uzs_balance)) == Decimal("0")
 
 
-def test_first_completed_shop_order_credits_bonus_only_once():
+def test_completed_shop_orders_do_not_credit_referral_uzs_bonus():
     sessions = session_factory()
     db = sessions()
     add_user(db, 101)
@@ -160,16 +158,16 @@ def test_first_completed_shop_order_credits_bonus_only_once():
     db.commit()
 
     assert approve_order(db, 1, 700).status == "COMPLETED"
-    assert Decimal(str(db.get(Wallet, 101).uzs_balance)) == Decimal("6000")
+    assert Decimal(str(db.get(Wallet, 101).uzs_balance)) == Decimal("0")
     assert approve_order(db, 2, 700).status == "COMPLETED"
-    assert Decimal(str(db.get(Wallet, 101).uzs_balance)) == Decimal("6000")
+    assert Decimal(str(db.get(Wallet, 101).uzs_balance)) == Decimal("0")
     assert db.query(ReferralReward).filter(
         ReferralReward.reward_type == "FIRST_SHOP_COMPLETION"
-    ).count() == 1
+    ).count() == 0
     summary = referral_summary(db, 101)
     assert summary["total_referrals"] == 1
     assert summary["coin_shop_buyers"] == 1
-    assert summary["total_earned_uzs"] == Decimal("6000.00")
+    assert summary["total_earned_uzs"] == Decimal("0.00")
 
 
 def test_rejected_or_uncompleted_shop_order_does_not_credit_purchase_bonus():
@@ -201,7 +199,7 @@ def test_rejected_or_uncompleted_shop_order_does_not_credit_purchase_bonus():
     assert db.query(ReferralReward).filter(
         ReferralReward.reward_type == "FIRST_SHOP_COMPLETION"
     ).count() == 0
-    assert Decimal(str(db.get(Wallet, 102).uzs_balance)) == Decimal("1000")
+    assert Decimal(str(db.get(Wallet, 102).uzs_balance)) == Decimal("0")
     assert referral_summary(db, 102)["coin_shop_buyers"] == 0
 
 
@@ -233,8 +231,8 @@ def test_referral_summary_requires_verified_telegram_user(monkeypatch):
     data = response.json()["data"]
     assert data["total_referrals"] == 0
     assert data["coin_shop_buyers"] == 0
-    assert data["registration_bonus_uzs"] == 1000
-    assert data["first_shop_bonus_uzs"] == 5000
+    assert data["registration_bonus_uzs"] == 0
+    assert data["first_shop_bonus_uzs"] == 0
     assert data["referral_link"].endswith(f"ref_{data['referral_code']}")
 
 
