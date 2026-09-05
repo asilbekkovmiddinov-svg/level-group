@@ -8,6 +8,7 @@ from app.models.arena_v3 import (
     ArenaV5QueueEntry, ArenaV5ScreenshotSubmission,
     ArenaV4AdminReview, ArenaV4ResultRevision, ArenaV4SettlementOperation,
 )
+from app.models.arena_v5_season import ArenaV5ReferralPoint, ArenaV5Season
 
 
 ARENA_V3_TABLES = (
@@ -28,6 +29,8 @@ ARENA_V4_TABLES = (
 )
 
 ARENA_V5_TABLES = (
+    ArenaV5Season.__table__,
+    ArenaV5ReferralPoint.__table__,
     ArenaV5QueueEntry.__table__,
     ArenaV5ScreenshotSubmission.__table__,
 )
@@ -108,6 +111,7 @@ def run_arena_v3_migrations(bind: Engine | Connection) -> None:
                     "INTEGER REFERENCES arena_admin_reviews (id)"
                 ),
                 "flow_version": "INTEGER NOT NULL DEFAULT 4",
+                "arena_v5_season_id": "INTEGER REFERENCES arena_v5_seasons (id)",
                 "bot_relay_token": "VARCHAR(64)",
             }
             for name, ddl in match_additions.items():
@@ -135,6 +139,10 @@ def run_arena_v3_migrations(bind: Engine | Connection) -> None:
             connection.execute(text(
                 "CREATE INDEX IF NOT EXISTS ix_arena_matches_flow_version "
                 "ON arena_matches (flow_version)"
+            ))
+            connection.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_arena_matches_v5_season "
+                "ON arena_matches (arena_v5_season_id)"
             ))
 
             appeal_additions = {

@@ -19,6 +19,7 @@ from app.core import telegram_auth
 from app.crud.order import approve_order
 from app.models.order import Order
 from app.models.referral import Referral, ReferralProfile, ReferralReward
+from app.models.arena_v5_season import ArenaV5ReferralPoint, ArenaV5Season
 from app.models.transaction import Transaction
 from app.models.user import User
 from app.models.wallet import Wallet
@@ -51,6 +52,8 @@ def session_factory():
             ReferralProfile.__table__,
             Referral.__table__,
             ReferralReward.__table__,
+            ArenaV5Season.__table__,
+            ArenaV5ReferralPoint.__table__,
             GameTicketWallet.__table__,
             GameTicketLedger.__table__,
         ],

@@ -159,6 +159,9 @@ class ArenaV3Match(Base):
     opponent_result_confirmed_at = Column(DateTime(timezone=True))
     admin_channel_message_id = Column(BigInteger)
     flow_version = Column(Integer, nullable=False, default=4, index=True)
+    arena_v5_season_id = Column(
+        Integer, ForeignKey("arena_v5_seasons.id"), nullable=True, index=True
+    )
     bot_relay_token = Column(String(64), unique=True, index=True)
     reward_hold_status = Column(
         SQLEnum(ArenaV4RewardHoldStatus, native_enum=False),

@@ -40,6 +40,11 @@ from .tournament import (
     TournamentParticipant,
 )
 from .arena_promocode import ArenaTicketPromocode, ArenaTicketPromocodeClaim
+from .arena_v5_season import (
+    ArenaV5ReferralPoint,
+    ArenaV5Season,
+    ArenaV5SeasonStatus,
+)
 
 from .arena_v3 import (
     ArenaV3AIReview,
